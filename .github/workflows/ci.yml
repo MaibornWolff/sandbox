@@ -31,6 +31,8 @@ jobs:
           bun-version: "1"
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Install shell test dependencies
+        run: sudo apt-get update && sudo apt-get install --yes zsh
       - name: Run checks
         run: bun run check --verbose
       - name: Check for generated changes

@@ -2,7 +2,6 @@
 
 exports[`network configuration rendering renders restricted DNS with internal exceptions and tracing 1`] = `
 "no-resolv
-no-hosts
 listen-address=127.0.0.1
 bind-interfaces
 user=dnsmasq
@@ -24,7 +23,6 @@ address=/#/
 
 exports[`network configuration rendering renders allow-all DNS 1`] = `
 "no-resolv
-no-hosts
 listen-address=127.0.0.1
 bind-interfaces
 user=dnsmasq

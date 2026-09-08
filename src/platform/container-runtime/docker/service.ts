@@ -428,6 +428,7 @@ export class DockerService implements ContainerRuntime {
   getRuntimeRunFlags(config?: RuntimeFlagsConfig): string[] {
     const flags = [
       "--cap-add=NET_ADMIN",
+      "--add-host=host.docker.internal:host-gateway",
       "--sysctl=net.ipv4.tcp_tw_reuse=1",
       "--sysctl=net.ipv4.ip_local_port_range=1024\t65535",
       "--sysctl=net.ipv4.tcp_fin_timeout=10",

@@ -998,6 +998,7 @@ describe("DockerService", () => {
     );
     const flags = svc.getRuntimeRunFlags();
     expect(flags).toContain("--cap-add=NET_ADMIN");
+    expect(flags).toContain("--add-host=host.docker.internal:host-gateway");
     expect(flags.some((f) => f.includes("tcp_tw_reuse"))).toBe(true);
     expect(flags).toContain("--ulimit");
   });

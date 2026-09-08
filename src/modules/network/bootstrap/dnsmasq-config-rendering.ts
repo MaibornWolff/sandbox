@@ -1,7 +1,6 @@
 import type { NetworkBootstrapRequest } from "./bootstrap-request-parsing.js";
 
 const DNSMASQ_BASE = `no-resolv
-no-hosts
 listen-address=127.0.0.1
 bind-interfaces
 user=dnsmasq

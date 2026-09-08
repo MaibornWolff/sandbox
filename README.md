@@ -17,6 +17,8 @@ Run coding agents in isolated containers. Limit their access to host files and n
 > sandbox assist
 > ```
 
+Bringing AI coding agents into your team? [MaibornWolff](https://www.maibornwolff.de/) combines software engineering, cloud, cybersecurity, and AI expertise to help you build and modernize software responsibly.
+
 ## Quick Start
 
 ### Prerequisites

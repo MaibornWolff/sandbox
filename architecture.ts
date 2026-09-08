@@ -91,6 +91,7 @@ export const architecture = defineArchitecture({
         "network",
         "sandbox-settings",
         "storage",
+        "clock",
         "container-runtime",
         "filesystem",
         "environment",

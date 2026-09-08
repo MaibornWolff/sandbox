@@ -1,3 +1,4 @@
+import { getClock } from "#platform/clock/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
@@ -13,6 +14,9 @@ interface FindOrCreateContainerResult {
   containerName: string;
   created: boolean;
 }
+
+const NAME_CONFLICT_RETRY_TIMEOUT_MS = 10_000;
+const NAME_CONFLICT_RETRY_DELAY_MS = 250;
 
 function getCreateContainerExtraArgs(
   containerArgs: string[],
@@ -58,8 +62,8 @@ async function queryRunningContainers(
 }
 
 /**
- * Remove stopped/dead/created containers for a project slug (defensive cleanup).
- * Docker --filter with the same key uses OR logic, so all three statuses are matched.
+ * Remove stopped and dead containers for a project slug (defensive cleanup).
+ * A container in the created state can belong to a concurrent startup.
  */
 async function removeStoppedContainers(
   service: ContainerRuntime,
@@ -70,7 +74,7 @@ async function removeStoppedContainers(
     const entries = await service.listContainers({
       all: true,
       labelFilter: `${SANDBOX_PROJECT_LABEL}=${projectSlug}`,
-      statusFilter: ["exited", "created", "dead"],
+      statusFilter: ["exited", "dead"],
     });
 
     for (const entry of entries) {
@@ -307,9 +311,9 @@ export async function createFreshContainer(
  * - Stopped → remove (defensive cleanup)
  * - No match → create new detached container
  *
- * Race safety: wraps query+create in a retry loop. If two concurrent
- * invocations both try to create, one wins and the other re-queries
- * on the next attempt, finding the winner's container.
+ * Race safety: wraps query+create in a delayed retry loop. If two concurrent
+ * invocations both try to create, one wins and the other waits for the
+ * winner's container to become visible before it re-queries.
  *
  * @param service - Container runtime service
  * @param slug - Project slug
@@ -326,9 +330,11 @@ export async function findOrCreateContainer(
   imageName: string,
 ): Promise<FindOrCreateContainerResult> {
   const logger = getLogger();
-  const maxRetries = 3;
+  const clock = getClock();
+  const retryDeadline = clock.now() + NAME_CONFLICT_RETRY_TIMEOUT_MS;
+  let conflictAttempt = 0;
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
+  while (true) {
     // 1. Clean up stopped containers for this project
     await removeStoppedContainers(service, slug);
 
@@ -365,20 +371,18 @@ export async function findOrCreateContainer(
       if (!isNameConflict(err)) {
         throw err;
       }
-      if (attempt >= maxRetries - 1) {
+      if (clock.now() >= retryDeadline) {
         throw new Error(
-          `Failed to find or create container after ${maxRetries} attempts`,
+          `Failed to find or create container within ${NAME_CONFLICT_RETRY_TIMEOUT_MS}ms`,
         );
       }
+      conflictAttempt++;
       logger.debug(
-        `Name conflict for ${containerName}, retrying (attempt ${attempt + 1})...`,
+        `Name conflict for ${containerName}, waiting for the concurrent container (attempt ${conflictAttempt})...`,
       );
+      await clock.sleep(NAME_CONFLICT_RETRY_DELAY_MS);
     }
   }
-
-  throw new Error(
-    `Failed to find or create container after ${maxRetries} attempts`,
-  );
 }
 
 /**

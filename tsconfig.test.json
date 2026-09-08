@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": ".tsbuildinfo/test",
+    "rootDir": ".",
+    "types": ["node", "bun-types"],
+    "lib": ["ES2023", "ESNext.Disposable"]
+  },
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/__test__/**/*.ts",
+    "src/test",
+    "tests/**/*.test.ts",
+    "tests/**/utils"
+  ],
+  "references": [{ "path": "./tsconfig.src.json" }]
+}

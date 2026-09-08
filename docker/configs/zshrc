@@ -1,0 +1,66 @@
+# Source central profile
+[ -f ~/.profile ] && source ~/.profile
+
+# Use emacs keybindings (Ctrl+R for history search, etc.)
+# Without this, ZSH defaults to vi mode when EDITOR=nvim
+bindkey -e
+
+# Enable prompt substitution and colors
+setopt PROMPT_SUBST
+autoload -U colors && colors
+
+# Git branch info
+autoload -Uz vcs_info
+zstyle ':vcs_info:*' enable git
+zstyle ':vcs_info:git:*' formats ' %F{242}(%b)%f'
+zstyle ':vcs_info:git:*' actionformats ' %F{242}(%b|%a)%f'
+
+precmd() {
+  vcs_info
+
+  # Smart path truncation for long paths
+  local current_path="${(%):-%~}"
+  local path_parts=("${(@s:/:)current_path}")
+  local num_parts=${#path_parts[@]}
+
+  # If path has more than 4 components, show first + ... + last 3
+  if [[ $num_parts -gt 4 ]]; then
+    local first="${path_parts[1]}"
+    local last_three="${path_parts[-3]}/${path_parts[-2]}/${path_parts[-1]}"
+    PROMPT_PATH="${first}/.../${last_three}"
+  else
+    PROMPT_PATH="$current_path"
+  fi
+}
+
+# Custom prompt: [sandbox] ~/path (branch) $
+PROMPT='%F{cyan}[sandbox]%f %F{blue}${PROMPT_PATH}%f${vcs_info_msg_0_} %F{green}❯%f '
+
+# History configuration (XDG Base Directory spec)
+HISTFILE="${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history"
+[[ -d "${HISTFILE:h}" ]] || mkdir -p "${HISTFILE:h}"
+HISTSIZE=50000
+SAVEHIST=50000
+
+# History options
+setopt APPEND_HISTORY             # Append rather than overwrite
+setopt INC_APPEND_HISTORY         # Write immediately, not on exit
+setopt SHARE_HISTORY              # Share history between sessions
+unsetopt HIST_SAVE_BY_COPY        # Write in-place instead of rename (avoids ownership issues on bind mounts)
+setopt HIST_IGNORE_DUPS           # Don't record duplicate consecutive commands
+setopt HIST_IGNORE_ALL_DUPS       # Remove older duplicates when adding
+setopt HIST_FIND_NO_DUPS          # Don't display duplicates when searching
+setopt HIST_IGNORE_SPACE          # Don't save commands starting with space
+setopt HIST_REDUCE_BLANKS         # Clean up whitespace in history
+setopt HIST_VERIFY                # Show command before executing from history
+
+# Ghost text autosuggestions (fish-like)
+: ${ZSH_AUTOSUGGESTIONS_FILE:=/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh}
+if [[ -z "${ZSH_AUTOSUGGEST_DISABLE:-}" && -r "$ZSH_AUTOSUGGESTIONS_FILE" ]]; then
+  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=240'  # Dim gray color
+  ZSH_AUTOSUGGEST_STRATEGY=(history completion)  # Suggest from history first, then completions
+  source "$ZSH_AUTOSUGGESTIONS_FILE"
+fi
+
+# Source user extensions if present
+[ -f ~/.zshrc.local ] && source ~/.zshrc.local

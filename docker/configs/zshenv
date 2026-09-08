@@ -1,0 +1,2 @@
+# Source central profile for all zsh invocations, including non-interactive commands
+[ -f "$HOME/.profile" ] && . "$HOME/.profile"

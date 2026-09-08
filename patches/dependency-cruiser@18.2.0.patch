@@ -1,0 +1,65 @@
+diff --git a/src/config-utl/extract-ts-config.mjs b/src/config-utl/extract-ts-config.mjs
+index 3da4b88f7191d68e8d31a8f22bbc0ee6ac5b786b..7bdfc56c77226dd0263a4508bddd69f8bc2de4b2 100644
+--- a/src/config-utl/extract-ts-config.mjs
++++ b/src/config-utl/extract-ts-config.mjs
+@@ -3,7 +3,7 @@ import tryImport from "#utl/try-import.mjs";
+ import meta from "#meta.cjs";
+ 
+ const typescript = await tryImport(
+-	"typescript",
++	"typescript-api",
+ 	meta.supportedTranspilers.typescript,
+ );
+ 
+diff --git a/src/extract/transpile/meta.mjs b/src/extract/transpile/meta.mjs
+index ee48d5603227d877ba18e7557d68a029caffe2c6..d095b145a8a3d6cb1eb6400c36d883fc03946d4f 100644
+--- a/src/extract/transpile/meta.mjs
++++ b/src/extract/transpile/meta.mjs
+@@ -56,7 +56,7 @@ const TRANSPILER2AVAILABLE = {
+ 	),
+ 	swc: tryImportAvailable("@swc/core", meta.supportedTranspilers.swc),
+ 	typescript: tryImportAvailable(
+-		"typescript",
++		"typescript-api",
+ 		meta.supportedTranspilers.typescript,
+ 	),
+ 	"vue-template-compiler": tryImportAvailable(
+diff --git a/src/extract/transpile/typescript-wrap.mjs b/src/extract/transpile/typescript-wrap.mjs
+index f698b075fb1e611884dade3afd01e4b026c425df..f518024d0c9e623e3293184d50f0d94beeec2b64 100644
+--- a/src/extract/transpile/typescript-wrap.mjs
++++ b/src/extract/transpile/typescript-wrap.mjs
+@@ -2,7 +2,7 @@ import tryImport from "#utl/try-import.mjs";
+ import meta from "#meta.cjs";
+ 
+ const typescript = await tryImport(
+-	"typescript",
++	"typescript-api",
+ 	meta.supportedTranspilers.typescript,
+ );
+ 
+diff --git a/src/extract/tsc/extract-typescript-deps.mjs b/src/extract/tsc/extract-typescript-deps.mjs
+index 54455fd60c65cd7f41622bbacd7c5b713c13a539..b8d3e75a78b205b258dca33215b544bde6e192d2 100644
+--- a/src/extract/tsc/extract-typescript-deps.mjs
++++ b/src/extract/tsc/extract-typescript-deps.mjs
+@@ -11,7 +11,7 @@ import meta from "#meta.cjs";
+ 
+ /** @type {typescript} */
+ const typescript = await tryImport(
+-	"typescript",
++	"typescript-api",
+ 	meta.supportedTranspilers.typescript,
+ );
+ 
+diff --git a/src/extract/tsc/parse.mjs b/src/extract/tsc/parse.mjs
+index f4b711f19d9bb567191fbcc86417076489d58e01..2250312c2696110ccaedeafbd64e92d90cd6381a 100644
+--- a/src/extract/tsc/parse.mjs
++++ b/src/extract/tsc/parse.mjs
+@@ -6,7 +6,7 @@ import getExtension from "#utl/get-extension.mjs";
+ 
+ /** @type {import('typescript')} */
+ const typescript = await tryImport(
+-	"typescript",
++	"typescript-api",
+ 	meta.supportedTranspilers.typescript,
+ );
+ /** @type {Map<string, any>} */

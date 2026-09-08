@@ -1,0 +1,54 @@
+# External dependencies
+external/
+
+# NPM auth (generated in CI)
+.npmrc
+
+# Compiled binary / JS bundle
+/sandbox
+/sandbox.mjs
+
+# Node/Bun
+node_modules/
+dist/
+
+# Build artifacts
+*.log
+*.tmp
+*.bun-build
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project/User extensions (for testing)
+.sandbox/
+.e2e-watcher/
+.agents/worktrees/
+
+# Local settings
+.claude/settings.local.json
+/skills-lock.json
+
+# Temporary files
+tmp/
+temp/
+test-tmp/
+*.bak
+coverage/
+!scripts/coverage/
+!scripts/coverage/**
+core
+*.tsbuildinfo
+.tsbuildinfo/
+podman-build-secret-*
+
+# Secrets
+.env

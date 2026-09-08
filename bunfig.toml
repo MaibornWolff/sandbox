@@ -1,0 +1,6 @@
+[test]
+# Coverage configuration for `bun test --coverage`
+# Usage: bun test:coverage
+coverageDir = "coverage"
+coverageReporter = ["lcov"]
+coverageSkipTestFiles = true

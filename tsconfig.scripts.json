@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": ".tsbuildinfo/scripts",
+    "rootDir": ".",
+    "types": ["bun-types"]
+  },
+  "include": ["architecture.ts", "scripts/**/*.ts", "scripts/**/*.d.mts"],
+  "references": [{ "path": "./tsconfig.src.json" }]
+}

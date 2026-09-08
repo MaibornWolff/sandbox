@@ -1,0 +1,245 @@
+# Sandbox configuration - see README for details
+
+# Runtime (auto-detected if not set)
+# runtime = "docker"
+
+# Environment
+# "VAR" passes through from host, "VAR=value" sets explicitly
+env = [
+  # Trust all mise configs (safe inside sandbox)
+  "MISE_TRUSTED_CONFIG_PATHS=/",
+
+  # No API keys are forwarded by default.
+  # Uncomment an entry to pass its value from the host environment.
+  # "ANTHROPIC_API_KEY",
+  # "OPENAI_API_KEY",
+  # "GEMINI_API_KEY",
+  # "GOOGLE_API_KEY",
+
+  # Add other environment variables here
+]
+
+# Persistence - paths that survive container restarts
+# { path = "~/.foo" } per-project, { path, global = true } shared across projects
+# { path, only_if_exists = true } only persist if host path already exists
+persist_paths = [
+  # XDG state (shell history, etc.)
+  { path = "~/.local/state" },
+
+  # pre-commit hook environments (avoids re-initializing on every run)
+  { path = "~/.cache/pre-commit", global = true },
+
+  # Claude Code
+  { path = "~/.claude" },
+  { path = "~/.claude.json", default = "{}", global = true },
+  { path = "~/.claude/.credentials.json", default = "{}", global = true },
+
+  # Codex
+  { path = "~/.codex" },
+
+  # OpenCode
+  { path = "~/.local/share/opencode/auth.json", default = "{}", global = true },
+
+  # Pi
+  { path = "~/.pi" },
+
+  # Copilot
+  { path = "~/.copilot" },
+
+  # Project dependencies - This ensures that the container has it's own node_modules, to avoid conflicts in native dependencies
+  { path = "./node_modules", only_if_exists = true },
+  { path = "./.venv", only_if_exists = true },
+
+  # You can hide files by overriding them in the sandbox with a mount
+  # { path = "./.env", default = '', only_if_exists = true },
+  # { path = "./.env.local", default = '', only_if_exists = true },
+]
+
+# Settings - shared config from ~/.config/sandbox/settings/
+# Strings are mounted read-write. New matching mount paths sync on exit.
+# Copy mode replaces the container path from the host at each start.
+settings = [
+  # Claude Code
+  "~/.claude/settings.json",
+  "~/.claude/CLAUDE.md",
+  "~/.claude/agents/",
+  "~/.claude/commands/",
+  "~/.claude/hooks/",
+  "~/.claude/scripts/",
+  "~/.claude/plugins/",
+
+  # Codex
+  { path = "~/.codex/config.toml", mode = "copy" },
+  "~/.codex/AGENTS.md",
+  "~/.codex/prompts/",
+  "~/.codex/rules/",
+
+  # OpenCode
+  "~/.config/opencode/*",
+
+  # Pi
+  "~/.pi/agent/*",
+
+  # Copilot
+  "~/.copilot/config.json",
+
+  # Shell customization for interactive zsh shells.
+  # Use this for prompt, keybindings, shell options, and interactive aliases.
+  # Sourced at the end of ~/.zshrc.
+  "~/.zshrc.local",
+
+  # Shell customization for interactive and non-interactive commands.
+  # Use this for environment variables, PATH changes, and command setup.
+  # Sourced at the end of ~/.profile.
+  "~/.profile.local",
+
+  # Exclusions
+  "!~/node_modules",
+  "!~/.git",
+]
+
+# Host commands
+# SECURITY: Each matching command runs on the host with your user permissions.
+# Only allow commands and arguments that you trust.
+#
+# [[allow_host_commands]]
+# pattern = ["bun", "run", "test:e2e"]
+#
+# [[allow_host_commands]]
+# pattern = ["git", ["status", "diff", "log"]]
+# test_match = [["git", "status"]]
+# test_no_match = [["git", "push"]]
+
+# Network - allowed outbound connections (firewall enabled by default)
+# Use *.domain to match domain itself and all subdomains
+allow_network = [
+  # AI APIs
+  "*.anthropic.com",
+  "*.openai.com",
+  "*.chatgpt.com",
+
+  # Version Control
+  "*.github.com",
+  "*.githubusercontent.com",
+  "github.com:{22,80,443}",
+  "*.gitlab.com",
+  "gitlab.com:{22,80,443}",
+  "*.bitbucket.org",
+  "bitbucket.org:{22,80,443}",
+
+  # Container Registries
+  "*.docker.io",
+  "*.docker.com",
+  "*.gcr.io",
+  "ghcr.io",
+  "public.ecr.aws",
+
+  # Cloud Platforms - Google
+  "*.google.com",
+  "*.googleapis.com",
+
+  # Cloud Platforms - Microsoft/Azure
+  "*.azure.com",
+  "*.microsoft.com",
+  "*.microsoftonline.com",
+  "dot.net",
+  "*.visualstudio.com",
+
+  # Cloud Platforms - AWS/Oracle
+  "*.amazonaws.com",
+  "*.api.aws",
+  "*.oracle.com",
+  "*.java.com",
+  "*.java.net",
+
+  # Package Managers - JavaScript/Node
+  "*.npmjs.org",
+  "*.npmjs.com",
+  "*.yarnpkg.com",
+  "*.nodejs.org",
+
+  # Package Managers - Python
+  "*.pypi.org",
+  "*.pythonhosted.org",
+  "pypi.python.org",
+  "*.pypa.io",
+
+  # Package Managers - Ruby
+  "*.rubygems.org",
+  "*.ruby-lang.org",
+  "*.rubyforge.org",
+  "*.rubyonrails.org",
+  "*.rvm.io",
+
+  # Package Managers - Rust
+  "*.crates.io",
+  "rustup.rs",
+  "*.rust-lang.org",
+
+  # Package Managers - Go
+  "*.golang.org",
+  "goproxy.io",
+  "pkg.go.dev",
+
+  # Package Managers - JVM
+  "*.maven.org",
+  "jcenter.bintray.com",
+  "*.gradle.org",
+  "*.kotlin.org",
+  "*.spring.io",
+
+  # Package Managers - Other Languages
+  "*.packagist.org",
+  "*.nuget.org",
+  "*.pub.dev",
+  "*.hex.pm",
+  "*.cpan.org",
+  "*.metacpan.org",
+  "*.cocoapods.org",
+  "*.haskell.org",
+  "*.swift.org",
+
+  # Linux Distributions
+  "*.ubuntu.com",
+  "*.launchpad.net",
+
+  # Development Tools & Platforms
+  "*.k8s.io",
+  "*.hashicorp.com",
+  "*.anaconda.com",
+  "*.anaconda.org",
+  "continuum.io",
+  "*.apache.org",
+  "*.eclipse.org",
+  "*.jdx.dev",
+  "*.playwright.dev",
+
+  # Content Delivery & Mirrors
+  "*.sourceforge.net",
+  "*.packagecloud.io",
+
+  # Schema & Configuration
+  "*.json-schema.org",
+  "*.schemastore.org",
+
+  # Model Context Protocol
+  "*.modelcontextprotocol.io",
+
+  # "service.internal.example.com:*",
+]
+
+# Ports - expose container ports to host
+# ports = ["8080", "3000:8080"]
+
+# Mounts - additional directories (project auto-mounted)
+# ~ expands to home dir on host, /home/sandbox in container
+mounts = [
+  # Agent Skills - ~/.agents/skills is a shared directory for skills available to all agents.
+  # Add your skills there to make them available inside the container.
+  "~/.agents:rw",
+  "~/.agents/skills:~/.claude/skills:ro",   # Claude Code
+  "~/.agents/skills:~/.codex/skills:ro",    # Codex
+
+  "~/.claude/ide:ro",        # Claude Code IDE integration (VS Code/Cursor lock directories)
+  "~/.codex/auth.json:ro",   # Use host Codex login. The normal browser login flow relies on localhost redirects.
+]

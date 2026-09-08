@@ -1,0 +1,113 @@
+{
+  "name": "@maibornwolff/sandbox",
+  "version": "0.0.0-development",
+  "description": "Docker sandbox CLI for coding agents",
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/MaibornWolff/sandbox#readme",
+  "bugs": {
+    "url": "https://github.com/MaibornWolff/sandbox/issues"
+  },
+  "keywords": [
+    "ai-agents",
+    "cli",
+    "containers",
+    "docker",
+    "sandbox"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "^24.0.0"
+  },
+  "sideEffects": false,
+  "imports": {
+    "#apps/*": {
+      "types": "./src/apps/*",
+      "default": "./dist/apps/*"
+    },
+    "#modules/*": {
+      "types": "./src/modules/*",
+      "default": "./dist/modules/*"
+    },
+    "#platform/*": {
+      "types": "./src/platform/*",
+      "default": "./dist/platform/*"
+    },
+    "#shared/*": {
+      "types": "./src/shared/*",
+      "default": "./dist/shared/*"
+    }
+  },
+  "bin": {
+    "sandbox": "./bin/sandbox.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "docker",
+    "templates",
+    "docs",
+    "src",
+    "!src/**/__test__/**",
+    "!src/**/*.test.ts",
+    "!src/test/**",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MaibornWolff/sandbox.git"
+  },
+  "scripts": {
+    "cli": "bun run src/apps/sandbox/main.ts",
+    "build": "bun scripts/build.ts",
+    "test": "bun test --only-failures src/",
+    "test:scripts": "bun test --only-failures scripts/",
+    "test:e2e": "bun scripts/run-e2e.ts",
+    "test:verbose": "bun test src/",
+    "test:watch": "bun test --watch src/",
+    "test:coverage": "bun test --coverage --only-failures src/",
+    "coverage:check": "bun test --coverage --only-failures src/ && bun scripts/check-coverage.ts",
+    "typecheck": "tsc --build",
+    "architecture": "bun scripts/architecture/check-architecture.ts",
+    "lint": "biome check --write .",
+    "check": "bun scripts/check.ts",
+    "cpd": "jscpd src --reporters console --ignore '**/*.test.ts,**/__test__/**' --threshold 1",
+    "knip": "knip --production",
+    "knip:fix": "knip --fix",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.85.1",
+    "chalk": "^6.0.0",
+    "commander": "^15.0.0",
+    "cross-spawn": "^7.0.6",
+    "diff": "^9.0.0",
+    "fast-glob": "^3.3.3",
+    "re2-wasm": "^1.0.2",
+    "smol-toml": "^1.8.0",
+    "ws": "^8.21.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@biomejs/cli-linux-arm64": "^2.5.12",
+    "@types/cross-spawn": "^6.0.6",
+    "@types/diff": "^8.0.0",
+    "@types/node": "^26.4.1",
+    "@types/ws": "^8.18.1",
+    "@xterm/headless": "^6.0.0",
+    "bun-types": "^1.4.2",
+    "dependency-cruiser": "18.2.0",
+    "husky": "^9.1.7",
+    "jscpd": "^5.1.2",
+    "knip": "^6.34.0",
+    "typescript": "^7.0.2",
+    "typescript-api": "npm:typescript@^5.9.3"
+  },
+  "patchedDependencies": {
+    "dependency-cruiser@18.2.0": "patches/dependency-cruiser@18.2.0.patch"
+  }
+}

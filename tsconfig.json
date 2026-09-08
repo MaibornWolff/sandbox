@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": ["ES2022", "ESNext.Disposable"],
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "paths": {
+      "#apps/*": ["./src/apps/*"],
+      "#modules/*": ["./src/modules/*"],
+      "#platform/*": ["./src/platform/*"],
+      "#shared/*": ["./src/shared/*"],
+      "#test/*": ["./src/test/*"]
+    },
+    "types": ["node"],
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": true
+  },
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.src.json" },
+    { "path": "./tsconfig.test.json" },
+    { "path": "./tsconfig.scripts.json" }
+  ]
+}

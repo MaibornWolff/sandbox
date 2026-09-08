@@ -1,0 +1,22 @@
+# Central sandbox environment configuration
+# Sourced by interactive shells and non-interactive bash/zsh commands
+
+# Early return if already loaded. Exported so child processes (e.g. devbox,
+# which is itself a bash script sourcing this via BASH_ENV) skip re-execution
+# and cannot form a recursive fork bomb.
+[ -n "${SANDBOX_PROFILE_LOADED:-}" ] && return 0
+export SANDBOX_PROFILE_LOADED=1
+
+# Activate mise only for shells with known-compatible activation output.
+# Keep .profile safe to source from plain `sh` in non-interactive contexts.
+if [ -n "${BASH_VERSION:-}" ]; then
+  eval "$(mise activate bash)"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  eval "$(mise activate zsh)"
+fi
+
+# Common aliases
+alias vim='nvim'
+
+# User customizations for interactive and non-interactive commands.
+[ -f "$HOME/.profile.local" ] && . "$HOME/.profile.local"

@@ -1,0 +1,9 @@
+#!/bin/sh
+# Stable handoff to the package-mounted internal container application.
+TOOLS_ENTRY="/opt/sandbox-cli/dist/apps/sandbox-container-tools/main.js"
+if [ ! -f "$TOOLS_ENTRY" ]; then
+  echo "Sandbox container tools are not available: $TOOLS_ENTRY" >&2
+  echo "Update Sandbox on the host and rebuild the image." >&2
+  exit 1
+fi
+exec /usr/bin/node "$TOOLS_ENTRY" "$@"

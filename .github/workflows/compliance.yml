@@ -1,0 +1,53 @@
+name: Compliance
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compliance-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compliance:
+    name: License and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install production dependencies
+        run: bun install --frozen-lockfile --production --ignore-scripts
+      - name: Check dependency licenses
+        run: >-
+          bunx license-checker@25.0.1 --production
+          --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;ISC;Zlib;Unlicense;X11;PostgreSQL;Python-2.0.1;PSF-2.0;CC0-1.0;WTFPL;NCSA;UPL-1.0"
+      - name: Generate third-party notices
+        run: |
+          mkdir -p compliance
+          bunx license-checker@25.0.1 --production --customPath scripts/license-report-format.json --json --out compliance/licenses.json
+          bun scripts/generate-third-party-notices.ts compliance/licenses.json compliance/THIRD_PARTY_NOTICES.md @maibornwolff/sandbox "$GITHUB_SHA"
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: node_modules
+          format: cyclonedx-json
+          output-file: compliance/sandbox.sbom.cdx.json
+          upload-artifact: false
+      - name: Upload compliance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance
+          path: |
+            compliance/sandbox.sbom.cdx.json
+            compliance/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error

@@ -1,0 +1,135 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`network configuration rendering renders restricted DNS with internal exceptions and tracing 1`] = `
+"no-resolv
+no-hosts
+listen-address=127.0.0.1
+bind-interfaces
+user=dnsmasq
+
+# Burst-load tuning
+dns-forward-max=1000
+cache-size=10000
+no-negcache
+log-queries
+log-facility=/var/log/dns-proxy.log
+server=/host.docker.internal/1.1.1.1
+server=/host.lima.internal/1.1.1.1
+server=/host.containers.internal/1.1.1.1
+server=/github.com/1.1.1.1
+server=/example.com/1.1.1.1
+address=/#/
+"
+`;
+
+exports[`network configuration rendering renders allow-all DNS 1`] = `
+"no-resolv
+no-hosts
+listen-address=127.0.0.1
+bind-interfaces
+user=dnsmasq
+
+# Burst-load tuning
+dns-forward-max=1000
+cache-size=10000
+no-negcache
+log-queries
+log-facility=/var/log/dns-proxy.log
+server=/#/1.1.1.1
+"
+`;
+
+exports[`network configuration rendering binds each Squid domain group to its own port ACL for every method 1`] = `
+"http_port 127.0.0.1:8888 tcpkeepalive=60,10,6
+cache deny all
+access_log stdio:/var/log/proxy-access.log squid
+cache_log /var/log/squid-cache.log
+cache_store_log none
+via off
+forwarded_for delete
+visible_hostname sandbox-proxy
+httpd_suppress_version_string on
+shutdown_lifetime 1 seconds
+dns_nameservers 127.0.0.1
+pid_filename /run/squid.pid
+
+maximum_object_size 0 KB
+client_db off
+max_filedescriptors 65536
+client_ip_max_connections 0
+fqdncache_size 4096
+ipcache_size 4096
+negative_dns_ttl 0 seconds
+pinger_enable off
+connect_retries 5
+forward_max_tries 25
+retry_on_error on
+
+connect_timeout 120 seconds
+read_timeout 10 minutes
+write_timeout 10 minutes
+request_timeout 120 seconds
+persistent_request_timeout 120 seconds
+forward_timeout 120 seconds
+
+half_closed_clients on
+server_persistent_connections on
+client_persistent_connections on
+
+acl allowed_domains_0 dstdomain "/var/run/proxy-allowed-domains-0.txt"
+acl allowed_ports_0 port 1-65535
+http_access allow allowed_domains_0 allowed_ports_0
+
+acl allowed_domains_1 dstdomain "/var/run/proxy-allowed-domains-1.txt"
+acl allowed_ports_1 port 443
+http_access allow allowed_domains_1 allowed_ports_1
+deny_info ERR_SANDBOX_BLOCKED all
+error_directory /usr/share/squid/errors/custom
+http_access deny all
+"
+`;
+
+exports[`network configuration rendering renders allow-all Squid without ACL files 1`] = `
+{
+  "config": 
+"http_port 127.0.0.1:8888 tcpkeepalive=60,10,6
+cache deny all
+access_log stdio:/var/log/proxy-access.log squid
+cache_log /var/log/squid-cache.log
+cache_store_log none
+via off
+forwarded_for delete
+visible_hostname sandbox-proxy
+httpd_suppress_version_string on
+shutdown_lifetime 1 seconds
+dns_nameservers 127.0.0.1
+pid_filename /run/squid.pid
+
+maximum_object_size 0 KB
+client_db off
+max_filedescriptors 65536
+client_ip_max_connections 0
+fqdncache_size 4096
+ipcache_size 4096
+negative_dns_ttl 0 seconds
+pinger_enable off
+connect_retries 5
+forward_max_tries 25
+retry_on_error on
+
+connect_timeout 120 seconds
+read_timeout 10 minutes
+write_timeout 10 minutes
+request_timeout 120 seconds
+persistent_request_timeout 120 seconds
+forward_timeout 120 seconds
+
+half_closed_clients on
+server_persistent_connections on
+client_persistent_connections on
+
+http_access allow all
+"
+,
+}
+`;

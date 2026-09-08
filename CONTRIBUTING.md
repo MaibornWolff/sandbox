@@ -1,0 +1,45 @@
+# Contributing
+
+Thank you for contributing to Sandbox.
+
+## Before You Start
+
+- Search existing issues and pull requests.
+- Open an issue before you make a large behavior or architecture change.
+- Report security vulnerabilities through the process in [SECURITY.md](SECURITY.md).
+
+## Development
+
+Install Bun, Node.js 24, and Docker or Podman. Then install the dependencies:
+
+```bash
+bun install
+```
+
+Run the complete local check before you submit a pull request:
+
+```bash
+bun check
+```
+
+Run the end-to-end tests when your change affects container behavior:
+
+```bash
+bun run test:e2e
+```
+
+Read [docs/TESTING.md](docs/TESTING.md) for test design and test commands.
+
+## Changes
+
+- Add a failing test before you fix a bug.
+- Add tests for new behavior.
+- Update user documentation when behavior changes.
+- Keep commits focused.
+- Use conventional commit messages such as `feat: add command` or `fix: preserve exit code`.
+
+## Pull Requests
+
+Describe the problem and the solution. Include the commands that you used to validate the change. A maintainer must review the pull request before merge.
+
+By submitting a contribution, you agree that it can be released under the [BSD 3-Clause License](LICENSE).

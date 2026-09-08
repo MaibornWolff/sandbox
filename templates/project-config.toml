@@ -1,0 +1,40 @@
+# Project-specific sandbox config (merged with global)
+
+# Environment
+# env = ["DATABASE_URL=postgres://localhost:5432/dev"]
+
+# Persistence - project-relative paths useful for build artifacts
+# persist_paths = [
+#   { path = "~/.gradle" },
+#   { path = "./node_modules", only_if_exists = true  },
+#   { path = "./**/node_modules" },
+#   { path = "./.venv", only_if_exists = true },
+#   { path = "./**/.venv" },
+# ]
+
+# Settings
+# settings = ["~/.project-tool/*.json"]
+
+# Host commands
+# SECURITY: Each matching command runs on the host with your user permissions.
+# Only allow commands and arguments that you trust.
+#
+# [[allow_host_commands]]
+# pattern = ["bun", "run", "test:e2e"]
+#
+# [[allow_host_commands]]
+# pattern = ["git", ["status", "diff", "log"]]
+# test_match = [["git", "status"]]
+# test_no_match = [["git", "push"]]
+
+# Network
+# allow_network = ["api.internal.example.com"]
+
+# Ports
+# ports = ["3000", "5432:5432"]
+
+# Mounts
+# mounts = ["../shared-lib", "../data:rw"]
+
+# Options
+# readonly = true

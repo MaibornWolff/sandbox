@@ -1,0 +1,3 @@
+# /etc/profile resets PATH for login shells, and ~/.profile's exported guard skips the repair.
+unset SANDBOX_PROFILE_LOADED
+[ -f "$HOME/.profile" ] && . "$HOME/.profile"

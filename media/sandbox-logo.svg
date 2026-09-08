@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="694" height="868" viewBox="280 180 694 868" stroke-linejoin="round" stroke-linecap="round" role="img" aria-labelledby="title description">
+  <title id="title">Robot sandbox — light and dark background palette</title>
+  <desc id="description">Polished continuous rim and face seams, unified box silhouette. Aligned robot and box opening; deeper directional shading. Light and dark background colour variant. Editable vector reconstruction. Transparent canvas, no background tile. Named groups contain the box interior, robot body, box front, shield, head, antenna and hands. All artwork consists of paths and gradients; no embedded raster images. Coordinates follow the original 1254 by 1254 canvas.</desc>
+  <!-- ALIGNMENT: Box centre x=627. Eyes, hands and antenna share this axis.
+       Torso is clipped to the inner opening so it cannot overlap the rim. -->
+  <!-- PALETTE: Lavender ceramic edges remain visible on white. Brighter violet
+       box surfaces remain visible on dark backgrounds. Transparent canvas. -->
+  <!-- EDITING: Change gradient stops below for colours. Each visible component is
+       grouped and named. Highlights and shadows remain separate editable objects.
+       The source's texture and generation artifacts are intentionally omitted. -->
+  <defs>
+    <linearGradient id="box-left" x1="305" y1="555" x2="621" y2="997" gradientUnits="userSpaceOnUse"><stop stop-color="#7145df"/><stop offset=".36" stop-color="#5128b0"/><stop offset="1" stop-color="#3b1e86"/></linearGradient>
+    <linearGradient id="box-right" x1="924" y1="559" x2="653" y2="1008" gradientUnits="userSpaceOnUse"><stop stop-color="#6439d8"/><stop offset=".5" stop-color="#5128bd"/><stop offset="1" stop-color="#432099"/></linearGradient>
+    <linearGradient id="interior" x1="618" y1="454" x2="626" y2="683" gradientUnits="userSpaceOnUse"><stop stop-color="#462496"/><stop offset=".5" stop-color="#241345"/><stop offset="1" stop-color="#211239"/></linearGradient>
+    <linearGradient id="rim" x1="326" y1="472" x2="803" y2="714" gradientUnits="userSpaceOnUse"><stop stop-color="#c0a2ff"/><stop offset=".3" stop-color="#9b72f0"/><stop offset=".63" stop-color="#bc98ff"/><stop offset="1" stop-color="#a87cf4"/></linearGradient>
+    <linearGradient id="corner" x1="607" y1="850" x2="647" y2="850" gradientUnits="userSpaceOnUse"><stop stop-color="#42218c" stop-opacity="0"/><stop offset=".24" stop-color="#6034b5" stop-opacity=".6"/><stop offset=".49" stop-color="#7548ca" stop-opacity=".9"/><stop offset=".72" stop-color="#5a2fac" stop-opacity=".65"/><stop offset="1" stop-color="#492298" stop-opacity="0"/></linearGradient>
+    <radialGradient id="body" cx=".44" cy=".28" r=".75"><stop stop-color="#e9e2fa"/><stop offset=".38" stop-color="#c5b7e5"/><stop offset=".7" stop-color="#9580bf"/><stop offset="1" stop-color="#443056"/></radialGradient>
+    <linearGradient id="ceramic" x1="609" y1="289" x2="633" y2="553" gradientUnits="userSpaceOnUse"><stop stop-color="#faf7ff"/><stop offset=".23" stop-color="#f4efff"/><stop offset=".56" stop-color="#e4daf7"/><stop offset=".81" stop-color="#eee7fc"/><stop offset="1" stop-color="#9279b2"/></linearGradient>
+    <radialGradient id="ear" cx=".26" cy=".28" r=".86"><stop stop-color="#f8f4ff"/><stop offset=".43" stop-color="#eae1fa"/><stop offset=".76" stop-color="#bfaadb"/><stop offset="1" stop-color="#8970a9"/></radialGradient>
+    <radialGradient id="hand" cx=".34" cy=".22" r=".86"><stop stop-color="#faf7ff"/><stop offset=".4" stop-color="#f3edff"/><stop offset=".66" stop-color="#ddd0f1"/><stop offset=".80" stop-color="#aa90c6"/><stop offset="1" stop-color="#674880"/></radialGradient>
+    <radialGradient id="face" cx=".55" cy=".5" r=".7"><stop stop-color="#21143f"/><stop offset=".7" stop-color="#190e34"/><stop offset="1" stop-color="#0e071e"/></radialGradient>
+    <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2487ff"/><stop offset="1" stop-color="#0963f4"/></linearGradient>
+    <radialGradient id="antenna-ball" cx=".35" cy=".23" r=".83"><stop stop-color="#ff81c7"/><stop offset=".3" stop-color="#fa46ac"/><stop offset=".7" stop-color="#ed168b"/><stop offset="1" stop-color="#cf0874"/></radialGradient>
+    <linearGradient id="antenna-stem"><stop stop-color="#9b87c8"/><stop offset=".43" stop-color="#f8f4ff"/><stop offset=".73" stop-color="#e9e1fb"/><stop offset="1" stop-color="#8271ab"/></linearGradient>
+    <linearGradient id="shield-border" x1="385" y1="705" x2="526" y2="891" gradientUnits="userSpaceOnUse"><stop stop-color="#b48af7"/><stop offset=".33" stop-color="#9867e9"/><stop offset=".64" stop-color="#8050d6"/><stop offset="1" stop-color="#693bb7"/></linearGradient>
+    <linearGradient id="shield-face" x1="406" y1="721" x2="509" y2="874" gradientUnits="userSpaceOnUse"><stop stop-color="#4e24a0"/><stop offset=".45" stop-color="#6339bd"/><stop offset="1" stop-color="#482091"/></linearGradient>
+    <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="9"/></filter>
+    <filter id="small-shadow" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="blur-highlight" x="-30%" y="-50%" width="160%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+    <clipPath id="shell-clip"><path d="M580 288 Q548 289 524 300 C475 323 447 366 443 417 C437 476 467 532 514 547 Q532 553 558 553 L691 553 Q722 553 743 540 C785 516 808 475 805 424 C804 366 772 322 726 300 Q702 288 669 288Z"/></clipPath>
+    <clipPath id="left-panel-clip"><path d="M300 532 627 725 627 1026 Q612 1027 594 1016 L327 850 Q299 835 300 800Z"/></clipPath>
+    <!-- Shared opening geometry keeps the torso behind the inner lip. -->
+    <clipPath id="opening-clip"><path d="M352 514 Q338 522 353 531 L607 683 Q626 694 643 683 L900 532 Q918 522 901 513 L649 363 Q626 349 606 362Z"/></clipPath>
+    <clipPath id="right-panel-clip"><use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#right-panel"/></clipPath>
+    <radialGradient id="left-face-light" gradientUnits="userSpaceOnUse" cx="348" cy="579" r="338" gradientTransform="translate(0 -115.8) scale(1 1.2)"><stop stop-color="#aa71ff" stop-opacity=".32"/><stop offset="1" stop-color="#aa71ff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="right-face-light" gradientUnits="userSpaceOnUse" cx="933" cy="607" r="440"><stop stop-color="#8849ff" stop-opacity=".28"/><stop offset="1" stop-color="#8849ff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="panel-depth" x1="0" y1="0" x2=".65" y2="1"><stop stop-color="#150627" stop-opacity="0"/><stop offset=".5" stop-color="#150627" stop-opacity=".1"/><stop offset="1" stop-color="#150627" stop-opacity=".44"/></linearGradient>
+    <filter id="broad-shadow" x="-50%" y="-100%" width="200%" height="300%" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="15"/></filter>
+    <!-- One outer contour clips all front surfaces and prevents bottom seams. -->
+    <path id="box-front-contour" d="M300 530 Q300 544 320 555 L595 717 Q626 737 658 717 L932 554 Q952 543 953 531 L954 800 Q954 833 927 850 L650 1020 Q627 1034 604 1020 L327 850 Q300 833 300 800Z"/>
+    <clipPath id="front-contour-clip"><use xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#box-front-contour"/></clipPath>
+    <linearGradient id="face-seam-fade" gradientUnits="userSpaceOnUse" x1="0" y1="348" x2="0" y2="429"><stop stop-color="#0b051b" stop-opacity=".9"/><stop offset="1" stop-color="#0b051b" stop-opacity="0"/></linearGradient>
+    <linearGradient id="rim-edge-light" gradientUnits="userSpaceOnUse" x1="305" y1="530" x2="947" y2="730"><stop stop-color="#d6beff" stop-opacity=".55"/><stop offset=".52" stop-color="#dfc9ff" stop-opacity=".65"/><stop offset="1" stop-color="#c09bed" stop-opacity=".25"/></linearGradient>
+    <linearGradient id="rim-rounding" gradientUnits="userSpaceOnUse" x1="0" y1="680" x2="0" y2="735"><stop stop-color="#8155cd" stop-opacity="0"/><stop offset=".65" stop-color="#8352cb" stop-opacity=".15"/><stop offset="1" stop-color="#7146b6" stop-opacity=".6"/></linearGradient>
+    <linearGradient id="side-edge-fade" gradientUnits="userSpaceOnUse" x1="0" y1="535" x2="0" y2="852"><stop stop-color="#c79aff" stop-opacity="0"/><stop offset=".09" stop-color="#bf8cff" stop-opacity=".45"/><stop offset=".8" stop-color="#9b64ed" stop-opacity=".25"/><stop offset="1" stop-color="#9b64ed" stop-opacity="0"/></linearGradient>
+  </defs>
+  <g id="box-interior" aria-label="Box back rim and dark interior">
+    <path id="opening" d="M320 503 583 346 Q625 322 668 347 L934 503 Q954 514 953 531 Q952 543 932 554 L658 717 Q626 737 595 717 L320 555 Q300 544 300 530 Q299 514 320 503Z" fill="url(#interior)"/>
+    <path id="rear-rim" d="M319 503 585 345 Q625 322 666 346 L933 503 Q954 515 953 531 Q952 543 932 554 L658 717 Q626 737 595 717 L320 555 Q300 544 300 530 Q299 514 319 503Z M352 514 Q338 522 353 531 L607 683 Q626 694 643 683 L900 532 Q918 522 901 513 L649 363 Q626 349 606 362Z" fill="url(#rim)" fill-rule="evenodd"/>
+    <path id="continuous-rim-highlight" d="M319 503 585 345 Q625 322 666 346 L933 503 Q954 515 953 531 Q952 543 932 554 L658 717 Q626 737 595 717 L320 555 Q300 544 300 530 Q299 514 319 503Z" fill="none" stroke="#cfb5ff" stroke-width="1.8" opacity=".45"/>
+    <path d="M351 514 606 362 Q626 350 648 363 L900 513" fill="none" stroke="#c3a2ff" stroke-width="2" opacity=".45"/>
+  </g>
+  <g id="rounded-front-lip" aria-label="Continuous rounded lip blending into the box faces">
+    <path d="M302 529 Q302 541 321 552 L600 717 Q626 733 652 717 L932 552 Q951 541 952 529 L951 539 Q948 548 932 558 L652 724 Q626 740 600 724 L321 558 Q304 548 302 539Z" fill="url(#rim-rounding)"/>
+    <path d="M303 530 Q303 541 322 552 L601 717 Q626 733 652 717 L931 552 Q950 541 951 530" fill="none" stroke="url(#rim-edge-light)" stroke-width="2.5"/>
+  </g>
+  <g id="interior-contact-shadows" clip-path="url(#opening-clip)" aria-label="Robot shadow inside the box">
+    <path d="M470 472 Q628 444 789 473 L768 640 633 704 501 637Z" fill="#11061f" opacity=".68" filter="url(#broad-shadow)"/>
+    <path d="M352 520 607 684 Q627 696 646 684 L900 523" fill="none" stroke="#10061e" stroke-width="13" opacity=".5" filter="url(#small-shadow)"/>
+  </g>
+  <g clip-path="url(#opening-clip)" id="robot-body" aria-label="Robot torso">
+    <path d="M529 516 Q624 494 720 522 C746 555 743 619 720 652 L643 697 Q626 707 609 697 L535 655 C511 620 508 557 529 516Z" fill="url(#body)"/>
+    <path d="M535 545 Q623 564 715 543" fill="none" stroke="#372347" stroke-width="25" opacity=".65" filter="url(#soft-shadow)"/>
+    <ellipse cx="620" cy="579" rx="77" ry="24" fill="#f4efff" opacity=".22" filter="url(#blur-highlight)"/>
+  </g>
+  <g clip-path="url(#front-contour-clip)" id="box-front" aria-label="Box left and right front faces">
+    <path id="box-front-foundation" d="M300 530 Q300 544 320 555 L595 717 Q626 737 658 717 L932 554 Q952 543 953 531 L954 800 Q954 833 927 850 L650 1020 Q627 1034 604 1020 L327 850 Q300 833 300 800Z" fill="url(#box-right)"/>
+    <path id="left-panel" d="M300 532 Q301 543 321 554 L604 720 Q626 730 627 749 L627 1026 Q612 1027 594 1016 L327 850 Q299 835 300 800Z" fill="url(#box-left)"/>
+    <path id="right-panel" d="M953 531 Q950 544 931 555 L650 720 Q628 730 627 749 L627 1026 Q643 1027 659 1017 L927 850 Q954 833 954 800Z" fill="url(#box-right)"/>
+    <g id="box-surface-shading" aria-label="Directional light and deeper lower face shadows">
+      <g clip-path="url(#left-panel-clip)">
+        <rect x="298" y="532" width="334" height="500" fill="url(#panel-depth)"/>
+        <rect x="298" y="532" width="334" height="500" fill="url(#left-face-light)"/>
+        <path d="M410 620 Q452 655 498 640" fill="none" stroke="#15072f" stroke-width="27" opacity=".42" filter="url(#broad-shadow)"/>
+      </g>
+      <g clip-path="url(#right-panel-clip)">
+        <rect x="624" y="532" width="334" height="500" fill="url(#panel-depth)"/>
+        <rect x="624" y="532" width="334" height="500" fill="url(#right-face-light)"/>
+        <path d="M757 639 Q801 654 844 617" fill="none" stroke="#15072f" stroke-width="28" opacity=".5" filter="url(#broad-shadow)"/>
+      </g>
+    </g>
+    <path d="M302 534 L302 799 Q302 831 329 848 M952 534 L952 799 Q952 831 925 848" fill="none" stroke="url(#side-edge-fade)" stroke-width="2"/>
+    <path id="central-bevel" d="M602 715 Q627 730 652 715 C637 736 645 762 647 795 L647 1040 607 1040 607 795 C610 762 617 736 602 715Z" fill="url(#corner)"/>
+  </g>
+  <g id="shield" aria-label="Raised security shield on left box face">
+    <g clip-path="url(#left-panel-clip)"><path d="M386 710 Q423 719 460 695 Q467 691 473 701 Q504 744 545 768 Q554 771 554 782 C557 859 541 900 469 916 Q460 919 453 910 C394 853 376 797 378 723 Q378 711 386 710Z" fill="#0c052c" opacity=".8" filter="url(#soft-shadow)"/>
+    </g>
+    <path id="shield-extrusion" d="M384 705 Q419 714 459 689 Q466 685 473 695 Q503 737 544 761 Q549 764 550 774 C553 851 538 896 465 910 Q456 912 450 905 C394 850 375 796 375 718Z" fill="#4c258e"/>
+    <path id="shield-border-shape" d="M381 703 Q417 713 454 691 Q460 688 465 696 Q495 738 534 762 Q540 765 540 775 C543 850 527 893 458 907 Q451 909 445 902 C391 850 369 795 370 716 Q369 704 381 703Z" fill="url(#shield-border)" stroke="#a578ee" stroke-width="1.5"/>
+    <path id="shield-inset" d="M386 724 Q421 730 453 714 Q484 754 521 778 C524 841 511 877 455 887 C408 841 387 792 386 724Z" fill="url(#shield-face)" stroke="#422078" stroke-width="5" stroke-linejoin="round"/>
+    <path id="shield-inner-bevel" d="M388 726 Q423 732 453 716 Q484 756 520 779 M520 779 C524 839 511 875 455 887" fill="none" stroke="#a272ed" stroke-width="2" opacity=".45"/>
+    <path id="shield-edge-light" d="M376 708 Q415 721 455 697 Q486 741 532 769" fill="none" stroke="#b58aed" stroke-width="2" opacity=".55"/>
+  </g>
+  <g transform="translate(3.25 0)" id="robot-head" aria-label="Robot ears, white head shell and face">
+    <g id="ears">
+      <path id="left-ear" d="M449 383 C420 382 409 402 410 433 C410 462 422 479 450 477 L465 456 462 403Z" fill="url(#ear)" stroke="#a991c4" stroke-width="2"/>
+      <path id="right-ear" d="M800 384 C827 381 840 402 839 433 C839 462 826 480 799 476 L785 453 786 402Z" fill="url(#ear)" stroke="#a991c4" stroke-width="2"/>
+    </g>
+    <path id="head-contact-shadow" d="M496 520 Q623 506 751 522 L737 557 Q625 575 511 558Z" fill="#25133e" opacity=".8" filter="url(#soft-shadow)"/>
+    <path id="head-shell" d="M580 288 Q548 289 524 300 C475 323 447 366 443 417 C437 476 467 532 514 547 Q532 553 558 553 L691 553 Q722 553 743 540 C785 516 808 475 805 424 C804 366 772 322 726 300 Q702 288 669 288Z" fill="url(#ceramic)" stroke="#a18abb" stroke-width="2.5"/>
+    <path clip-path="url(#shell-clip)" id="shell-top-reflection" d="M457 383 Q481 311 547 300 Q594 290 673 296 Q729 294 769 343" fill="none" stroke="#fff" stroke-width="12" opacity=".67" filter="url(#blur-highlight)"/>
+    <g id="shell-depth" clip-path="url(#shell-clip)">
+      <path d="M559 345 C507 345 471 382 471 431 C471 480 508 521 557 522 L694 522 C744 522 779 481 779 432 C779 386 741 345 694 345Z" fill="none" stroke="#8d70af" stroke-width="13" opacity=".4" filter="url(#blur-highlight)"/>
+      <path d="M451 415 C443 471 472 526 516 542 Q535 549 558 549 L694 549 Q727 549 749 534 C792 508 809 464 800 411" fill="none" stroke="#755891" stroke-width="12" opacity=".38" filter="url(#blur-highlight)"/>
+      <path d="M454 388 C467 345 499 315 537 305" fill="none" stroke="#ffffff" stroke-width="15" opacity=".8" filter="url(#blur-highlight)"/>
+    </g>
+    <path id="face-window" d="M558 348 C511 348 477 383 477 430 C477 477 510 513 557 514 L691 514 C737 514 770 478 771 432 C771 389 736 349 694 348Z" fill="url(#face)" stroke="#c3b5dd" stroke-width="1.5"/>
+    <path id="face-upper-seam" d="M558 348 C511 348 477 383 477 430 C477 477 510 513 557 514 L691 514 C737 514 770 478 771 432 C771 389 736 349 694 348Z" fill="none" stroke="url(#face-seam-fade)" stroke-width="2.5"/>
+    <g id="eyes" aria-label="Matching blue eyes" fill="url(#eye)" stroke="#4692ff" stroke-width=".6">
+      <circle id="left-eye" cx="556" cy="433.5" r="24"/>
+      <circle id="right-eye" cx="691.5" cy="433.5" r="24"/>
+    </g>
+    <path clip-path="url(#shell-clip)" id="lower-shell-highlight" d="M507 527 Q530 541 559 540 L690 540 Q716 540 739 527" fill="none" stroke="#fff" stroke-width="7" opacity=".28" filter="url(#blur-highlight)"/>
+  </g>
+  <g transform="translate(5.3 0)" id="antenna" aria-label="Pink antenna with white stem">
+    <ellipse cx="622" cy="290" rx="13" ry="3" fill="#8f73bd" opacity=".32"/>
+    <path id="antenna-stem-shape" d="M614 247 630 247 630 290 Q622 294 614 290Z" fill="url(#antenna-stem)"/>
+    <circle id="antenna-tip" cx="621.7" cy="228" r="26.5" fill="url(#antenna-ball)" stroke="#ff8bcf" stroke-width="1.4"/>
+    <path d="M601 217 Q609 201 626 205" fill="none" stroke="#ffb1dd" stroke-width="2" opacity=".55"/>
+  </g>
+  <g transform="translate(3.5 0)" id="robot-hands" aria-label="Hands resting on the box rim">
+    <path id="left-hand-shadow" d="M418 580 Q462 543 500 560 L517 607 463 645 Q426 651 414 624Z" fill="#12052f" opacity=".87" filter="url(#soft-shadow)"/>
+    <path id="right-hand-shadow" d="M749 565 Q794 547 834 585 L845 622 Q825 650 790 641 L739 610Z" fill="#12052f" opacity=".87" filter="url(#soft-shadow)"/>
+    <path id="left-hand" d="M473 542 C450 540 422 558 410 582 C398 603 406 622 425 631 C444 640 463 633 473 617 C483 601 489 596 494 611 C496 620 507 620 512 608 C519 590 515 570 505 557 C497 547 486 541 473 542Z" fill="url(#hand)" stroke="#ab91c7" stroke-width="2"/>
+    <path id="right-hand" d="M774 542 C797 540 825 558 839 582 C851 603 844 622 825 631 C805 640 786 633 776 617 C766 601 760 596 756 611 C753 620 743 620 738 608 C731 590 735 570 745 557 C753 547 763 541 774 542Z" fill="url(#hand)" stroke="#ab91c7" stroke-width="2"/>
+  </g>
+</svg>

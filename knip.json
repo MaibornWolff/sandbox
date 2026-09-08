@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/apps/sandbox/main.ts!",
+    "src/apps/sandbox/index.ts!",
+    "src/apps/sandbox-container-tools/main.ts!",
+    "src/apps/sandbox-container-tools/index.ts!",
+    "src/platform/websocket/index.ts!",
+    "src/modules/host-command-escape/index.ts!"
+  ],
+  "tags": ["-lintignore", "-testonly"],
+  "ignoreExportsUsedInFile": true,
+  "ignoreDependencies": ["@biomejs/cli-linux-arm64"],
+  "ignoreBinaries": ["knip"],
+  "ignoreFiles": [
+    "architecture.ts",
+    "src/test/**",
+    "src/**/*.test.ts",
+    "src/**/__test__/**",
+
+    "tests/**",
+    "scripts/**",
+    ".agents/skills/**",
+    ".claude/skills/**",
+    ".codex/skills/**",
+    ".pi/agent/skills/**",
+    ".pi/skills/**",
+    "src/global.d.ts"
+  ]
+}

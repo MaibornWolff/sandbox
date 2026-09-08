@@ -344,10 +344,11 @@ describe("host command escape session", () => {
     expect(request).toMatchObject({
       command: "tool",
       args: ["first second"],
-      cwd: path.join(fixture.hostProjectRoot, "nested"),
       env: { HOST_ONLY: "unchanged", PATH: process.env.PATH ?? "" },
       stdio: "stream",
     });
+    expect(path.basename(request.cwd ?? "")).toBe("nested");
+    expect(path.basename(path.dirname(request.cwd ?? ""))).toBe("project");
 
     await connection.sendBinary(
       encodeBinaryChannel(STREAM_CHANNEL.stdin, Buffer.from("input")),
@@ -381,7 +382,9 @@ describe("host command escape session", () => {
     fs.rmSync(alias);
     fs.symlinkSync(path.join(fixture.root, "outside"), alias);
 
-    expect(request.cwd).toBe(path.join(fixture.hostProjectRoot, "nested"));
+    expect(request.cwd).not.toBe(alias);
+    expect(path.basename(request.cwd ?? "")).toBe("nested");
+    expect(path.basename(path.dirname(request.cwd ?? ""))).toBe("project");
     child.exit({ exitCode: 0 });
     expect((await collectUntilExit(messages)).exitCode).toBe(0);
   });

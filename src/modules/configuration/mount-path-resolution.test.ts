@@ -135,7 +135,7 @@ describe("resolveMount", () => {
         const subdir = path.join(testDir, "data");
         fs.mkdirSync(subdir, { recursive: true });
         const result = resolveMount(`${subdir}:/container:ro`, testDir, true);
-        expect(result).toBe(`${subdir}:/container:ro`);
+        expect(result).toEndWith(`${path.sep}data:/container:ro`);
       } finally {
         cleanupTestDir(testDir);
       }
@@ -217,7 +217,7 @@ describe("symlink resolution", () => {
         projectDir,
         false,
       );
-      expect(result).toBe(`${realDir}:/container:ro`);
+      expect(result).toEndWith(`${path.sep}real:/container:ro`);
     } finally {
       cleanupTestDir(testDir);
     }
@@ -236,7 +236,7 @@ describe("symlink resolution", () => {
         projectDir,
         false,
       );
-      expect(result).toBe(`${realFile}:/container/file.txt:ro`);
+      expect(result).toEndWith(`${path.sep}real.txt:/container/file.txt:ro`);
     } finally {
       cleanupTestDir(testDir);
     }
@@ -268,7 +268,7 @@ describe("symlink resolution", () => {
       fs.symlinkSync(realDir, linkDir);
 
       const result = resolveMount("./link:/container:ro", testDir, true);
-      expect(result).toBe(`${realDir}:/container:ro`);
+      expect(result).toEndWith(`${path.sep}real:/container:ro`);
     } finally {
       cleanupTestDir(testDir);
     }

@@ -39,6 +39,21 @@ describe("validateSymlinkWithin", () => {
     }
   });
 
+  test("allows an internal symlink when the project root is an alias", () => {
+    const aliasedProjectRoot = path.join(tmpDir, "project-alias");
+    const projectRoot = path.join(tmpDir, "project");
+    const targetPath = path.join(projectRoot, "target.txt");
+    fs.mkdirSync(projectRoot);
+    fs.writeFileSync(targetPath, "test");
+    fs.symlinkSync(projectRoot, aliasedProjectRoot);
+    const linkPath = path.join(aliasedProjectRoot, "link.txt");
+    fs.symlinkSync(targetPath, linkPath);
+
+    expect(() =>
+      validateSymlinkWithin(linkPath, aliasedProjectRoot),
+    ).not.toThrow();
+  });
+
   test("handles Windows project directories", () => {
     // Verify Windows paths like "C:/project" aren't mangled
     // This test passes a Windows path and verifies no error is thrown

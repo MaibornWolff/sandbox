@@ -196,7 +196,8 @@ export function validateSymlinkWithin(
   try {
     if (!fs.lstatSync(linkPath).isSymbolicLink()) return;
     const realPath = fs.realpathSync(linkPath);
-    const relativePath = path.relative(parentDirectory, realPath);
+    const realParentDirectory = fs.realpathSync(parentDirectory);
+    const relativePath = path.relative(realParentDirectory, realPath);
     if (
       relativePath === ".." ||
       relativePath.startsWith(`..${path.sep}`) ||

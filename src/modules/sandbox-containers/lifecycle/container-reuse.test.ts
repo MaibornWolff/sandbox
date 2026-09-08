@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Clock } from "#platform/clock/index.js";
 import {
   createStatefulContainerRuntimeHarness,
   type StatefulContainerRuntimeHarness,
@@ -174,6 +175,59 @@ describe("findOrCreateContainer", () => {
     expect(
       runtime.events().some((event) => event.type === "container.remove"),
     ).toBe(true);
+  });
+
+  test("waits for a concurrently created container to become visible", async () => {
+    const runtime = createStatefulContainerRuntimeHarness();
+    const competing = runtime.containers.create({
+      name: "sandbox-project-a1b2",
+      image: "sandbox-base:latest",
+      labels: {
+        "sandbox.project": "project-a1b2",
+        [SANDBOX_HASH_LABEL]: "hash",
+      },
+      status: "running",
+    });
+    const service = await runtimeService(runtime);
+    const listContainers = service.listContainers.bind(service);
+    let runningQueries = 0;
+    service.listContainers = async (options) => {
+      const containers = await listContainers(options);
+      if (options?.statusFilter?.includes("running")) {
+        runningQueries++;
+        if (runningQueries <= 4) return [];
+      }
+      return containers;
+    };
+    service.createContainer = async () => {
+      throw new Error("container name is taken");
+    };
+    const sleepDurations: number[] = [];
+    const clock: Clock = {
+      now: () => 0,
+      sleep: (milliseconds) => {
+        sleepDurations.push(milliseconds);
+        return Promise.resolve();
+      },
+    };
+
+    const result = await runWithTestLogger(
+      () =>
+        findOrCreateContainer(
+          service,
+          "project-a1b2",
+          "hash",
+          ["sandbox-base:latest"],
+          "sandbox-base:latest",
+        ),
+      { clock },
+    );
+
+    expect(result).toEqual({
+      containerName: competing.snapshot().name,
+      created: false,
+    });
+    expect(sleepDurations).toEqual([250, 250, 250, 250]);
   });
 
   test("preserves non-conflict creation failures", async () => {

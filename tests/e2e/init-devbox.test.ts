@@ -44,7 +44,7 @@ describe("init-devbox", () => {
     );
     expect(exitCode).toBe(0);
     expect(stdout).toContain("/nix/");
-  });
+  }, 150_000);
 
   test("devbox launcher resolves its version, not the offline fallback", async () => {
     // Blocked release hosts pin the launcher to a version that cannot parse

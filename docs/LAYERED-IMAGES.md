@@ -17,6 +17,10 @@ The base layer provides the operating system and common development tools. Sandb
 
 It includes shells, source-control tools, runtime installation tools, build tools, network tools, and clipboard tools.
 
+The image also owns the Sandbox CLI, container tools, and support files at `/opt/sandbox-cli`. The package build prepares these files in the Docker build context. The container runtime receives them during the image build, so the host npm installation directory does not need to be shared with its VM. Container startup does not mount that directory.
+
+Runtime package changes are part of the base-layer content hash. They trigger a rebuild of the base layer and its dependent layers. Existing running containers keep their image-owned runtime files until they stop.
+
 ### User layer
 
 The user layer provides tools for all projects. Configure it in `~/.config/sandbox/docker/Dockerfile`.

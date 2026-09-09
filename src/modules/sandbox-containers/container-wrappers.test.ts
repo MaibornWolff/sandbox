@@ -52,12 +52,12 @@ async function prepareNodeWrapper(
   const entryPath = path.join(directory, "main.js");
   const nodePath = path.join(directory, "node");
   const argumentsPath = path.join(directory, "arguments.txt");
-  const mountedEntry =
+  const imageEntry =
     sourceName === "sandbox-container-tools"
       ? "/opt/sandbox-cli/dist/apps/sandbox-container-tools/main.js"
       : "/opt/sandbox-cli/dist/apps/sandbox/main.js";
   const wrapper = (await readFile(sourcePath, "utf8"))
-    .replace(mountedEntry, entryPath)
+    .replace(imageEntry, entryPath)
     .replace("/usr/bin/node", nodePath);
 
   await Promise.all([
@@ -75,7 +75,7 @@ const wrappers = ["sandbox-container-tools", "sandbox-wrapper.sh"] as const;
 
 describe.skipIf(process.platform === "win32")("container Node wrappers", () => {
   for (const wrapperName of wrappers) {
-    test(`${wrapperName} reports a missing package mount`, async () => {
+    test(`${wrapperName} reports an incomplete image`, async () => {
       const fixture = await prepareNodeWrapper(wrapperName);
 
       const result = await runScript(fixture.wrapperPath, [], process.env);

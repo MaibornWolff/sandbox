@@ -662,14 +662,6 @@ describe("buildExecArgs", () => {
 // buildContainerArgs - firewall and proxy tests
 // ---------------------------------------------------------------------------
 
-describe("buildContainerArgs - sandbox CLI mount", () => {
-  test("includes /opt/sandbox-cli:ro mount", async () => {
-    const args = await getArgsForConfig(defaultConfig);
-    const cliMount = args.find((a) => a.includes("/opt/sandbox-cli:ro"));
-    expect(cliMount).toBeDefined();
-  });
-});
-
 describe("buildContainerArgs - firewall and proxy", () => {
   test("always includes NET_ADMIN capability", async () => {
     const argsRestricted = await getArgsForConfig({

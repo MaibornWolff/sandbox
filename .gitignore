@@ -13,6 +13,7 @@ node_modules/
 dist/
 
 # Build artifacts
+/docker/runtime/
 *.log
 *.tmp
 *.bun-build

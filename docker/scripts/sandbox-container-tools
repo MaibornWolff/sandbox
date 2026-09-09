@@ -1,9 +1,9 @@
 #!/bin/sh
-# Stable handoff to the package-mounted internal container application.
+# Use the image-owned application, independent of host file sharing.
 TOOLS_ENTRY="/opt/sandbox-cli/dist/apps/sandbox-container-tools/main.js"
 if [ ! -f "$TOOLS_ENTRY" ]; then
   echo "Sandbox container tools are not available: $TOOLS_ENTRY" >&2
-  echo "Update Sandbox on the host and rebuild the image." >&2
+  echo "The Sandbox image is incomplete. Run 'sandbox build' on the host." >&2
   exit 1
 fi
 exec /usr/bin/node "$TOOLS_ENTRY" "$@"

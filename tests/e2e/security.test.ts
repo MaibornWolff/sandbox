@@ -12,10 +12,7 @@ import {
 
 const DEMO_SECRET = "s3cr3t-exfil-canary";
 const IP_ADDRESS_PATTERN = /(?:\d+\.\d+\.\d+\.\d+|[0-9a-f:]*:[0-9a-f:]+)/i;
-const ALLOWED_RUNTIME_MOUNT_TARGETS = new Set([
-  "/opt/sandbox-cli",
-  "/run/.containerenv",
-]);
+const ALLOWED_RUNTIME_MOUNT_TARGETS = new Set(["/run/.containerenv"]);
 const READ_ONLY_RUNTIME_MOUNT_TARGETS = new Set([
   "/dev/init",
   "/run/.containerinit",

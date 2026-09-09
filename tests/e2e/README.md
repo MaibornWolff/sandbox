@@ -51,6 +51,7 @@ External fixtures are part of the tested boundary. The network tests require the
 - `container-settings.test.ts`: existing and missing mount-mode and copy-mode settings, ownership, IDE bridge readiness, synchronization, and atomic replacement
 - `container-start-signals.test.ts`: interrupt and termination signal behavior through the host CLI, runtime CLI, and container entrypoint
 - `image-migration.test.ts`: migration of a legacy project Dockerfile
+- `image-runtime-package.test.ts`: image-owned CLI and container tools without a host installation mount
 - `init-mise.test.ts`: mise image build and tool installation
 - `init-php.test.ts`: PHP and Composer image build
 - `mounts-symlink.test.ts`: symbolic-link resolution and read-only bind mounts

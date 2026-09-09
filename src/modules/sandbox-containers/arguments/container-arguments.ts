@@ -8,7 +8,6 @@ import {
 } from "#modules/storage/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { detectX11 } from "#platform/environment/index.js";
-import { getPackageRootPath } from "#platform/filesystem/index.js";
 import {
   getExternalWorktreePath,
   type RepositoryRoots,
@@ -229,11 +228,6 @@ async function buildStructuralArgs(
 
   // Named volumes from persist_paths with use_named_volume set
   addNamedVolumeMounts(args, config);
-
-  // Sandbox CLI and docs (available as `sandbox` command inside container)
-  const packageRoot = windowsPathToDocker(getPackageRootPath());
-  args.push("-v", `${packageRoot}:/opt/sandbox-cli:ro`);
-  logger.debug(`Sandbox CLI mount: ${packageRoot}:/opt/sandbox-cli:ro`);
 
   // Custom mounts
   logCustomMounts(config.mounts, "Custom mounts");

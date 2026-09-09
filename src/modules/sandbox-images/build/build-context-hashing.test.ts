@@ -2,11 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { listFilesRecursively } from "#platform/filesystem/index.js";
-import {
-  cleanupTestDir,
-  createTestDir,
-  getTestRepoRootPath,
-} from "#test/utils.js";
+import { cleanupTestDir, createTestDir } from "#test/utils.js";
 import {
   getImageHash,
   hashBuildContextEntries,
@@ -70,33 +66,34 @@ describe("getImageHash", () => {
     cleanupTestDir(tmpDir);
   });
 
-  test("covers every active nested Docker source", async () => {
-    const repoRoot = await getTestRepoRootPath();
-    const sourceDirectory = path.join(repoRoot, "docker");
-    const tmpDir = createTestDir("docker-active-context");
-    fs.cpSync(sourceDirectory, tmpDir, { recursive: true });
+  test("changes when scripts, configuration, or image-owned runtime files change", () => {
+    const tmpDir = createTestDir("docker-runtime-context");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(tmpDir));
+    const files = {
+      Dockerfile: "FROM scratch",
+      "scripts/sandbox-container-tools": "exec node main.js",
+      "configs/profile": "export LANG=en_US.UTF-8",
+      "runtime/dist/apps/sandbox/main.js": "console.log('host')",
+      "runtime/dist/apps/sandbox-container-tools/main.js":
+        "console.log('container')",
+      "runtime/package.json": '{"version":"1.0.0"}',
+      "runtime/templates/config.toml": 'runtime = "docker"',
+    };
+    for (const [relativePath, content] of Object.entries(files)) {
+      const filePath = path.join(tmpDir, relativePath);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content);
+    }
     const dockerfilePath = path.join(tmpDir, "Dockerfile");
     const originalHash = getImageHash(dockerfilePath);
-    const entries = listFilesRecursively(tmpDir);
 
-    expect(entries.map((entry) => entry.relativePath)).toContain(
-      "scripts/sandbox-container-tools",
-    );
-    expect(entries.map((entry) => entry.relativePath)).toContain(
-      "configs/profile",
-    );
-
-    for (const entry of entries) {
-      const filePath = path.join(tmpDir, entry.relativePath);
-      fs.writeFileSync(
-        filePath,
-        Buffer.concat([entry.content, Buffer.from("\nchanged")]),
-      );
+    for (const [relativePath, content] of Object.entries(files)) {
+      const filePath = path.join(tmpDir, relativePath);
+      fs.writeFileSync(filePath, `${content}\nchanged`);
       expect(getImageHash(dockerfilePath)).not.toBe(originalHash);
-      fs.writeFileSync(filePath, entry.content);
+      fs.writeFileSync(filePath, content);
     }
-
-    cleanupTestDir(tmpDir);
   });
 
   test("hashes entries independently of traversal order", () => {

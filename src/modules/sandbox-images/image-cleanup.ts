@@ -2,6 +2,8 @@ import { getSandboxImageGlob } from "#modules/sandbox-resources/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 
+import { getErrorMessage } from "#shared/errors/index.js";
+
 /**
  * Represents a dangling Docker image
  */
@@ -35,7 +37,9 @@ async function getDanglingImages(
       created: e.created,
     }));
   } catch (err) {
-    getLogger().debug(`Failed to query dangling images: ${err}`);
+    getLogger().debug(
+      `Failed to query dangling images: ${getErrorMessage(err)}`,
+    );
     return [];
   }
 }
@@ -51,7 +55,7 @@ async function getContainersUsingImage(
     return await service.getContainersUsingImage(imageId);
   } catch (err) {
     getLogger().debug(
-      `Failed to check containers for image ${imageId}: ${err}`,
+      `Failed to check containers for image ${imageId}: ${getErrorMessage(err)}`,
     );
     return [];
   }
@@ -90,7 +94,9 @@ export async function removeDanglingImages(
       totalFreed += image.size;
       logger.debug(`Removed dangling image: ${image.id}`);
     } catch (err) {
-      logger.debug(`Failed to remove image ${image.id}: ${err}`);
+      logger.debug(
+        `Failed to remove image ${image.id}: ${getErrorMessage(err)}`,
+      );
     }
   }
 

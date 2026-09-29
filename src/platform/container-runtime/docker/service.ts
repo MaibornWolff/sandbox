@@ -1,6 +1,8 @@
 import chalk from "chalk";
+import { CONTAINER_READY_FILE } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { ExecError } from "#platform/process/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import {
   parseSizeToBytes,
   redactCommandForDisplay,
@@ -50,6 +52,14 @@ export class DockerService implements ContainerRuntime {
     this.exec = exec;
   }
 
+  /** Log a failed query and return its documented fallback value. */
+  protected fallback<T>(operation: string, error: unknown, value: T): T {
+    getLogger().debug(
+      `${this.binaryName} ${operation} failed, using fallback: ${getErrorMessage(error)}`,
+    );
+    return value;
+  }
+
   // -- Detection / system ---------------------------------------------------
 
   async getVersion(): Promise<string> {
@@ -66,8 +76,8 @@ export class DockerService implements ContainerRuntime {
       ]);
       const memBytes = Number.parseInt(output.trim(), 10);
       return Number.isNaN(memBytes) ? null : memBytes;
-    } catch {
-      return null;
+    } catch (error) {
+      return this.fallback("getMemoryBytes", error, null);
     }
   }
 
@@ -99,8 +109,8 @@ export class DockerService implements ContainerRuntime {
     try {
       const output = await this.exec(this.binaryName, args);
       return this.parseContainerList(output, labelKeys);
-    } catch {
-      return [];
+    } catch (error) {
+      return this.fallback("listContainers", error, []);
     }
   }
 
@@ -166,7 +176,7 @@ export class DockerService implements ContainerRuntime {
     const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
     const command =
       `i=0; while [ "$i" -lt ${attempts} ]; do ` +
-      "[ -f /tmp/.sandbox-ready ] && exit 0; " +
+      `[ -f ${CONTAINER_READY_FILE} ] && exit 0; ` +
       `i=$((i + 1)); sleep ${intervalMs / 1_000}; done; exit 124`;
     await this.exec(this.binaryName, ["exec", container, "sh", "-c", command]);
   }
@@ -209,8 +219,8 @@ export class DockerService implements ContainerRuntime {
       ]);
       const trimmed = output.trim();
       return trimmed === "<no value>" || trimmed === "" ? null : trimmed;
-    } catch {
-      return null;
+    } catch (error) {
+      return this.fallback("getContainerLabel", error, null);
     }
   }
 
@@ -228,8 +238,8 @@ export class DockerService implements ContainerRuntime {
         "{{.RunningFor}}",
       ]);
       return output.trim() || "unknown";
-    } catch {
-      return "unknown";
+    } catch (error) {
+      return this.fallback("getContainerUptime", error, "unknown");
     }
   }
 
@@ -246,8 +256,8 @@ export class DockerService implements ContainerRuntime {
         .trim()
         .split("\n")
         .filter((line) => line.length > 0 && line !== "<none>:<none>");
-    } catch {
-      return [];
+    } catch (error) {
+      return this.fallback("listImageReferences", error, []);
     }
   }
 
@@ -255,8 +265,8 @@ export class DockerService implements ContainerRuntime {
     try {
       const output = await this.exec(this.binaryName, ["images", "-q", name]);
       return output.trim().length > 0;
-    } catch {
-      return false;
+    } catch (error) {
+      return this.fallback("imageExists", error, false);
     }
   }
 
@@ -288,8 +298,8 @@ export class DockerService implements ContainerRuntime {
           }),
         ),
       };
-    } catch {
-      return null;
+    } catch (error) {
+      return this.fallback("inspectImage", error, null);
     }
   }
 
@@ -303,8 +313,8 @@ export class DockerService implements ContainerRuntime {
       ]);
       const trimmed = output.trim();
       return trimmed === "<no value>" || trimmed === "" ? null : trimmed;
-    } catch {
-      return null;
+    } catch (error) {
+      return this.fallback("getImageLabel", error, null);
     }
   }
 
@@ -378,8 +388,8 @@ export class DockerService implements ContainerRuntime {
           };
         })
         .filter((img): img is DanglingImageEntry => img !== null);
-    } catch {
-      return [];
+    } catch (error) {
+      return this.fallback("listDanglingImages", error, []);
     }
   }
 
@@ -395,8 +405,8 @@ export class DockerService implements ContainerRuntime {
       ]);
       if (!output.trim()) return [];
       return output.trim().split("\n");
-    } catch {
-      return [];
+    } catch (error) {
+      return this.fallback("getContainersUsingImage", error, []);
     }
   }
 
@@ -406,8 +416,8 @@ export class DockerService implements ContainerRuntime {
     try {
       await this.exec(this.binaryName, ["volume", "inspect", name]);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      return this.fallback("volumeExists", error, false);
     }
   }
 
@@ -466,11 +476,12 @@ export class DockerService implements ContainerRuntime {
       ]);
       const memoryBytes = Number.parseInt(output.trim(), 10);
       return { memoryBytes: Number.isNaN(memoryBytes) ? null : memoryBytes };
-    } catch {
+    } catch (error) {
       throw new Error(
         `${chalk.red(`${this.binaryName} daemon is not running.`)}\n` +
           `Start it with ${chalk.cyan("Rancher Desktop")}, ${chalk.cyan("Colima")}, or your preferred method.\n` +
           chalk.dim(this.getInstallHint()),
+        { cause: error },
       );
     }
   }

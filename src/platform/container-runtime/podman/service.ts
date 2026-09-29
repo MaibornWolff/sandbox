@@ -116,12 +116,13 @@ export class PodmanService extends DockerService {
     try {
       await this.exec(this.binaryName, ["info"]);
       return { memoryBytes: null };
-    } catch {
+    } catch (error) {
       throw new Error(
         `${chalk.red("Podman is not running.")}\n` +
           `First time? Run: ${chalk.cyan("podman machine init")}\n` +
           `Start it with: ${chalk.cyan("podman machine start")}\n` +
           chalk.dim(this.getInstallHint()),
+        { cause: error },
       );
     }
   }

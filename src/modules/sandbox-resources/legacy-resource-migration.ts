@@ -10,6 +10,7 @@ import {
   writeTextFile,
 } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import {
   CACHE_VOLUME,
   isLegacyName,
@@ -87,7 +88,10 @@ async function migrateImages(service: ContainerRuntime): Promise<number> {
     images = (await service.listImageReferences()).filter((line) =>
       isLegacyName(line),
     );
-  } catch {
+  } catch (error) {
+    logger.warn(
+      `Could not list images for legacy migration: ${getErrorMessage(error)}`,
+    );
     return 0;
   }
 
@@ -101,7 +105,9 @@ async function migrateImages(service: ContainerRuntime): Promise<number> {
       await service.removeImage(oldName);
       count++;
     } catch (err) {
-      logger.warn(`Failed to retag ${chalk.cyan(oldName)}: ${err}`);
+      logger.warn(
+        `Failed to retag ${chalk.cyan(oldName)}: ${getErrorMessage(err)}`,
+      );
     }
   }
 
@@ -143,11 +149,13 @@ async function migrateVolume(service: ContainerRuntime): Promise<boolean> {
     await service.removeVolume(LEGACY_CACHE_VOLUME);
     return true;
   } catch (err) {
-    logger.warn(`Failed to migrate volume: ${err}`);
+    logger.warn(`Failed to migrate volume: ${getErrorMessage(err)}`);
     try {
       await service.removeVolume(CACHE_VOLUME);
-    } catch {
-      // ignore
+    } catch (cleanupError) {
+      logger.debug(
+        `Could not remove partial volume ${chalk.cyan(CACHE_VOLUME)}: ${getErrorMessage(cleanupError)}`,
+      );
     }
     return false;
   }
@@ -173,12 +181,14 @@ async function migrateContainers(service: ContainerRuntime): Promise<number> {
         count++;
       } catch (err) {
         logger.warn(
-          `Failed to remove container ${chalk.cyan(container.name)}: ${err}`,
+          `Failed to remove container ${chalk.cyan(container.name)}: ${getErrorMessage(err)}`,
         );
       }
     }
-  } catch {
-    // listContainers failed, skip container migration
+  } catch (error) {
+    logger.warn(
+      `Could not list containers for legacy migration: ${getErrorMessage(error)}`,
+    );
   }
 
   return count;

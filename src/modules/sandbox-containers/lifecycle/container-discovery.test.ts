@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import { runWithCapturedLogs } from "#test/captured-logger.js";
 import {
   findAvailableName,
   findSandboxContainers,
@@ -106,9 +107,13 @@ describe("findSandboxContainers", () => {
 
     const failed = createStatefulContainerRuntimeHarness();
     failed.system.fail("container.list", new Error("daemon offline"));
+    const messages: string[] = [];
     expect(
-      await findSandboxContainers(await failed.provider.resolve()),
+      await runWithCapturedLogs(messages, async () =>
+        findSandboxContainers(await failed.provider.resolve()),
+      ),
     ).toEqual([]);
+    expect(messages.join("\n")).toContain("daemon offline");
   });
 });
 

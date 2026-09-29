@@ -41,6 +41,7 @@ export const architecture = defineArchitecture({
         "process",
         "logging",
         "terminal",
+        "errors",
       ],
     },
   },
@@ -56,6 +57,7 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "text",
+        "errors",
       ],
     },
     "host-command-escape": {
@@ -66,6 +68,7 @@ export const architecture = defineArchitecture({
         "filesystem",
         "logging",
         "terminal",
+        "errors",
       ],
       testDependencies: ["dependency-injection"],
     },
@@ -80,6 +83,7 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "text",
+        "errors",
       ],
     },
     "sandbox-containers": {
@@ -99,6 +103,8 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "text",
+        "errors",
+        "container-system",
       ],
     },
     network: {
@@ -116,6 +122,8 @@ export const architecture = defineArchitecture({
         "terminal",
         "text",
         "time",
+        "errors",
+        "sandbox-containers",
       ],
     },
     "sandbox-resources": {
@@ -124,6 +132,7 @@ export const architecture = defineArchitecture({
         "container-runtime",
         "filesystem",
         "logging",
+        "errors",
       ],
     },
     "sandbox-settings": {
@@ -134,6 +143,7 @@ export const architecture = defineArchitecture({
         "environment",
         "logging",
         "terminal",
+        "errors",
       ],
     },
     storage: {
@@ -143,6 +153,7 @@ export const architecture = defineArchitecture({
         "environment",
         "logging",
         "text",
+        "errors",
       ],
     },
     "workspace-setup": {
@@ -171,6 +182,7 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "text",
+        "errors",
       ],
     },
     diagnostics: {
@@ -206,14 +218,22 @@ export const architecture = defineArchitecture({
         "terminal",
         "dependency-injection",
         "text",
+        "errors",
+        "container-system",
       ],
     },
     process: {
-      dependencies: ["clock", "dependency-injection", "logging", "text"],
+      dependencies: [
+        "clock",
+        "dependency-injection",
+        "logging",
+        "text",
+        "errors",
+      ],
     },
     websocket: { dependencies: ["dependency-injection"] },
     clock: { dependencies: ["dependency-injection"] },
-    filesystem: { dependencies: ["environment"] },
+    filesystem: { dependencies: ["environment", "logging", "errors"] },
     environment: {
       dependencies: ["process", "logging", "dependency-injection"],
     },
@@ -223,8 +243,11 @@ export const architecture = defineArchitecture({
       dependencies: ["dependency-injection", "environment", "process"],
     },
     "dependency-injection": { dependencies: [] },
-    npm: { dependencies: ["process"] },
-    state: { dependencies: ["filesystem", "environment"] },
+    npm: { dependencies: ["process", "errors"] },
+    state: {
+      dependencies: ["filesystem", "environment"],
+      testDependencies: ["logging", "dependency-injection"],
+    },
     "container-system": {
       dependencies: [
         "clock",
@@ -234,6 +257,7 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "dependency-injection",
+        "errors",
       ],
     },
   },

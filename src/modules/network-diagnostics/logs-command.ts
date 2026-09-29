@@ -1,21 +1,22 @@
 import chalk from "chalk";
 import type { ConfigOverrides } from "#modules/configuration/index.js";
 import { getConfigurationService } from "#modules/configuration/index.js";
+import {
+  findSandboxContainers,
+  type SandboxContainer,
+} from "#modules/sandbox-containers/index.js";
 import { getClock } from "#platform/clock/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { formatRelativeTime } from "#shared/time/index.js";
 import {
   buildContainerDiagnosticCommand,
   buildContainerNetworkStateCommand,
 } from "./container-diagnostic-commands.js";
-import {
-  findNetworkContainers,
-  type NetworkContainer,
-} from "./container-discovery.js";
 import type {
   NetworkConnectionStatus,
   NetworkDiagnostic,
@@ -42,7 +43,7 @@ async function collectDiagnostic(
   } catch (error) {
     return {
       output: "",
-      error: error instanceof Error ? error.message : String(error),
+      error: getErrorMessage(error),
     };
   }
 }
@@ -106,7 +107,7 @@ function renderTable(entries: readonly NetworkLogEntry[], now: number): string {
 }
 
 function renderRawLogs(
-  container: NetworkContainer,
+  container: SandboxContainer,
   sections: readonly RawDiagnosticSection[],
 ): string {
   const colors = {
@@ -189,7 +190,7 @@ export async function networkBlockedCommand(
   const clock = getClock();
   const { projectRoot, configuredRuntime } = await configuration.load(options);
   const runtimeService = await runtimeProvider.resolve(configuredRuntime);
-  const containers = await findNetworkContainers(runtimeService, {
+  const containers = await findSandboxContainers(runtimeService, {
     status: "running",
     projectSlug: generateProjectSlug(projectRoot),
   });

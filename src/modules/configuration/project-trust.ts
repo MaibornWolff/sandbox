@@ -1,5 +1,6 @@
 import * as crypto from "node:crypto";
 import * as path from "node:path";
+import chalk from "chalk";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import {
   ensureDirectory,
@@ -8,6 +9,8 @@ import {
   readTextFile,
   writeTextFile,
 } from "#platform/filesystem/index.js";
+import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type { TrustStore } from "./config.js";
 
 type TrustReason = "no-config" | "trusted" | "no-entry" | "hash-mismatch";
@@ -34,8 +37,10 @@ export function loadTrustStore(storePath: string): TrustStore {
     if (parsed && typeof parsed === "object" && "projects" in parsed) {
       return parsed as TrustStore;
     }
-  } catch {
-    // A corrupt optional trust store is treated as empty.
+  } catch (error) {
+    getLogger().warn(
+      `Ignoring corrupt trust store ${chalk.dim(storePath)}: ${getErrorMessage(error)}`,
+    );
   }
   return { version: 1, projects: {} };
 }

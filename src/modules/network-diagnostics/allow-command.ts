@@ -6,6 +6,7 @@ import {
   getProjectConfigPath,
   getProjectSandboxDir,
 } from "#modules/configuration/index.js";
+import { findSandboxContainers } from "#modules/sandbox-containers/index.js";
 import { getClock } from "#platform/clock/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { pathExists } from "#platform/filesystem/index.js";
@@ -17,7 +18,6 @@ import {
 } from "#platform/terminal/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { deriveAllowDomainChoices } from "./allow-domain-selection.js";
-import { findNetworkContainers } from "./container-discovery.js";
 import { collectContainerEntries } from "./network-log-collection.js";
 
 type ConfigTarget = "global" | "project";
@@ -34,7 +34,7 @@ export async function networkAllowCommand(
     await configuration.load(options);
   const runtimeService = await runtimeProvider.resolve(configuredRuntime);
 
-  const containers = await findNetworkContainers(runtimeService, {
+  const containers = await findSandboxContainers(runtimeService, {
     status: "running",
     projectSlug: generateProjectSlug(projectRoot),
   });

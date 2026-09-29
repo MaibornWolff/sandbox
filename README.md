@@ -133,13 +133,13 @@ If you start the sandbox from a subdirectory of a git repo, the **entire repo** 
 
 ### Network
 
-Outbound network access is blocked by default. The built-in allowlist includes common artificial intelligence (AI) services, package registries, and code hosts. Add required domains to `allow_network` in `config.toml`. See [Network Firewall](#network-firewall).
+Outbound network access is blocked by default. The allowlist that `sandbox init` writes to your user configuration includes common artificial intelligence (AI) services, package registries, and code hosts. Add required domains to `allow_network` in `config.toml`. See [Network Firewall](#network-firewall).
 
 ### Persistence
 
 Project files remain on the host and are mounted into the container. Data outside a mounted path is lost when the container stops.
 
-Add a path to `persist_paths` to keep data such as agent credentials or shell history. See [Persistence](#persistence-config). The built-in configuration includes common paths.
+Add a path to `persist_paths` to keep data such as agent credentials or shell history. See [Persistence configuration](#persistence-configuration). The configuration that `sandbox init` writes includes common paths.
 
 ## Daily Usage
 
@@ -258,7 +258,8 @@ When you run a known agent such as `sandbox run pi`, `sandbox run claude`, or `s
 sandbox status          # Show running containers and active sessions
 sandbox stop            # Stop current project's containers
 sandbox stop --all      # Stop all sandbox containers
-sandbox clean           # Remove stopped containers and dangling images
+sandbox clean           # Remove containers, volumes, and dangling images
+sandbox clean --all     # Also remove running containers
 sandbox clean --data    # Also remove persistent data
 ```
 
@@ -464,6 +465,8 @@ Common global flags (available for `sandbox` and subcommands like `sandbox run`)
 - `-N, --full-network` Disable network firewall (allow all outbound)
 - `-r, --readonly` Mount project read-only
 - `-c, --clipboard <mode>` Clipboard mode (`auto`, `x11`, `disabled`)
+- `-P, --no-proxy` Disable the proxy (requires `--full-network`)
+- `--no-build` Skip the image build and use the existing image
 - `-v, --verbose` Show detailed timing output
 - `-t, --trust` Trust project config without prompting
 - `-u, --no-container-reuse` Force a fresh container
@@ -498,10 +501,11 @@ Add tools at any level. Images are cached and only rebuild when their content ch
 
 ```bash
 sandbox build                 # Rebuild changed layers
-sandbox build --user          # Rebuild only user layer
+sandbox build --user          # Rebuild user and project layers
+sandbox build --no-cache      # Rebuild changed layers without the build cache
 sandbox build --project       # Rebuild only project layer
 sandbox upgrade               # Rebuild all layers from scratch (no cache)
-sandbox upgrade --user        # Fresh rebuild of user layer (e.g., update agents)
+sandbox upgrade --user        # Fresh rebuild of user and project layers (e.g., update agents)
 sandbox upgrade --project     # Fresh rebuild of project layer
 ```
 
@@ -519,30 +523,38 @@ sandbox build --project   # Build the project layer
 
 ## Commands Reference
 
-| Command                  | Description                                   |
-| ------------------------ | --------------------------------------------- |
-| `sandbox`                | Interactive shell in container                |
-| `sandbox run <cmd>`      | Run command in container                      |
-| `sandbox escape -- <cmd>` | Run an allowed command on the host           |
-| `sandbox escape --list`  | List allowed host command patterns            |
-| `sandbox assist`         | Start an agent for setup and troubleshooting  |
-| `sandbox init`           | Create user-level configuration files         |
-| `sandbox init --project` | Create project-level configuration files      |
-| `sandbox update`         | Update sandbox CLI to latest version          |
-| `sandbox build`          | Rebuild Docker images                         |
-| `sandbox upgrade`        | Rebuild with fresh packages (no cache)        |
-| `sandbox pull`           | Pull the base Docker image                    |
-| `sandbox config`         | Show merged configuration                     |
-| `sandbox config update`  | Update user config from latest templates      |
-| `sandbox status`         | Show running containers and sessions          |
-| `sandbox stop`           | Stop current project's containers             |
-| `sandbox stop --all`     | Stop all sandbox containers                   |
-| `sandbox clean`          | Remove stopped containers and dangling images |
-| `sandbox clean --data`   | Also remove persistent data                   |
-| `sandbox doctor`         | Check configuration and environment           |
-| `sandbox network logs`   | Show firewall activity (blocked/allowed)      |
-| `sandbox network allow`  | Interactively add domains from logs to config |
-| `sandbox setup-x11`      | Configure X11 clipboard support               |
+| Command                            | Description                                                  |
+| ---------------------------------- | ------------------------------------------------------------ |
+| `sandbox`                          | Interactive shell in container                               |
+| `sandbox run <cmd>`                | Run command in container                                     |
+| `sandbox escape -- <cmd>`          | Run an allowed command on the host                           |
+| `sandbox escape --list`            | List allowed host command patterns                           |
+| `sandbox assist`                   | Start an agent for setup and troubleshooting                 |
+| `sandbox init`                     | Create user-level configuration files                        |
+| `sandbox init --project`           | Create project-level configuration files                     |
+| `sandbox init --tools <ids>`       | Non-interactive tool selection, for example `node,mise-env`  |
+| `sandbox update`                   | Update sandbox CLI to latest version                         |
+| `sandbox build`                    | Rebuild changed image layers                                 |
+| `sandbox build --user`             | Rebuild user and project layers                              |
+| `sandbox build --project`          | Rebuild only the project layer                               |
+| `sandbox build --no-cache`         | Rebuild without the build cache                              |
+| `sandbox upgrade`                  | Rebuild all layers with fresh packages (no cache)            |
+| `sandbox migrate`                  | Rename legacy images, containers, volumes, and Dockerfiles   |
+| `sandbox config`                   | Show merged configuration                                    |
+| `sandbox config schema`            | Show all configuration fields, defaults, and merge rules     |
+| `sandbox config update`            | Update user config from latest templates                     |
+| `sandbox config update --project`  | Update project config from latest templates                  |
+| `sandbox status`                   | Show running containers and sessions                         |
+| `sandbox stop`                     | Stop current project's containers (`-f` skips the prompt)    |
+| `sandbox stop --all`               | Stop all sandbox containers                                  |
+| `sandbox clean`                    | Remove containers, volumes, and dangling images              |
+| `sandbox clean --all`              | Also remove running containers                               |
+| `sandbox clean --data`             | Also remove persistent data                                  |
+| `sandbox container start`          | Start the container in the foreground to debug startup       |
+| `sandbox doctor`                   | Check configuration and environment                          |
+| `sandbox network logs`             | Show firewall activity (blocked/allowed), alias `network l`  |
+| `sandbox network allow`            | Interactively add domains from logs to config                |
+| `sandbox setup-x11`                | Configure X11 clipboard support                              |
 
 ## Troubleshooting
 

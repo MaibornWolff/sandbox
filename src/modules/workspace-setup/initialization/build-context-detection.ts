@@ -13,6 +13,7 @@ import {
 } from "#platform/filesystem/index.js";
 import { getGitRootPath } from "#platform/git/index.js";
 import { writeStandardOutput } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type { ToolDefinition } from "../tools/tool-definition.js";
 import { TOOL_REGISTRY } from "../tools/tool-registry.js";
 
@@ -160,7 +161,7 @@ export function copyBuildContextFiles(
       );
     } catch (error) {
       writeStandardOutput(
-        `${chalk.yellow("⚠")} Failed to copy ${destination}: ${error instanceof Error ? error.message : String(error)}`,
+        `${chalk.yellow("⚠")} Failed to copy ${destination}: ${getErrorMessage(error)}`,
       );
     }
   }

@@ -1,6 +1,9 @@
 import { getConfigurationService } from "#modules/configuration/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import { buildSessionDetailsCommand } from "#platform/container-system/index.js";
+import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { getContainerHash } from "../container-hashing.js";
 import type { SandboxOptions } from "../sandbox-options.js";
@@ -45,7 +48,7 @@ export async function getContainerUptime(
 }
 
 /**
- * Get active session details from a container's `/tmp/sandbox-sessions/` directory.
+ * Get active session details from a container's session marker directory.
  *
  * Cleans stale markers (dead PIDs) then reads `/proc/<PID>/cmdline` for each
  * remaining session. Returns an empty array if the exec fails entirely.
@@ -69,22 +72,16 @@ export async function getSessionDetails(
   containerName: string,
 ): Promise<SessionInfo[]> {
   try {
-    const output = await service.execInContainer(containerName, [
-      "sh",
-      "-c",
-      [
-        "for f in /tmp/sandbox-sessions/*; do",
-        '  [ -f "$f" ] || continue;',
-        '  pid=$(basename "$f");',
-        '  kill -0 "$pid" 2>/dev/null || { rm -f "$f"; continue; };',
-        '  cmd=$(tr "\\0" " " < /proc/$pid/cmdline 2>/dev/null | head -c 200);',
-        '  echo "$pid|$cmd";',
-        "done",
-      ].join(" "),
-    ]);
+    const output = await service.execInContainer(
+      containerName,
+      buildSessionDetailsCommand(),
+    );
 
     return parseSessionDetails(output);
-  } catch {
+  } catch (error) {
+    getLogger().debug(
+      `Could not read sessions of ${containerName}: ${getErrorMessage(error)}`,
+    );
     return [];
   }
 }

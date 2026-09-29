@@ -2,6 +2,8 @@ import type {
   ContainerRuntime,
   ListContainersOptions,
 } from "#platform/container-runtime/index.js";
+import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 
 /**
@@ -62,7 +64,10 @@ export async function findSandboxContainers(
       name: entry.name,
       image: entry.image.replace(/^localhost\//, ""),
     }));
-  } catch {
+  } catch (error) {
+    getLogger().warn(
+      `Could not list sandbox containers: ${getErrorMessage(error)}`,
+    );
     return [];
   }
 }

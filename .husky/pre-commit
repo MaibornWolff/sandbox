@@ -1,1 +1,2 @@
-bun check
+bun run lint:staged
+git update-index --again

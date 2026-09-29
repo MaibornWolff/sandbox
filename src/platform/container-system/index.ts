@@ -12,6 +12,8 @@ export {
   terminateContainerSessions,
   writeSshProxyConfiguration,
 } from "./container-lifecycle.js";
+/** @lintignore Public container-system path contract. */
+export { CONTAINER_READY_FILE } from "./container-paths.js";
 /** @lintignore Public container-system diagnostic contract. */
 export {
   type ContainerLogSource,
@@ -27,6 +29,11 @@ export {
   getSquidDomainAclPath,
   type SquidDomainAclGroup,
 } from "./network-bootstrap.js";
+/** @lintignore Public container-system session contract. */
+export {
+  buildSessionDetailsCommand,
+  buildSessionIdleCommand,
+} from "./session-scripts.js";
 /** @lintignore Public container-system TCP boundary contract. */
 export {
   createNodeTcpService,

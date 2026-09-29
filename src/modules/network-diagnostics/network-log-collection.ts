@@ -1,10 +1,10 @@
+import type { SandboxContainer } from "#modules/sandbox-containers/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
 import { aggregateBlocked, parseBlockedLog } from "./blocked-log-parsing.js";
 import {
   buildContainerDiagnosticCommand,
   type NetworkDiagnosticSource,
 } from "./container-diagnostic-commands.js";
-import type { NetworkContainer } from "./container-discovery.js";
 import {
   buildIpToDomainMap,
   parseDnsAllowedDomains,
@@ -60,7 +60,7 @@ async function buildHostnameMap(
 
 function parseLogEntries(
   log: string,
-  container: NetworkContainer,
+  container: SandboxContainer,
   hostnames: Map<string, string | null>,
   status: NetworkConnectionStatus,
 ): NetworkLogEntry[] {
@@ -81,7 +81,7 @@ function parseLogEntries(
 
 function addDnsEntries(
   entries: NetworkLogEntry[],
-  container: NetworkContainer,
+  container: SandboxContainer,
   dnsEntries: Array<{ domain: string; count: number; lastSeen: number }>,
   skipDomains: Set<string>,
   status: NetworkConnectionStatus,
@@ -103,7 +103,7 @@ function addDnsEntries(
 
 export async function collectContainerEntries(
   service: ContainerRuntime,
-  container: NetworkContainer,
+  container: SandboxContainer,
   useReverseDns: boolean,
   referenceTime: number,
 ): Promise<NetworkLogEntry[]> {

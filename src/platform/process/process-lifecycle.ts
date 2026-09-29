@@ -5,6 +5,7 @@ import {
   getLogger,
   type Logger,
 } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type {
   ProcessAdapter,
   ProcessIdentity,
@@ -524,7 +525,7 @@ function createSignalRouter(options: {
       if (!handled) deliverLocal(route, signal, generation);
     } catch (error) {
       const forwardingError = new SignalForwardingError(
-        `Failed to forward ${signal} for ${route.process.name}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to forward ${signal} for ${route.process.name}: ${getErrorMessage(error)}`,
         { cause: error },
       );
       options.logger.error(forwardingError.message);
@@ -555,9 +556,7 @@ function createSignalRouter(options: {
     try {
       await options.forceStop(foregroundProcess);
     } catch (error) {
-      options.logger.error(
-        error instanceof Error ? error.message : String(error),
-      );
+      options.logger.error(getErrorMessage(error));
       options.logger.debug(
         `Forced process shutdown diagnostics:\n${formatErrorDiagnostics(error)}`,
       );
@@ -605,7 +604,7 @@ function createSignalRouter(options: {
 
 function reportSuppressedError(error: unknown): void {
   const logger = getLogger();
-  logger.error(error instanceof Error ? error.message : String(error));
+  logger.error(getErrorMessage(error));
   logger.debug(
     `Process cleanup diagnostics:\n${formatErrorDiagnostics(error)}`,
   );

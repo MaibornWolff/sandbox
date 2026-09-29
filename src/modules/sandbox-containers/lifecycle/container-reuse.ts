@@ -1,6 +1,9 @@
+import chalk from "chalk";
 import { getClock } from "#platform/clock/index.js";
 import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import { buildSessionIdleCommand } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 import { getContainerBaseName } from "../container-naming.js";
@@ -56,7 +59,10 @@ async function queryRunningContainers(
       name: entry.name,
       hash: entry.labels?.[SANDBOX_HASH_LABEL] || null,
     }));
-  } catch {
+  } catch (error) {
+    getLogger().warn(
+      `Could not list running containers for ${chalk.cyan(projectSlug)}: ${getErrorMessage(error)}`,
+    );
     return [];
   }
 }
@@ -81,12 +87,16 @@ async function removeStoppedContainers(
       try {
         await service.removeContainer(entry.id, true);
         logger.debug(`Removed stopped container: ${entry.id}`);
-      } catch {
-        // Non-fatal: container may already be gone
+      } catch (error) {
+        logger.debug(
+          `Could not remove stopped container ${entry.id}, it may already be gone: ${getErrorMessage(error)}`,
+        );
       }
     }
-  } catch {
-    // Non-fatal
+  } catch (error) {
+    logger.warn(
+      `Could not list stopped containers for ${chalk.cyan(projectSlug)}: ${getErrorMessage(error)}`,
+    );
   }
 }
 
@@ -120,7 +130,7 @@ async function removeIdleObsoleteContainer(
     logger.debug(`Removed idle obsolete container: ${container.name}`);
     return null;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     logger.warn(
       `Could not remove idle obsolete container ${container.name}: ${message}`,
     );
@@ -166,7 +176,10 @@ async function hasContainerCrashed(
   if (isContainerGone(errorMessage)) return true;
   try {
     return (await service.getContainerState(containerName)) !== "running";
-  } catch {
+  } catch (error) {
+    getLogger().debug(
+      `Could not read state of ${chalk.cyan(containerName)}, assuming it crashed: ${getErrorMessage(error)}`,
+    );
     return true;
   }
 }
@@ -197,7 +210,7 @@ async function dumpContainerLogs(
 
 /**
  * Wait for the container's entrypoint to signal readiness.
- * Uses one bounded runtime request to wait for `/tmp/.sandbox-ready`.
+ * Uses one bounded runtime request to wait for the container ready marker.
  * Detects container crashes and dumps logs for debugging.
  */
 export async function waitForReady(
@@ -210,7 +223,7 @@ export async function waitForReady(
     await service.waitUntilContainerReady(containerName, timeoutMs);
     return;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     if (await hasContainerCrashed(service, containerName, message)) {
       logger.error(`Container crashed during startup: ${message}`);
       await dumpContainerLogs(service, containerName);
@@ -242,13 +255,12 @@ async function isContainerIdle(
   containerName: string,
 ): Promise<boolean> {
   try {
-    await service.execInContainer(containerName, [
-      "sh",
-      "-c",
-      'for f in /tmp/sandbox-sessions/*; do [ -f "$f" ] || continue; kill -0 "$(basename "$f")" 2>/dev/null || rm -f "$f"; done; [ -z "$(ls /tmp/sandbox-sessions/ 2>/dev/null)" ]',
-    ]);
+    await service.execInContainer(containerName, buildSessionIdleCommand());
     return true; // Exit 0 -> idle
-  } catch {
+  } catch (error) {
+    getLogger().debug(
+      `Container ${chalk.cyan(containerName)} still has active sessions: ${getErrorMessage(error)}`,
+    );
     return false; // Exit 1 -> sessions still active
   }
 }
@@ -389,6 +401,6 @@ export async function findOrCreateContainer(
  * Check if a docker error indicates a container name conflict.
  */
 function isNameConflict(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
+  const msg = getErrorMessage(err);
   return msg.includes("is already in use") || msg.includes("name is taken");
 }

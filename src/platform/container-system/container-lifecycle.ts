@@ -3,12 +3,13 @@ import path from "node:path";
 import { getSandboxEnvironment } from "#platform/environment/index.js";
 import { getProcessManager } from "#platform/process/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { isFileNotFoundError } from "#shared/errors/index.js";
 import { executeContainerCommand } from "./command.js";
+import {
+  CONTAINER_READY_FILE,
+  CONTAINER_SESSIONS_DIRECTORY,
+} from "./container-paths.js";
 
-/** @testonly */
-export const CONTAINER_READY_FILE = "/tmp/.sandbox-ready";
-/** @testonly */
-export const CONTAINER_SESSIONS_DIRECTORY = "/tmp/sandbox-sessions";
 const CONTAINER_MOUNTS_FILE = "/proc/mounts";
 const SETTINGS_DIRECTORY = "/etc/sandbox/settings";
 
@@ -161,7 +162,7 @@ function sessionProcessState(pid: number): "active" | "missing" | "zombie" {
     const processState = stat.slice(stat.lastIndexOf(")") + 1).trimStart()[0];
     return processState === "Z" ? "zombie" : "active";
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isFileNotFoundError(error)) {
       return "missing";
     }
     throw error;
@@ -177,11 +178,7 @@ function inspectSessionProcesses(): SessionProcesses {
     try {
       if (!fs.statSync(markerPath).isFile()) continue;
     } catch (error) {
-      if (
-        error instanceof Error &&
-        "code" in error &&
-        error.code === "ENOENT"
-      ) {
+      if (isFileNotFoundError(error)) {
         continue;
       }
       throw error;

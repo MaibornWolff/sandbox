@@ -55,21 +55,25 @@ describe("DockerService", () => {
   });
 
   test("getMemoryBytes returns null for malformed output or discovery failure", async () => {
-    const request = {
-      command: "docker",
-      args: ["info", "--format", "{{.MemTotal}}"],
-    };
-    const malformed = createStatefulRuntimeCommandExecutor();
-    malformed.givenOutput(request, "not-a-number\n");
-    expect(
-      await new DockerService(malformed.executor).getMemoryBytes(),
-    ).toBeNull();
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const request = {
+        command: "docker",
+        args: ["info", "--format", "{{.MemTotal}}"],
+      };
+      const malformed = createStatefulRuntimeCommandExecutor();
+      malformed.givenOutput(request, "not-a-number\n");
+      expect(
+        await new DockerService(malformed.executor).getMemoryBytes(),
+      ).toBeNull();
 
-    const failed = createStatefulRuntimeCommandExecutor();
-    failed.givenFailure(request, new Error("no docker"));
-    expect(
-      await new DockerService(failed.executor).getMemoryBytes(),
-    ).toBeNull();
+      const failed = createStatefulRuntimeCommandExecutor();
+      failed.givenFailure(request, new Error("no docker"));
+      expect(
+        await new DockerService(failed.executor).getMemoryBytes(),
+      ).toBeNull();
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   // -- Container lifecycle ------------------------------------------------
@@ -164,16 +168,20 @@ describe("DockerService", () => {
   });
 
   test("listContainers treats command failure as no discovered containers", async () => {
-    const commands = createStatefulRuntimeCommandExecutor();
-    const request = {
-      command: "docker",
-      args: ["ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}"],
-    };
-    commands.givenFailure(request, new Error("daemon unavailable"));
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      const request = {
+        command: "docker",
+        args: ["ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}"],
+      };
+      commands.givenFailure(request, new Error("daemon unavailable"));
 
-    expect(await new DockerService(commands.executor).listContainers()).toEqual(
-      [],
-    );
+      expect(
+        await new DockerService(commands.executor).listContainers(),
+      ).toEqual([]);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("createContainer starts containers with an init process", async () => {
@@ -390,96 +398,104 @@ describe("DockerService", () => {
   });
 
   test("container metadata degrades to null or unknown when absent or failing", async () => {
-    const emptyLabel = createStatefulRuntimeCommandExecutor();
-    emptyLabel.givenOutput(
-      {
-        command: "docker",
-        args: [
-          "inspect",
-          "--format",
-          '{{index .Config.Labels "sandbox.hash"}}',
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const emptyLabel = createStatefulRuntimeCommandExecutor();
+      emptyLabel.givenOutput(
+        {
+          command: "docker",
+          args: [
+            "inspect",
+            "--format",
+            '{{index .Config.Labels "sandbox.hash"}}',
+            "empty",
+          ],
+        },
+        "  \n",
+      );
+      expect(
+        await new DockerService(emptyLabel.executor).getContainerLabel(
           "empty",
-        ],
-      },
-      "  \n",
-    );
-    expect(
-      await new DockerService(emptyLabel.executor).getContainerLabel(
-        "empty",
-        "sandbox.hash",
-      ),
-    ).toBeNull();
+          "sandbox.hash",
+        ),
+      ).toBeNull();
 
-    const failedLabel = createStatefulRuntimeCommandExecutor();
-    failedLabel.givenFailure(
-      {
-        command: "docker",
-        args: [
-          "inspect",
-          "--format",
-          '{{index .Config.Labels "sandbox.hash"}}',
+      const failedLabel = createStatefulRuntimeCommandExecutor();
+      failedLabel.givenFailure(
+        {
+          command: "docker",
+          args: [
+            "inspect",
+            "--format",
+            '{{index .Config.Labels "sandbox.hash"}}',
+            "missing",
+          ],
+        },
+        new Error("container not found"),
+      );
+      expect(
+        await new DockerService(failedLabel.executor).getContainerLabel(
           "missing",
-        ],
-      },
-      new Error("container not found"),
-    );
-    expect(
-      await new DockerService(failedLabel.executor).getContainerLabel(
-        "missing",
-        "sandbox.hash",
-      ),
-    ).toBeNull();
+          "sandbox.hash",
+        ),
+      ).toBeNull();
 
-    const unknownUptime = createStatefulRuntimeCommandExecutor();
-    unknownUptime.givenOutput(
-      {
-        command: "docker",
-        args: ["ps", "--filter", "id=stopped", "--format", "{{.RunningFor}}"],
-      },
-      "\n",
-    );
-    expect(
-      await new DockerService(unknownUptime.executor).getContainerUptime(
-        "stopped",
-      ),
-    ).toBe("unknown");
+      const unknownUptime = createStatefulRuntimeCommandExecutor();
+      unknownUptime.givenOutput(
+        {
+          command: "docker",
+          args: ["ps", "--filter", "id=stopped", "--format", "{{.RunningFor}}"],
+        },
+        "\n",
+      );
+      expect(
+        await new DockerService(unknownUptime.executor).getContainerUptime(
+          "stopped",
+        ),
+      ).toBe("unknown");
 
-    const failedUptime = createStatefulRuntimeCommandExecutor();
-    failedUptime.givenFailure(
-      {
-        command: "docker",
-        args: ["ps", "--filter", "id=missing", "--format", "{{.RunningFor}}"],
-      },
-      new Error("daemon unavailable"),
-    );
-    expect(
-      await new DockerService(failedUptime.executor).getContainerUptime(
-        "missing",
-      ),
-    ).toBe("unknown");
+      const failedUptime = createStatefulRuntimeCommandExecutor();
+      failedUptime.givenFailure(
+        {
+          command: "docker",
+          args: ["ps", "--filter", "id=missing", "--format", "{{.RunningFor}}"],
+        },
+        new Error("daemon unavailable"),
+      );
+      expect(
+        await new DockerService(failedUptime.executor).getContainerUptime(
+          "missing",
+        ),
+      ).toBe("unknown");
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   // -- Image operations ---------------------------------------------------
 
   test("listImageReferences filters dangling references and handles discovery failure", async () => {
-    const request = {
-      command: "docker",
-      args: ["images", "--format", "{{.Repository}}:{{.Tag}}"],
-    };
-    const commands = createStatefulRuntimeCommandExecutor();
-    commands.givenOutput(
-      request,
-      "sandbox-base:latest\n<none>:<none>\nregistry/app:v2\n",
-    );
-    expect(
-      await new DockerService(commands.executor).listImageReferences(),
-    ).toEqual(["sandbox-base:latest", "registry/app:v2"]);
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const request = {
+        command: "docker",
+        args: ["images", "--format", "{{.Repository}}:{{.Tag}}"],
+      };
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenOutput(
+        request,
+        "sandbox-base:latest\n<none>:<none>\nregistry/app:v2\n",
+      );
+      expect(
+        await new DockerService(commands.executor).listImageReferences(),
+      ).toEqual(["sandbox-base:latest", "registry/app:v2"]);
 
-    const failed = createStatefulRuntimeCommandExecutor();
-    failed.givenFailure(request, new Error("daemon unavailable"));
-    expect(
-      await new DockerService(failed.executor).listImageReferences(),
-    ).toEqual([]);
+      const failed = createStatefulRuntimeCommandExecutor();
+      failed.givenFailure(request, new Error("daemon unavailable"));
+      expect(
+        await new DockerService(failed.executor).listImageReferences(),
+      ).toEqual([]);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("imageExists returns true for non-empty output", async () => {
@@ -496,23 +512,27 @@ describe("DockerService", () => {
   });
 
   test("imageExists returns false for empty output or discovery failure", async () => {
-    const empty = createStatefulRuntimeCommandExecutor();
-    empty.givenOutput(
-      { command: "docker", args: ["images", "-q", "missing"] },
-      "\n",
-    );
-    expect(await new DockerService(empty.executor).imageExists("missing")).toBe(
-      false,
-    );
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const empty = createStatefulRuntimeCommandExecutor();
+      empty.givenOutput(
+        { command: "docker", args: ["images", "-q", "missing"] },
+        "\n",
+      );
+      expect(
+        await new DockerService(empty.executor).imageExists("missing"),
+      ).toBe(false);
 
-    const failed = createStatefulRuntimeCommandExecutor();
-    failed.givenFailure(
-      { command: "docker", args: ["images", "-q", "nonexistent"] },
-      new Error("not found"),
-    );
-    expect(
-      await new DockerService(failed.executor).imageExists("nonexistent"),
-    ).toBe(false);
+      const failed = createStatefulRuntimeCommandExecutor();
+      failed.givenFailure(
+        { command: "docker", args: ["images", "-q", "nonexistent"] },
+        new Error("not found"),
+      );
+      expect(
+        await new DockerService(failed.executor).imageExists("nonexistent"),
+      ).toBe(false);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("inspectImage reads its ID and requested labels together", async () => {
@@ -542,26 +562,32 @@ describe("DockerService", () => {
   });
 
   test("getImageLabel returns a value or null for absent and failing images", async () => {
-    const request = (name: string) => ({
-      command: "docker",
-      args: [
-        "inspect",
-        "--format",
-        '{{index .Config.Labels "dockerfile.hash"}}',
-        name,
-      ],
-    });
-    const commands = createStatefulRuntimeCommandExecutor();
-    commands.givenOutput(request("current"), "hash-123\n");
-    commands.givenOutput(request("unlabelled"), "<no value>\n");
-    commands.givenFailure(request("missing"), new Error("image not found"));
-    const svc = new DockerService(commands.executor);
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const request = (name: string) => ({
+        command: "docker",
+        args: [
+          "inspect",
+          "--format",
+          '{{index .Config.Labels "dockerfile.hash"}}',
+          name,
+        ],
+      });
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenOutput(request("current"), "hash-123\n");
+      commands.givenOutput(request("unlabelled"), "<no value>\n");
+      commands.givenFailure(request("missing"), new Error("image not found"));
+      const svc = new DockerService(commands.executor);
 
-    expect(await svc.getImageLabel("current", "dockerfile.hash")).toBe(
-      "hash-123",
-    );
-    expect(await svc.getImageLabel("unlabelled", "dockerfile.hash")).toBeNull();
-    expect(await svc.getImageLabel("missing", "dockerfile.hash")).toBeNull();
+      expect(await svc.getImageLabel("current", "dockerfile.hash")).toBe(
+        "hash-123",
+      );
+      expect(
+        await svc.getImageLabel("unlabelled", "dockerfile.hash"),
+      ).toBeNull();
+      expect(await svc.getImageLabel("missing", "dockerfile.hash")).toBeNull();
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("buildImage includes --load and DOCKER_BUILDKIT", async () => {
@@ -763,58 +789,69 @@ describe("DockerService", () => {
   });
 
   test("listDanglingImages returns empty output for no matches or command failure", async () => {
-    const request = {
-      command: "docker",
-      args: [
-        "images",
-        "--filter",
-        "dangling=true",
-        "--filter",
-        "reference=none-*",
-        "--format",
-        "{{.ID}}|{{.Size}}|{{.CreatedAt}}",
-      ],
-    };
-    const empty = createStatefulRuntimeCommandExecutor();
-    empty.givenOutput(request, "\n");
-    expect(
-      await new DockerService(empty.executor).listDanglingImages("none-*"),
-    ).toEqual([]);
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const request = {
+        command: "docker",
+        args: [
+          "images",
+          "--filter",
+          "dangling=true",
+          "--filter",
+          "reference=none-*",
+          "--format",
+          "{{.ID}}|{{.Size}}|{{.CreatedAt}}",
+        ],
+      };
+      const empty = createStatefulRuntimeCommandExecutor();
+      empty.givenOutput(request, "\n");
+      expect(
+        await new DockerService(empty.executor).listDanglingImages("none-*"),
+      ).toEqual([]);
 
-    const failed = createStatefulRuntimeCommandExecutor();
-    failed.givenFailure(request, new Error("daemon unavailable"));
-    expect(
-      await new DockerService(failed.executor).listDanglingImages("none-*"),
-    ).toEqual([]);
+      const failed = createStatefulRuntimeCommandExecutor();
+      failed.givenFailure(request, new Error("daemon unavailable"));
+      expect(
+        await new DockerService(failed.executor).listDanglingImages("none-*"),
+      ).toEqual([]);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("getContainersUsingImage returns ancestor container ids and handles failures", async () => {
-    const request = (imageId: string) => ({
-      command: "docker",
-      args: [
-        "ps",
-        "-a",
-        "--filter",
-        `ancestor=${imageId}`,
-        "--format",
-        "{{.ID}}",
-      ],
-    });
-    const commands = createStatefulRuntimeCommandExecutor();
-    commands.givenOutput(request("sha256:used"), "container-a\ncontainer-b\n");
-    commands.givenOutput(request("sha256:unused"), "\n");
-    commands.givenFailure(
-      request("sha256:unknown"),
-      new Error("daemon unavailable"),
-    );
-    const svc = new DockerService(commands.executor);
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const request = (imageId: string) => ({
+        command: "docker",
+        args: [
+          "ps",
+          "-a",
+          "--filter",
+          `ancestor=${imageId}`,
+          "--format",
+          "{{.ID}}",
+        ],
+      });
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenOutput(
+        request("sha256:used"),
+        "container-a\ncontainer-b\n",
+      );
+      commands.givenOutput(request("sha256:unused"), "\n");
+      commands.givenFailure(
+        request("sha256:unknown"),
+        new Error("daemon unavailable"),
+      );
+      const svc = new DockerService(commands.executor);
 
-    expect(await svc.getContainersUsingImage("sha256:used")).toEqual([
-      "container-a",
-      "container-b",
-    ]);
-    expect(await svc.getContainersUsingImage("sha256:unused")).toEqual([]);
-    expect(await svc.getContainersUsingImage("sha256:unknown")).toEqual([]);
+      expect(await svc.getContainersUsingImage("sha256:used")).toEqual([
+        "container-a",
+        "container-b",
+      ]);
+      expect(await svc.getContainersUsingImage("sha256:unused")).toEqual([]);
+      expect(await svc.getContainersUsingImage("sha256:unknown")).toEqual([]);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("pull, tag, and remove use exact Docker boundaries", async () => {
@@ -859,23 +896,29 @@ describe("DockerService", () => {
   // -- Volume operations --------------------------------------------------
 
   test("volume existence reflects inspect success and failure", async () => {
-    const existing = createStatefulRuntimeCommandExecutor();
-    existing.givenOutput(
-      { command: "docker", args: ["volume", "inspect", "sandbox-cache"] },
-      '[{"Name":"sandbox-cache"}]',
-    );
-    expect(
-      await new DockerService(existing.executor).volumeExists("sandbox-cache"),
-    ).toBe(true);
+    const messages: string[] = [];
+    await runWithDockerLogger(async () => {
+      const existing = createStatefulRuntimeCommandExecutor();
+      existing.givenOutput(
+        { command: "docker", args: ["volume", "inspect", "sandbox-cache"] },
+        '[{"Name":"sandbox-cache"}]',
+      );
+      expect(
+        await new DockerService(existing.executor).volumeExists(
+          "sandbox-cache",
+        ),
+      ).toBe(true);
 
-    const missing = createStatefulRuntimeCommandExecutor();
-    missing.givenFailure(
-      { command: "docker", args: ["volume", "inspect", "missing"] },
-      new Error("no such volume"),
-    );
-    expect(
-      await new DockerService(missing.executor).volumeExists("missing"),
-    ).toBe(false);
+      const missing = createStatefulRuntimeCommandExecutor();
+      missing.givenFailure(
+        { command: "docker", args: ["volume", "inspect", "missing"] },
+        new Error("no such volume"),
+      );
+      expect(
+        await new DockerService(missing.executor).volumeExists("missing"),
+      ).toBe(false);
+    }, messages);
+    expect(messages.join("\n")).toContain("failed, using fallback");
   });
 
   test("create, copy, and remove volume use exact Docker boundaries", async () => {

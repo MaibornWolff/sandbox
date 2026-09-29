@@ -10,6 +10,7 @@ import {
   writeStandardError,
   writeStandardOutput,
 } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { parseSettingsManifest } from "./settings-manifest.js";
 
 function normalizeHomePattern(pattern: string): string {
@@ -68,7 +69,7 @@ export async function syncNewContainerSettings(): Promise<readonly string[]> {
       debug(`synced: ${relativePath}`);
       writeStandardOutput(`→ Synced ~/${relativePath} to host`);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
+      const detail = getErrorMessage(error);
       failures.push(`${relativePath}: ${detail}`);
       debug(`failed to sync ${relativePath}: ${detail}`);
     }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { runWithCapturedLogs } from "#test/captured-logger.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 import { readState, writeState } from "./index.js";
 
@@ -20,10 +21,14 @@ describe("readState", () => {
     expect(readState(statePath)).toEqual({});
   });
 
-  it("returns empty object when file is corrupt JSON", () => {
+  it("returns empty object and warns when file is corrupt JSON", () => {
     const statePath = path.join(testDir, "state.json");
     fs.writeFileSync(statePath, "not json{{{");
-    expect(readState(statePath)).toEqual({});
+    const messages: string[] = [];
+    expect(runWithCapturedLogs(messages, () => readState(statePath))).toEqual(
+      {},
+    );
+    expect(messages.join("\n")).toContain("Ignoring invalid JSON");
   });
 
   it("returns state that matches the declared schema", () => {

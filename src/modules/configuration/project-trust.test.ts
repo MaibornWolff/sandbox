@@ -6,6 +6,7 @@ import {
   createHostEnvironment,
   provideHostEnvironment,
 } from "#platform/environment/index.js";
+import { runWithCapturedLogs } from "#test/captured-logger.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 import {
   computeDirectoryHash,
@@ -41,7 +42,11 @@ describe("project trust", () => {
     try {
       expect(loadTrustStore(storePath)).toEqual({ version: 1, projects: {} });
       fs.writeFileSync(storePath, "not json");
-      expect(loadTrustStore(storePath)).toEqual({ version: 1, projects: {} });
+      const messages: string[] = [];
+      expect(
+        runWithCapturedLogs(messages, () => loadTrustStore(storePath)),
+      ).toEqual({ version: 1, projects: {} });
+      expect(messages.join("\n")).toContain("Ignoring corrupt trust store");
       fs.writeFileSync(storePath, '{"version":1}');
       expect(loadTrustStore(storePath)).toEqual({ version: 1, projects: {} });
     } finally {

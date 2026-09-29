@@ -22,6 +22,7 @@ import {
   type WebSocketMessage,
   type WebSocketServer,
 } from "#platform/websocket/index.js";
+import { isFileNotFoundError } from "#shared/errors/index.js";
 import {
   type CompiledCommandPattern,
   compileCommandPattern,
@@ -130,15 +131,6 @@ async function mapWorkingDirectory(
     throw new Error("working directory resolves outside the host project");
   }
   return canonicalCandidate;
-}
-
-function executableMissing(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ENOENT"
-  );
 }
 
 async function sendExit(
@@ -290,7 +282,7 @@ async function executeCommand(
     await input;
   } catch (error) {
     complete = true;
-    if (executableMissing(error))
+    if (isFileNotFoundError(error))
       await sendExit(connection, 127).catch(() => undefined);
     else await reportProtocolFailure(connection, context, child, error);
   } finally {

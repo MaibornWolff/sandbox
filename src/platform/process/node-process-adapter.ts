@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { createWriteStream, readFileSync } from "node:fs";
 import type { Readable, Writable } from "node:stream";
 import spawnChild from "cross-spawn";
+import { isFileNotFoundError } from "#shared/errors/index.js";
 import { getExitCodeForSignal } from "./exit-code.js";
 import type {
   ProcessAdapter,
@@ -173,13 +174,7 @@ function linuxStartTime(pid: number): string | undefined {
     const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
     return fields[19];
   } catch (error: unknown) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    )
-      return undefined;
+    if (isFileNotFoundError(error)) return undefined;
     throw error;
   }
 }

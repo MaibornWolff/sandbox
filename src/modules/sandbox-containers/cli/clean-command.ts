@@ -17,6 +17,7 @@ import { pathExists, removeDirectory } from "#platform/filesystem/index.js";
 import { getRepoRootPath } from "#platform/git/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { confirmDestruction } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { findSandboxContainers } from "../lifecycle/container-discovery.js";
 import type { CleanOptions } from "../sandbox-options.js";
 
@@ -33,7 +34,7 @@ async function removeContainers(
       await service.removeContainer(id, true);
       logger.success(`Removed container: ${id.substring(0, 12)}`);
     } catch (err) {
-      logger.error(`Failed to remove container ${id}: ${err}`);
+      logger.error(`Failed to remove container ${id}: ${getErrorMessage(err)}`);
     }
   }
 }
@@ -56,7 +57,7 @@ async function removeVolumes(
       await service.removeVolume(vol);
       logger.success(`Removed volume: ${vol}`);
     } catch (err) {
-      const errMessage = err instanceof Error ? err.message : String(err);
+      const errMessage = getErrorMessage(err);
       if (
         errMessage.includes("No such volume") ||
         errMessage.includes("no such volume")
@@ -84,7 +85,7 @@ async function removePersistentData(): Promise<void> {
       removeDirectory(persistPath);
       logger.success(`Removed persistent data: ${persistPath}`);
     } catch (err) {
-      logger.error(`Failed to remove persistent data: ${err}`);
+      logger.error(`Failed to remove persistent data: ${getErrorMessage(err)}`);
     }
   } else {
     logger.info("Persistent data directory not found (already removed)");

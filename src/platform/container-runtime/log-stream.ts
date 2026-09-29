@@ -7,6 +7,7 @@ import {
   type ProcessResult,
   ProcessShutdownError,
 } from "#platform/process/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type { ContainerRuntime } from "./types.js";
 
 interface ContainerLogStream {
@@ -108,7 +109,7 @@ export function startContainerLogStream(
     });
   } catch (error) {
     logger.warn(
-      `Container log stream for ${chalk.cyan(containerName)} failed to start: ${error instanceof Error ? error.message : String(error)}`,
+      `Container log stream for ${chalk.cyan(containerName)} failed to start: ${getErrorMessage(error)}`,
     );
     return {
       reportFailure: () => undefined,
@@ -130,7 +131,7 @@ export function startContainerLogStream(
       stderr.close();
       if (!stopping) {
         logger.warn(
-          `Container log stream for ${chalk.cyan(containerName)} failed: ${error instanceof Error ? error.message : String(error)}`,
+          `Container log stream for ${chalk.cyan(containerName)} failed: ${getErrorMessage(error)}`,
         );
       }
     });

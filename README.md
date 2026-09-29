@@ -31,6 +31,8 @@ Bringing AI coding agents into your team? [MaibornWolff](https://www.maibornwolf
 ```bash
 npm install -g @maibornwolff/sandbox
 # or
+pnpm add -g @maibornwolff/sandbox
+# or
 bun install -g @maibornwolff/sandbox
 ```
 

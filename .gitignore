@@ -33,6 +33,7 @@ Thumbs.db
 .sandbox/
 .e2e-watcher/
 .agents/worktrees/
+.agents/changes/
 
 # Local settings
 .claude/settings.local.json

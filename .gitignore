@@ -13,6 +13,8 @@ node_modules/
 dist/
 
 # Build artifacts
+/THIRD_PARTY_NOTICES.md
+/SBOM.cdx.json
 /docker/runtime/
 *.log
 *.tmp

@@ -50,7 +50,9 @@
     "!src/**/__test__/**",
     "!src/**/*.test.ts",
     "!src/test/**",
-    "README.md"
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "SBOM.cdx.json"
   ],
   "publishConfig": {
     "access": "public",
@@ -77,7 +79,8 @@
     "cpd": "jscpd src --reporters console --ignore '**/*.test.ts,**/__test__/**' --threshold 1",
     "knip": "knip --production",
     "knip:fix": "knip --fix",
-    "prepare": "husky"
+    "prepare": "husky",
+    "prepack": "bun scripts/prepare-npm-package.ts"
   },
   "dependencies": {
     "@earendil-works/pi-tui": "^0.85.1",

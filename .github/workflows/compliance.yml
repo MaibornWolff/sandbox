@@ -21,33 +21,32 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1"
-      - name: Install production dependencies
-        run: bun install --frozen-lockfile --production --ignore-scripts
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
       - name: Check dependency licenses
         run: >-
           bunx license-checker@25.0.1 --production
           --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;ISC;Zlib;Unlicense;X11;PostgreSQL;Python-2.0.1;PSF-2.0;CC0-1.0;WTFPL;NCSA;UPL-1.0"
-      - name: Generate third-party notices
+      - name: Build package
+        run: bun run build
+      - name: Verify npm package contents
         run: |
-          mkdir -p compliance
-          bunx license-checker@25.0.1 --production --customPath scripts/license-report-format.json --json --out compliance/licenses.json
-          bun scripts/generate-third-party-notices.ts compliance/licenses.json compliance/THIRD_PARTY_NOTICES.md @maibornwolff/sandbox "$GITHUB_SHA"
-      - name: Generate CycloneDX SBOM
-        uses: anchore/sbom-action@v0
-        with:
-          path: node_modules
-          format: cyclonedx-json
-          output-file: compliance/sandbox.sbom.cdx.json
-          upload-artifact: false
+          npm pack --dry-run --json > pack-files.json
+          node -e 'const files = new Set(require("./pack-files.json")[0].files.map(file => file.path)); for (const name of ["THIRD_PARTY_NOTICES.md", "SBOM.cdx.json"]) if (!files.has(name)) throw new Error(`Missing npm package file: ${name}`)'
+          node -e 'const fs = require("node:fs"); const pkg = require("./package.json"); const sbom = require("./SBOM.cdx.json"); const components = new Set(sbom.components.map(component => component.name)); for (const name of Object.keys(pkg.dependencies)) if (!components.has(name)) throw new Error(`Missing SBOM dependency: ${name}`); if (sbom.metadata.component.name !== pkg.name || sbom.metadata.component.version !== pkg.version) throw new Error("SBOM identity does not match package"); if (!fs.readFileSync("THIRD_PARTY_NOTICES.md", "utf8").includes(`Version: ${pkg.version}`)) throw new Error("Third-party notices version does not match package")'
       - name: Upload compliance artifacts
         uses: actions/upload-artifact@v4
         with:
           name: compliance
           path: |
-            compliance/sandbox.sbom.cdx.json
-            compliance/THIRD_PARTY_NOTICES.md
+            THIRD_PARTY_NOTICES.md
+            SBOM.cdx.json
           if-no-files-found: error

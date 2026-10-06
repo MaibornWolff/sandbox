@@ -1,3 +1,4 @@
+export { hashDirectoryContents } from "./directory-snapshot.js";
 export type { FileResult } from "./file.js";
 export {
   copyDirectory,
@@ -6,9 +7,11 @@ export {
   createFile,
   createSymbolicLink,
   createTemporaryDirectory,
+  createTemporaryDirectoryIn,
   ensureDirectory,
   ensurePath,
   exists,
+  getPathModifiedTime,
   getPathType,
   isDirectoryPath,
   isExecutableFile,
@@ -25,7 +28,10 @@ export {
   removeDirectory,
   removeFile,
   removePath,
+  renamePath,
   resolveRealPath,
+  setPathModifiedTime,
+  tryCreateDirectory,
   validateSymlinkWithin,
   writeTextFile,
 } from "./file.js";

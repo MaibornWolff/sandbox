@@ -16,6 +16,8 @@ export interface ListContainersOptions {
   statusFilter?: string[];
   /** Include these label values in each returned entry. */
   labelKeys?: string[];
+  /** Propagate runtime command failures instead of returning an empty list. */
+  throwOnError?: boolean;
 }
 
 /**

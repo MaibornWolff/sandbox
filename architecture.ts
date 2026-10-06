@@ -4,6 +4,7 @@ export const architecture = defineArchitecture({
   apps: {
     sandbox: {
       dependencies: [
+        "sandbox-runtime",
         "configuration",
         "sandbox-images",
         "sandbox-resources",
@@ -82,8 +83,19 @@ export const architecture = defineArchitecture({
         "text",
       ],
     },
+    "sandbox-runtime": {
+      dependencies: [
+        "storage",
+        "clock",
+        "container-runtime",
+        "environment",
+        "filesystem",
+        "logging",
+      ],
+    },
     "sandbox-containers": {
       dependencies: [
+        "sandbox-runtime",
         "configuration",
         "sandbox-images",
         "sandbox-resources",
@@ -161,6 +173,7 @@ export const architecture = defineArchitecture({
     },
     assistance: {
       dependencies: [
+        "sandbox-runtime",
         "configuration",
         "sandbox-images",
         "sandbox-settings",

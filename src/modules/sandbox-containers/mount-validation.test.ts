@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { runWithTestLogger } from "#test/host-test-scope.js";
-import { validateMountPath as validateMountPathWithoutScope } from "./mount-validation.js";
+import {
+  validateMountPath as validateMountPathWithoutScope,
+  validateProtectedMountPaths,
+} from "./mount-validation.js";
 
 interface PlatformFixture {
   readonly platform: NodeJS.Platform;
@@ -22,6 +25,26 @@ const windows = {
     LOCALAPPDATA: "D:\\Users\\sandbox-test\\AppData\\Local",
   },
 } as const;
+
+test("protects runtime files from parent, child, and equivalent mount destinations", () => {
+  for (const destination of [
+    "/",
+    "/opt",
+    "/opt/sandbox-cli",
+    "/opt/sandbox-cli/dist",
+    "/opt/other/../sandbox-cli/",
+  ]) {
+    expect(() =>
+      validateProtectedMountPaths("/opt/sandbox-cli", [destination]),
+    ).toThrow("overlaps");
+  }
+  expect(() =>
+    validateProtectedMountPaths("/opt/sandbox-cli", [
+      "/opt/sandbox-cli-other",
+      "/home/sandbox",
+    ]),
+  ).not.toThrow();
+});
 
 describe("validateMountPath", () => {
   describe("filesystem roots", () => {

@@ -22,6 +22,18 @@ describe("mountToDockerArg", () => {
     expect(result).toBe("/data/shared:/mnt/data:ro");
   });
 
+  it("converts Windows host paths", () => {
+    const result = mountToDockerArg({
+      hostPath: "C:\\Users\\tester\\AppData\\Local\\sandbox\\runtime",
+      containerPath: "/opt/sandbox-cli",
+      mode: "ro",
+    });
+
+    expect(result).toBe(
+      "/mnt/c/Users/tester/AppData/Local/sandbox/runtime:/opt/sandbox-cli:ro",
+    );
+  });
+
   it("handles paths with special characters", () => {
     const result = mountToDockerArg({
       hostPath: "/home/user/my project",

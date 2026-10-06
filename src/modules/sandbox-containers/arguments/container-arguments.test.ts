@@ -36,10 +36,20 @@ type BuildContainerArgsOptions = Parameters<
 >[1];
 type TestBuildContainerArgsOptions = Omit<
   BuildContainerArgsOptions,
-  "repositoryRoots"
+  "repositoryRoots" | "runtimePackage"
 > & {
   readonly repositoryRoots?: BuildContainerArgsOptions["repositoryRoots"];
   readonly service: ContainerArgumentRuntime;
+};
+
+const runtimePackage = {
+  id: `1.70.0-${"a".repeat(64)}`,
+  mount: {
+    hostPath: "/test/data/sandbox/runtime/1.70.0-test",
+    containerPath: "/opt/sandbox-cli",
+    mode: "ro" as const,
+  },
+  [Symbol.asyncDispose]: () => Promise.resolve(),
 };
 
 const noRepositoryRoots = {
@@ -52,7 +62,11 @@ function buildContainerArgs(
 ): ReturnType<typeof buildContainerArgsWithoutLogger> {
   const { service, repositoryRoots = noRepositoryRoots, ...request } = options;
   return runWithTestLogger(() =>
-    buildContainerArgsWithoutLogger(service, { ...request, repositoryRoots }),
+    buildContainerArgsWithoutLogger(service, {
+      ...request,
+      repositoryRoots,
+      runtimePackage,
+    }),
   );
 }
 
@@ -69,6 +83,7 @@ function buildContainerArgsWithVariables(
       buildContainerArgsWithoutLogger(service, {
         ...request,
         repositoryRoots,
+        runtimePackage,
       }),
     { variables },
   );
@@ -354,7 +369,7 @@ describe("buildContainerArgs - basic structure", () => {
     expect(imageName).toMatch(/^sandbox-/);
   });
 
-  test("includes project label", async () => {
+  test("includes project and runtime labels", async () => {
     const { args } = await buildContainerArgs({
       config: defaultConfig,
       projectRoot: "/test/project",
@@ -362,9 +377,21 @@ describe("buildContainerArgs - basic structure", () => {
       projectSlug: "test-project-a1b2",
       service: createContainerArgumentRuntime(),
     });
-    const labelIdx = args.indexOf("--label");
-    expect(labelIdx).toBeGreaterThanOrEqual(0);
-    expect(args[labelIdx + 1]).toBe("sandbox.project=test-project-a1b2");
+    expect(args).toContain("sandbox.project=test-project-a1b2");
+    expect(args).toContain(`sandbox.runtime=${runtimePackage.id}`);
+  });
+
+  test("bind mounts the cached runtime read-only", async () => {
+    const { args } = await buildContainerArgs({
+      config: defaultConfig,
+      projectRoot: "/test/project",
+      currentDir: "/test/project",
+      projectSlug: "test-project-a1b2",
+      service: createContainerArgumentRuntime(),
+    });
+    expect(args).toContain(
+      "/test/data/sandbox/runtime/1.70.0-test:/opt/sandbox-cli:ro",
+    );
   });
 
   test("includes workspace mount", async () => {

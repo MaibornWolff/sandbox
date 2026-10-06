@@ -105,8 +105,5 @@ COPY scripts/sandbox-container-tools /usr/local/bin/sandbox-container-tools
 COPY scripts/sandbox-wrapper.sh /usr/local/bin/sandbox
 RUN chmod +x /usr/local/bin/exec-entrypoint.sh /usr/local/bin/sandbox-container-tools /usr/local/bin/sandbox
 
-# Build files are sent to the runtime VM without host directory sharing.
-COPY --chown=root:root runtime/ /opt/sandbox-cli/
-RUN chmod -R u=rwX,go=rX /opt/sandbox-cli
 ENTRYPOINT ["/usr/local/bin/sandbox-container-tools", "entrypoint"]
 CMD ["zsh"]

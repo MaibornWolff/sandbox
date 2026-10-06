@@ -108,6 +108,41 @@ export function createTemporaryDirectory(prefix: string): string {
   return fs.mkdtempSync(path.join(tmpdir(), prefix));
 }
 
+export function createTemporaryDirectoryIn(
+  parentDirectory: string,
+  prefix: string,
+): string {
+  return fs.mkdtempSync(path.join(parentDirectory, prefix));
+}
+
+export function tryCreateDirectory(directoryPath: string): boolean {
+  try {
+    fs.mkdirSync(directoryPath);
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export function getPathModifiedTime(filePath: string): number {
+  return fs.statSync(filePath).mtimeMs;
+}
+
+export function setPathModifiedTime(
+  filePath: string,
+  modifiedAt: number,
+): void {
+  const date = new Date(modifiedAt);
+  fs.utimesSync(filePath, date, date);
+}
+
+export function renamePath(sourcePath: string, destinationPath: string): void {
+  fs.renameSync(sourcePath, destinationPath);
+}
+
 export function realPathOrSelf(filePath: string): string {
   try {
     return fs.realpathSync(filePath);

@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
-import { createFile, ensureDirectory, ensurePath, exists } from "./file.js";
+import {
+  createFile,
+  ensureDirectory,
+  ensurePath,
+  exists,
+  setPathModifiedTime,
+} from "./file.js";
 
 let testDir: string;
 
@@ -12,6 +18,18 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanupTestDir(testDir);
+});
+
+describe("setPathModifiedTime", () => {
+  it("sets the modification time supplied by the caller", () => {
+    const filePath = path.join(testDir, "timestamped");
+    fs.writeFileSync(filePath, "content");
+    const modifiedAt = Date.UTC(2026, 0, 1);
+
+    setPathModifiedTime(filePath, modifiedAt);
+
+    expect(fs.statSync(filePath).mtimeMs).toBe(modifiedAt);
+  });
 });
 
 describe("ensureDirectory", () => {

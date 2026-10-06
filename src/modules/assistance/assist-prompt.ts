@@ -6,6 +6,7 @@ import {
   getProjectDockerfilePath,
 } from "#modules/configuration/index.js";
 import { getDockerBuildContextDirectory } from "#modules/sandbox-images/index.js";
+import { getContainerRuntimeDirectory } from "#modules/sandbox-runtime/index.js";
 import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import {
   getTemplatesDirectory,
@@ -15,7 +16,7 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { getPackageRootPath } from "#platform/filesystem/index.js";
 import { getRepoRootPath } from "#platform/git/index.js";
 
-const SANDBOX_CLI_MOUNT_PATH = "/opt/sandbox-cli";
+const SANDBOX_CLI_MOUNT_PATH = getContainerRuntimeDirectory();
 const SANDBOX_DOCS_PATH = `${SANDBOX_CLI_MOUNT_PATH}/docs`;
 
 interface AssistPromptContext {

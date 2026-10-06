@@ -66,6 +66,7 @@ The host command:
 
 - reads and merges configuration
 - selects or builds the container image
+- prepares a versioned, content-identified runtime cache
 - creates mounts
 - starts and stops containers
 - starts agent sessions
@@ -125,6 +126,10 @@ Sandbox uses three image layers:
 
 A change rebuilds the affected layer and its child layers. This design keeps user and project customization separate.
 
+Runtime program files are separate from image layers. `modules/sandbox-runtime` owns their package validation, identity, host cache paths, atomic publication, preparation leases, and cleanup. The leases prevent cleanup from removing a runtime between cache preparation and container creation. `modules/sandbox-containers` combines the cached runtime bind mount with a tool image at startup. Configuration does not construct these resources.
+
+Runtime files are copied into the Sandbox data directory and mounted read-only. Runtime-only changes select a different container without rebuilding tool images. The container runtime does not need access to the host installation path.
+
 See [Layered Images](./LAYERED-IMAGES.md).
 
 ## Network Model
@@ -148,7 +153,8 @@ A normal session follows this sequence:
 ```mermaid
 flowchart LR
   Config[Merge configuration] --> Image[Select or build image]
-  Image --> Create[Create container]
+  Image --> Runtime[Prepare host runtime cache]
+  Runtime --> Create[Create container]
   Create --> Apply[Apply copy-mode settings]
   Apply --> Services[Start container services]
   Services --> Session[Run session as non-root user]
@@ -161,7 +167,7 @@ flowchart LR
 
 1. Merge configuration.
 2. Select or build the image.
-3. Create the container with its mounts and network policy.
+3. Prepare the runtime cache, then create the container with its read-only bind mount and network policy. Stop startup if runtime preparation fails.
 4. Apply copy-mode settings. Stop startup if this operation fails.
 5. Start required container services.
 6. Start a host-command broker for the normal execution session.
@@ -170,8 +176,9 @@ flowchart LR
 9. Keep the container available while sessions remain active.
 10. Synchronize new mount-mode settings during a normal stop.
 11. Stop or remove the container according to the command and configuration.
+12. After the session ends, remove old runtime caches when scheduled and no container references them.
 
-Sandbox can reuse a compatible running container. A configuration or image change requires a different container.
+Sandbox can reuse a compatible running container. A configuration, image, or runtime-content change requires a different container.
 
 ## Data Ownership
 
@@ -183,6 +190,7 @@ Sandbox can reuse a compatible running container. A configuration or image chang
 | Global persistent data | Sandbox data directory | Shared between projects |
 | Temporary container data | Container | Until the container is removed |
 | Image layers | Container runtime | Until image cleanup |
+| Runtime package cache | Sandbox runtime component | Until unused and removed by scheduled cleanup |
 
 ## Security Boundaries
 

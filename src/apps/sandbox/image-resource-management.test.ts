@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { SANDBOX_RUNTIME_LABEL } from "#modules/sandbox-runtime/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
@@ -267,6 +270,41 @@ describe("sandbox migrate", () => {
 });
 
 describe("sandbox clean", () => {
+  test("removes old unreferenced runtime caches", async () => {
+    await using app = await setupSandboxAppTest();
+    const old = new Date(Date.UTC(2025, 11, 29));
+    const referenced = `1.69.0-${"a".repeat(64)}`;
+    const unused = `1.68.0-${"b".repeat(64)}`;
+    for (const id of [referenced, unused]) {
+      const directory = path.join(
+        app.workspace.dataRoot,
+        "sandbox",
+        "runtime",
+        id,
+      );
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(path.join(directory, "runtime.js"), id);
+      utimesSync(directory, old, old);
+    }
+    app.runtime.containers.create({
+      name: "runtime-consumer",
+      image: "sandbox-project:latest",
+      labels: {
+        [PROJECT_LABEL]: "project",
+        [SANDBOX_RUNTIME_LABEL]: referenced,
+      },
+      status: "running",
+    });
+
+    expect((await app.cli.run("clean", "--force")).exitCode).toBe(0);
+    expect(
+      app.workspace.dataFileExists(`sandbox/runtime/${referenced}/runtime.js`),
+    ).toBe(true);
+    expect(
+      app.workspace.dataFileExists(`sandbox/runtime/${unused}/runtime.js`),
+    ).toBe(false);
+  });
+
   test("handles no resources and removes stopped Sandbox containers from all projects", async () => {
     await using empty = await setupSandboxAppTest();
     const noResources = await empty.cli.run("clean", "--force");

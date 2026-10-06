@@ -31,8 +31,11 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST ensure solutions work on Windows (no reliance on Unix-only system commands like `diff`, `which`, etc.).
 - You MUST co-locate tests: `foo.ts` → `foo.test.ts`.
 - You MUST use `getRepoRootPath(process.cwd())` for project-relative paths, not `process.cwd()` directly.
-- Sandboxed environment: no Docker access. You MUST ask user to manually test.
+- You MUST run Docker-backed tests through `sandbox escape` when permitted and ask for manual testing only when host execution is unavailable.
 - You MUST bundle image setup package actions by package manager.
+- You MUST keep runtime-only code changes from triggering rebuilds of system, user, and project tool images.
+- You MUST keep startup paths performant and avoid redundant container-runtime operations.
+- You MUST expose Docker and Podman operations only through the `ContainerRuntime` interface.
 - You MUST keep native terminal scrolling available while users review long output.
 - You SHOULD size interactive terminal views from the available terminal height.
 - You MUST calculate terminal mouse hit regions from rendered physical rows, including wrapped lines.

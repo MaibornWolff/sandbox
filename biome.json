@@ -48,7 +48,6 @@
       "**",
       "!**/.*",
       "!dist",
-      "!docker/runtime",
       "!coverage",
       "!test-tmp",
       "!tmp",

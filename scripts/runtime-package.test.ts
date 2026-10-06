@@ -5,18 +5,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { getRepoRootPath } from "#platform/git/index.js";
 import { buildContainerToolsBundle } from "./container-bundle.js";
-import { prepareImageRuntimePackage } from "./image-runtime-package.js";
 import { buildPublicCliBundle } from "./public-cli-bundle.js";
+import { prepareRuntimePackage } from "./runtime-package.js";
 
-test("prepares a self-contained image package and replaces stale runtime files", async () => {
+test("prepares runtime files outside the image context and replaces stale files", async () => {
   const repoRoot = await getRepoRootPath(process.cwd());
-  const root = await mkdtemp(path.join(tmpdir(), "image-runtime-package-"));
+  const root = await mkdtemp(path.join(tmpdir(), "runtime-package-"));
   await using cleanup = new AsyncDisposableStack();
   cleanup.defer(() => rm(root, { recursive: true, force: true }));
   const source = path.join(root, "test", "source");
   const distDirectory = path.join(root, "dist");
-  const contextDirectory = path.join(root, "docker");
-  const runtimeDirectory = path.join(contextDirectory, "runtime");
+  const runtimeDirectory = path.join(distDirectory, "runtime");
 
   for (const entry of ["bin", "templates", "docs", "docker"]) {
     await cp(path.join(repoRoot, entry), path.join(source, entry), {
@@ -47,12 +46,11 @@ test("prepares a self-contained image package and replaces stale runtime files",
     version: "9.8.7",
   });
 
-  const options = { repoRoot: source, distDirectory, contextDirectory };
-  await prepareImageRuntimePackage(options);
+  const options = { repoRoot: source, distDirectory };
+  await prepareRuntimePackage(options);
   await writeFile(path.join(runtimeDirectory, "stale-file"), "obsolete");
-  await prepareImageRuntimePackage(options);
+  await prepareRuntimePackage(options);
   expect(existsSync(path.join(runtimeDirectory, "stale-file"))).toBe(false);
-  expect(existsSync(path.join(runtimeDirectory, "node_modules"))).toBe(false);
   expect(existsSync(path.join(runtimeDirectory, "src/feature.test.ts"))).toBe(
     false,
   );

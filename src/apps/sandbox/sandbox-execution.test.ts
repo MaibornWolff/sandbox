@@ -17,6 +17,24 @@ function givenSuccessfulInteractiveProcess(
 }
 
 describe("sandbox shell and run", () => {
+  test("uses a versioned runtime cache and schedules cleanup after the session", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+
+    const container = app.runtime.containers.all()[0];
+    const runtimeId = container?.labels["sandbox.runtime"];
+    expect(runtimeId).toMatch(/^\d+\.\d+\.\d+[^/]*-[a-f0-9]{64}$/);
+    expect(
+      app.workspace.dataFileExists(
+        `sandbox/runtime/${runtimeId}/dist/apps/sandbox/main.js`,
+      ),
+    ).toBe(true);
+    expect(app.workspace.dataFileExists("sandbox/runtime/.last-cleanup")).toBe(
+      true,
+    );
+  });
   test("executes the root shell through Commander and managed runtime state", async () => {
     await using app = await setupSandboxAppTest({
       variables: { TERM: "xterm-256color" },

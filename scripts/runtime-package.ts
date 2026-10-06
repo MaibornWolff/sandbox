@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 const RUNTIME_ASSETS = [
@@ -18,25 +18,28 @@ function includeRuntimeAsset(source: string): boolean {
   return (
     !segments.includes("__test__") &&
     !segments.includes("test") &&
+    !(segments[0] === "docker" && segments[1] === "runtime") &&
     !source.endsWith(".test.ts")
   );
 }
 
-export async function prepareImageRuntimePackage(options: {
+export async function prepareRuntimePackage(options: {
   readonly repoRoot: string;
   readonly distDirectory: string;
-  readonly contextDirectory: string;
 }): Promise<void> {
-  const runtimeDirectory = path.join(options.contextDirectory, "runtime");
-  await rm(runtimeDirectory, { recursive: true, force: true });
-  await mkdir(runtimeDirectory, { recursive: true });
+  const runtimeDirectory = await mkdtemp(
+    path.join(options.distDirectory, ".runtime-"),
+  );
+  await using cleanup = new AsyncDisposableStack();
+  cleanup.defer(() => rm(runtimeDirectory, { recursive: true, force: true }));
 
-  await Promise.all([
+  const results = await Promise.allSettled([
     ...RUNTIME_ASSETS.map(async (entry) => {
       const destination = path.join(runtimeDirectory, entry);
       await mkdir(path.dirname(destination), { recursive: true });
       await cp(path.join(options.repoRoot, entry), destination, {
         recursive: true,
+        dereference: true,
         filter: (source) =>
           includeRuntimeAsset(path.relative(options.repoRoot, source)),
       });
@@ -48,4 +51,11 @@ export async function prepareImageRuntimePackage(options: {
       await cp(path.join(options.distDirectory, entry), destination);
     }),
   ]);
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
+  const destination = path.join(options.distDirectory, "runtime");
+  await rm(destination, { recursive: true, force: true });
+  // Global npm installations must be readable outside the build user account.
+  await chmod(runtimeDirectory, 0o755);
+  await rename(runtimeDirectory, destination);
 }

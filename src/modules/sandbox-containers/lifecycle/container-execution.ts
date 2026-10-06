@@ -7,6 +7,10 @@ import {
 import { startHostCommandEscapeSession } from "#modules/host-command-escape/index.js";
 import type { BuildImagesResult } from "#modules/sandbox-images/index.js";
 import {
+  cleanupSandboxRuntimeAfterSession,
+  prepareSandboxRuntime,
+} from "#modules/sandbox-runtime/index.js";
+import {
   type ContainerRuntime,
   getRuntimeProvider,
   runInteractiveContainerRuntimeProcess,
@@ -200,7 +204,13 @@ async function execute(
   const projectSlug = generateProjectSlug(projectRoot);
 
   logger.startTiming("Container setup");
+  await using runtimePackage = await prepareSandboxRuntime();
+  await using _runtimeCleanup = cleanupSandboxRuntimeAfterSession(
+    service,
+    runtimePackage.id,
+  );
   const { args: containerArgs, imageName } = await buildContainerArgs(service, {
+    runtimePackage,
     config,
     projectRoot,
     currentDir,

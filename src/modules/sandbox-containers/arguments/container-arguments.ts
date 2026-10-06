@@ -1,6 +1,10 @@
 import type { Config } from "#modules/configuration/index.js";
 import { getFinalImage } from "#modules/sandbox-images/index.js";
 import { CACHE_VOLUME } from "#modules/sandbox-resources/index.js";
+import {
+  type CachedSandboxPackage,
+  SANDBOX_RUNTIME_LABEL,
+} from "#modules/sandbox-runtime/index.js";
 import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import {
   getPersistentMounts,
@@ -20,7 +24,10 @@ import {
 import { getContainerDisplay } from "../container-display.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 import { convertMountForDocker } from "../mount-path-conversion.js";
-import { validateMountPath } from "../mount-validation.js";
+import {
+  validateMountPath,
+  validateProtectedMountPaths,
+} from "../mount-validation.js";
 import {
   addIdeBridgePortEnvironment,
   logEnvironmentVariables,
@@ -43,6 +50,7 @@ type ContainerArgumentRuntime = Pick<
 >;
 
 interface BuildContainerArgsOptions {
+  runtimePackage: CachedSandboxPackage;
   config: Config;
   projectRoot: string;
   currentDir: string; // Used for worktree detection
@@ -120,9 +128,16 @@ async function buildStructuralArgs(
   const logger = getLogger();
   const args: string[] = [];
 
-  // Project label
-  args.push("--label", `${SANDBOX_PROJECT_LABEL}=${projectSlug}`);
+  args.push(
+    "--label",
+    `${SANDBOX_PROJECT_LABEL}=${projectSlug}`,
+    "--label",
+    `${SANDBOX_RUNTIME_LABEL}=${options.runtimePackage.id}`,
+  );
   logger.debug(`Project label: ${SANDBOX_PROJECT_LABEL}=${projectSlug}`);
+  logger.debug(
+    `Runtime label: ${SANDBOX_RUNTIME_LABEL}=${options.runtimePackage.id}`,
+  );
 
   // Validate container path is safe
   validateMountPath(projectRoot);
@@ -207,9 +222,24 @@ async function buildStructuralArgs(
   const preparedSettings = await getSandboxSettings().createContainerSetup({
     entries: config.settings,
     persistentMounts: persistentResult.mounts,
-    directMounts: [...namedVolumeMounts, ...customMounts],
+    directMounts: [
+      ...namedVolumeMounts,
+      ...customMounts,
+      {
+        containerPath: options.runtimePackage.mount.containerPath,
+        mode: "ro",
+      },
+    ],
   });
   logger.endTiming("Fetch mounts");
+  validateProtectedMountPaths(options.runtimePackage.mount.containerPath, [
+    dockerProjectRoot,
+    ...(externalWorktree ? [windowsPathToDocker(externalWorktree)] : []),
+    ...persistentResult.mounts.map((mount) => mount.containerPath),
+    ...preparedSettings.mounts.map((mount) => mount.containerPath),
+    ...namedVolumeMounts.map((mount) => mount.containerPath),
+    ...customMounts.map((mount) => mount.containerPath),
+  ]);
 
   for (const [name, value] of Object.entries(preparedSettings.environment)) {
     args.push("-e", `${name}=${value}`);
@@ -235,6 +265,8 @@ async function buildStructuralArgs(
     const dockerMount = convertMountForDocker(mount);
     args.push("-v", dockerMount);
   }
+
+  args.push("-v", mountToDockerArg(options.runtimePackage.mount));
 
   // Port mappings
   addPortArguments(args, config.ports);
@@ -275,6 +307,7 @@ export async function buildContainerArgs(
   logger.startTiming("Build container args");
 
   const structuralArgs = await buildStructuralArgs(service, {
+    runtimePackage: options.runtimePackage,
     config,
     projectRoot,
     currentDir,

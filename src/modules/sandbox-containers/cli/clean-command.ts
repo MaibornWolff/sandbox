@@ -7,6 +7,7 @@ import {
   CACHE_VOLUME,
   getNamedVolumeName,
 } from "#modules/sandbox-resources/index.js";
+import { cleanupCurrentSandboxRuntimeCache } from "#modules/sandbox-runtime/index.js";
 import { getProjectPersistDir } from "#modules/storage/index.js";
 import {
   type ContainerRuntime,
@@ -176,6 +177,7 @@ export async function cleanCommand(options: CleanOptions): Promise<void> {
     await removePersistentData();
   }
 
+  await cleanupCurrentSandboxRuntimeCache(service);
   logger.success("Cleanup complete!");
   await cleanDanglingImages(service);
 }

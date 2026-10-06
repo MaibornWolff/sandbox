@@ -99,7 +99,8 @@ export class DockerService implements ContainerRuntime {
     try {
       const output = await this.exec(this.binaryName, args);
       return this.parseContainerList(output, labelKeys);
-    } catch {
+    } catch (error) {
+      if (options.throwOnError) throw error;
       return [];
     }
   }

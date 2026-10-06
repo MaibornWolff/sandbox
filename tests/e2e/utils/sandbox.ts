@@ -25,6 +25,7 @@ const SANDBOX_BIN = resolve(
 );
 
 interface SandboxOptions {
+  binary?: string;
   cwd?: string;
   timeoutSeconds?: number;
   env?: Readonly<Record<string, string>>;
@@ -129,6 +130,7 @@ function spawnCapturedProcess(options: {
 }
 
 function startSandboxCommand(options: {
+  readonly binary: string;
   readonly args: string[];
   readonly cwd: string;
   readonly configDir: string;
@@ -143,7 +145,7 @@ function startSandboxCommand(options: {
   );
   const startedAt = performance.now();
   const proc = spawnCapturedProcess({
-    command: [SANDBOX_BIN, ...options.args],
+    command: [options.binary, ...options.args],
     cwd: options.cwd,
     env: {
       ...process.env,
@@ -275,7 +277,7 @@ export function createSandbox(opts?: SandboxOptions) {
     const commandArgs = [
       timeoutBin,
       String(timeout),
-      SANDBOX_BIN,
+      opts?.binary ?? SANDBOX_BIN,
       ...sandboxArgs,
     ];
     const allArgs = terminal
@@ -342,6 +344,7 @@ export function createSandbox(opts?: SandboxOptions) {
     execOptions: SandboxExecOptions = {},
   ): SandboxCommandInteraction {
     return startSandboxCommand({
+      binary: opts?.binary ?? SANDBOX_BIN,
       args,
       cwd,
       configDir,

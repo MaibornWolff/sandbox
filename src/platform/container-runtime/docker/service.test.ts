@@ -163,17 +163,24 @@ describe("DockerService", () => {
     expect(commands.events()).toEqual([request]);
   });
 
-  test("listContainers treats command failure as no discovered containers", async () => {
-    const commands = createStatefulRuntimeCommandExecutor();
+  test("listContainers controls whether command failures are propagated", async () => {
     const request = {
       command: "docker",
       args: ["ps", "--format", "{{.ID}}|{{.Names}}|{{.Image}}"],
     };
-    commands.givenFailure(request, new Error("daemon unavailable"));
-
-    expect(await new DockerService(commands.executor).listContainers()).toEqual(
+    const tolerant = createStatefulRuntimeCommandExecutor();
+    tolerant.givenFailure(request, new Error("daemon unavailable"));
+    expect(await new DockerService(tolerant.executor).listContainers()).toEqual(
       [],
     );
+
+    const strict = createStatefulRuntimeCommandExecutor();
+    strict.givenFailure(request, new Error("daemon unavailable"));
+    await expect(
+      new DockerService(strict.executor).listContainers({
+        throwOnError: true,
+      }),
+    ).rejects.toThrow("daemon unavailable");
   });
 
   test("createContainer starts containers with an init process", async () => {

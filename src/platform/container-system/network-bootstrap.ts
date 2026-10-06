@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import path from "node:path";
+import chalk from "chalk";
 import { type Clock, getClock } from "#platform/clock/index.js";
 import {
   getSandboxEnvironment,
@@ -12,6 +13,8 @@ import {
   type ProcessManager,
   type ProcessResult,
 } from "#platform/process/index.js";
+import { executeContainerCommand } from "./command.js";
+import { restoreFirewall } from "./firewall.js";
 import { getTcpService, type TcpService } from "./tcp-service.js";
 
 type ManagedNetworkProcess = ManagedProcess<ProcessResult>;
@@ -50,8 +53,8 @@ export interface ContainerNetworkSystem {
   readonly startNetworkTrace: () => Promise<void>;
 }
 
-const IPTABLES = "/usr/sbin/iptables";
-const IP6TABLES = "/usr/sbin/ip6tables";
+const IPTABLES = "/usr/sbin/iptables-restore";
+const IP6TABLES = "/usr/sbin/ip6tables-restore";
 const DNSMASQ = "/usr/sbin/dnsmasq";
 const SQUID = "/usr/sbin/squid";
 const TCPDUMP = "/usr/bin/tcpdump";
@@ -60,20 +63,6 @@ function containerPath(environment: SandboxEnvironment, absolutePath: string) {
   return path.join(
     environment.filesystemRoot,
     absolutePath.replace(/^\/+/, ""),
-  );
-}
-
-function commandError(command: string, result: ProcessResult): Error {
-  const detail = [result.stderr.trimEnd(), result.stdout.trimEnd()]
-    .filter(Boolean)
-    .join("\n");
-  return Object.assign(
-    new Error(
-      result.signal
-        ? `${command} terminated by signal ${result.signal}${detail ? `: ${detail}` : ""}`
-        : `${command} failed with exit code ${result.exitCode}${detail ? `: ${detail}` : ""}`,
-    ),
-    { exitCode: result.exitCode },
   );
 }
 
@@ -119,7 +108,8 @@ function managedProcessFailure(
   return new Error(`${name} exited with ${status}`);
 }
 
-const PORT_POLL_INTERVAL_MILLISECONDS = 50;
+const INITIAL_PORT_POLL_INTERVAL_MILLISECONDS = 5;
+const MAX_PORT_POLL_INTERVAL_MILLISECONDS = 50;
 const PORT_CONNECTION_TIMEOUT_MILLISECONDS = 250;
 
 async function waitForPort(
@@ -137,6 +127,7 @@ async function waitForPort(
 ): Promise<void> {
   const failure = childFailure(options.child, options.service);
   const deadline = clock.now() + options.startupTimeoutMilliseconds;
+  let pollInterval = INITIAL_PORT_POLL_INTERVAL_MILLISECONDS;
   while (clock.now() < deadline) {
     throwIfCancelled();
     const remainingMilliseconds = deadline - clock.now();
@@ -152,16 +143,17 @@ async function waitForPort(
     );
     if (connected) return;
     throwIfCancelled();
-    const delayMilliseconds = Math.min(
-      PORT_POLL_INTERVAL_MILLISECONDS,
-      deadline - clock.now(),
-    );
+    const delayMilliseconds = Math.min(pollInterval, deadline - clock.now());
     if (delayMilliseconds <= 0) break;
     const delay = clock.sleep(
       delayMilliseconds,
       signal ? { signal } : undefined,
     );
     await Promise.race([failure, delay]);
+    pollInterval = Math.min(
+      pollInterval * 2,
+      MAX_PORT_POLL_INTERVAL_MILLISECONDS,
+    );
   }
   throw new Error(
     `${options.service} failed to start on ${options.host}:${options.port}`,
@@ -311,6 +303,7 @@ async function prepareSquidFilesystem(
 
 function createNetworkInterface(
   environment: SandboxEnvironment,
+  processes: ProcessManager,
   tcp: TcpService,
   clock: Clock,
   signal: AbortSignal | undefined,
@@ -324,7 +317,6 @@ function createNetworkInterface(
     owner: string,
     recursive: boolean,
   ) => Promise<void>,
-  runCommand: (command: string, args: readonly string[]) => Promise<string>,
   spawnNetworkCommand: (options: {
     readonly name: string;
     readonly command: string;
@@ -337,17 +329,27 @@ function createNetworkInterface(
   return {
     failure,
     async applyFirewall(commands) {
-      for (const args of commands) {
-        debug(`iptables ${args.join(" ")}`);
-        await runCommand(IPTABLES, args);
-      }
+      debug(
+        `${chalk.cyan("iptables-restore")}: installing ${commands.length} commands`,
+      );
+      await restoreFirewall({
+        processes,
+        command: IPTABLES,
+        commands,
+        ...(signal ? { signal } : {}),
+      });
       debug("IPv4 firewall configured");
     },
     async applyIpv6Firewall(commands) {
-      for (const args of commands) {
-        debug(`ip6tables ${args.join(" ")}`);
-        await runCommand(IP6TABLES, args);
-      }
+      debug(
+        `${chalk.cyan("ip6tables-restore")}: installing ${commands.length} commands`,
+      );
+      await restoreFirewall({
+        processes,
+        command: IP6TABLES,
+        commands,
+        ...(signal ? { signal } : {}),
+      });
       debug("IPv6 firewall configured");
     },
     async applyHostMappings(mappings) {
@@ -383,25 +385,26 @@ function createNetworkInterface(
       });
       return upstream;
     },
-    async startDnsmasq({ config }) {
+    startDnsmasq({ config }) {
       ensureDirectory("/etc/dnsmasq.d");
       writeFile("/etc/dnsmasq.d/sandbox.conf", config);
       const args = ["--keep-in-foreground", "--conf-dir=/etc/dnsmasq.d"];
       debug("starting managed dnsmasq");
+      writeFile("/etc/resolv.conf", "nameserver 127.0.0.1\n");
       const child = spawnNetworkCommand({
         name: "dnsmasq",
         command: DNSMASQ,
         args,
       });
-      writeFile("/etc/resolv.conf", "nameserver 127.0.0.1\n");
-      await waitForPort(tcp, clock, signal, throwIfCancelled, {
+      return waitForPort(tcp, clock, signal, throwIfCancelled, {
         service: "dnsmasq",
         host: "127.0.0.1",
         port: 53,
         startupTimeoutMilliseconds: 5_000,
         child,
+      }).then(() => {
+        debug("dnsmasq started");
       });
-      debug("dnsmasq started");
     },
     async startSquid({ config, domainAclGroups, blockedErrorPage }) {
       await prepareSquidFilesystem(
@@ -472,16 +475,11 @@ function createNetworkSystem(
     args: readonly string[],
   ): Promise<string> {
     throwIfCancelled();
-    const result = await processes.start({
+    return await executeContainerCommand(
       command,
       args,
-      lifetime: "application",
-      interaction: { mode: "non-interactive" },
-      ...(signal ? { signal } : {}),
-    }).result;
-    throwIfCancelled();
-    if (result.exitCode !== 0) throw commandError(command, result);
-    return result.stdout;
+      signal ? { signal } : {},
+    );
   }
 
   function writeFile(filePath: string, content: string): void {
@@ -559,6 +557,7 @@ function createNetworkSystem(
 
   return createNetworkInterface(
     environment,
+    processes,
     tcp,
     clock,
     signal,
@@ -568,7 +567,6 @@ function createNetworkSystem(
     ensureDirectory,
     touchFiles,
     setOwnership,
-    runCommand,
     spawnNetworkCommand,
     failure,
   );

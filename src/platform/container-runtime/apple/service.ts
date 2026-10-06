@@ -75,6 +75,11 @@ function createAppleInstanceOperations(
   };
 }
 
+function probeValue(result: PromiseSettledResult<string>): string {
+  if (result.status === "rejected") throw result.reason;
+  return result.value.trim();
+}
+
 function parseServiceStatus(output: string): string {
   const parsed = JSON.parse(output) as unknown;
   if (
@@ -154,6 +159,11 @@ export class AppleContainerService
     return this.hostReadiness;
   }
 
+  withInstanceStartup<T>(operation: () => Promise<T>): Promise<T> {
+    getLogger().debug("Preparing Apple instance startup network scope");
+    return this.networking.withInstanceStartup(operation);
+  }
+
   getCompatibilityIdentity(): Promise<string> {
     return this.networking.compatibilityIdentity();
   }
@@ -162,22 +172,27 @@ export class AppleContainerService
     if (getHostEnvironment().platform !== "darwin") {
       throw new Error("Apple container requires macOS 26 or newer.");
     }
-    const architecture = (await this.exec("uname", ["-m"])).trim();
+    const [architectureProbe, macOsProbe, versionProbe, serviceProbe] =
+      await Promise.allSettled([
+        this.exec("uname", ["-m"]),
+        this.exec("sw_vers", ["-productVersion"]),
+        this.getVersion(),
+        this.exec(this.binaryName, ["system", "status", "--format", "json"]),
+      ]);
+    const architecture = probeValue(architectureProbe);
     if (architecture !== "arm64") {
       throw new Error(
         `Apple container requires Apple silicon. Found ${architecture || "unknown architecture"}.`,
       );
     }
-    const macOsVersion = (
-      await this.exec("sw_vers", ["-productVersion"])
-    ).trim();
+    const macOsVersion = probeValue(macOsProbe);
     const majorVersion = Number.parseInt(macOsVersion.split(".")[0] ?? "", 10);
     if (!Number.isFinite(majorVersion) || majorVersion < 26) {
       throw new Error(
         `Apple container requires macOS 26 or newer. Found ${macOsVersion || "unknown version"}.`,
       );
     }
-    const versionText = await this.getVersion();
+    const versionText = probeValue(versionProbe);
     if (compareVersion(parseVersion(versionText), MINIMUM_VERSION) < 0) {
       throw new Error(
         `Apple container 1.4.1 or newer is required. Found ${versionText}. Install the current signed Apple container package.`,
@@ -185,14 +200,7 @@ export class AppleContainerService
     }
     let status: string;
     try {
-      status = parseServiceStatus(
-        await this.exec(this.binaryName, [
-          "system",
-          "status",
-          "--format",
-          "json",
-        ]),
-      );
+      status = parseServiceStatus(probeValue(serviceProbe));
     } catch (error) {
       throw new Error(
         `${chalk.red("Could not read the Apple container service state.")}\nStart or recover it with: ${chalk.cyan("container system start")}`,

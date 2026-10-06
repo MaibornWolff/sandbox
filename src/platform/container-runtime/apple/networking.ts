@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as crypto from "node:crypto";
 import { BlockList, isIP } from "node:net";
 import * as path from "node:path";
@@ -67,6 +68,16 @@ interface HelperLease extends AsyncDisposable {
 interface NetworkLease extends AsyncDisposable {
   readonly helper?: HelperLease;
   readonly network: NetworkIdentity;
+}
+
+interface NetworkSnapshot extends AsyncDisposable {
+  readonly established: NetworkLease;
+  readonly resolverIdentity?: string;
+}
+
+interface StartupScope {
+  readonly resources: AsyncDisposableStack;
+  snapshot?: Promise<NetworkSnapshot>;
 }
 
 interface ResolverLease extends AsyncDisposable {
@@ -338,12 +349,62 @@ export async function acquireAppleBuilderLock(
 
 export class AppleNetworking implements AppleNetworkOperations {
   private builderPreparation: Promise<void> | undefined;
+  private readonly startupScope = new AsyncLocalStorage<StartupScope>();
 
   constructor(
     private readonly exec: RuntimeExecutor,
     private readonly options: AppleContainerOptions,
     private readonly selectedNetwork = NETWORK_NAME,
   ) {}
+
+  async withInstanceStartup<T>(operation: () => Promise<T>): Promise<T> {
+    await using resources = new AsyncDisposableStack();
+    return await this.startupScope.run({ resources }, operation);
+  }
+
+  private async snapshot(
+    resources: AsyncDisposableStack,
+  ): Promise<NetworkSnapshot> {
+    const scope = this.startupScope.getStore();
+    if (!scope) return resources.use(await this.discoverSnapshot());
+    scope.snapshot ??= this.discoverSnapshot().then((snapshot) =>
+      scope.resources.use(snapshot),
+    );
+    return await scope.snapshot;
+  }
+
+  private async discoverSnapshot(): Promise<NetworkSnapshot> {
+    await using resources = new AsyncDisposableStack();
+    const [networkResult, hostResult] = await Promise.allSettled([
+      this.establishNetwork(),
+      this.options.dns === "host"
+        ? this.readHostResolver()
+        : Promise.resolve(undefined),
+    ]);
+    if (networkResult.status === "rejected") throw networkResult.reason;
+    let established = resources.use(networkResult.value);
+    if (hostResult.status === "rejected") throw hostResult.reason;
+    let resolverIdentity = hostResult.value;
+    if (this.options.dns === "host-ipv6") {
+      resolverIdentity =
+        (await this.readBridgeResolver(established.network)) ?? undefined;
+      if (!resolverIdentity) {
+        if (!established.helper) {
+          const helper = resources.use(await this.createHelperContainer());
+          established = { ...established, helper };
+        }
+        resolverIdentity = await this.waitForBridgeResolver(
+          established.network,
+        );
+      }
+    }
+    const lease = resources.move();
+    return {
+      established,
+      resolverIdentity,
+      [Symbol.asyncDispose]: () => lease.disposeAsync(),
+    };
+  }
 
   private async readNetwork(): Promise<AppleNetworkJson | null> {
     return findNetwork(
@@ -424,26 +485,8 @@ export class AppleNetworking implements AppleNetworkOperations {
   }
 
   async compatibilityIdentity(): Promise<string> {
-    await using established = await this.establishNetwork();
-    let resolverIdentity: string | undefined;
-    if (this.options.dns === "host") {
-      resolverIdentity = await this.readHostResolver();
-    }
-    if (this.options.dns === "host-ipv6") {
-      resolverIdentity =
-        (await this.readBridgeResolver(established.network)) ?? undefined;
-      if (!resolverIdentity && established.helper) {
-        resolverIdentity = await this.waitForBridgeResolver(
-          established.network,
-        );
-      }
-      if (!resolverIdentity) {
-        await using _helper = await this.createHelperContainer();
-        resolverIdentity = await this.waitForBridgeResolver(
-          established.network,
-        );
-      }
-    }
+    await using resources = new AsyncDisposableStack();
+    const { established, resolverIdentity } = await this.snapshot(resources);
     return crypto
       .createHash("sha256")
       .update(
@@ -556,8 +599,10 @@ export class AppleNetworking implements AppleNetworkOperations {
 
   private async discoverResolver(
     network: NetworkIdentity,
+    bridgeResolver?: string,
   ): Promise<ResolverLease> {
-    const existingBridge = await this.readBridgeResolver(network);
+    const existingBridge =
+      bridgeResolver ?? (await this.readBridgeResolver(network));
     if (!existingBridge) {
       const helper = await this.createHelperContainer();
       try {
@@ -594,10 +639,11 @@ export class AppleNetworking implements AppleNetworkOperations {
 
   private async prepareResolver(
     established: NetworkLease,
+    resolverIdentity?: string,
   ): Promise<ResolverLease> {
     if (this.options.dns === "host") {
       return {
-        resolver: await this.readHostResolver(),
+        resolver: resolverIdentity ?? (await this.readHostResolver()),
         async [Symbol.asyncDispose]() {},
       };
     }
@@ -605,25 +651,33 @@ export class AppleNetworking implements AppleNetworkOperations {
       ? await this.resolverFromHelper(
           established.helper,
           established.network,
-          await this.waitForBridgeResolver(established.network),
+          resolverIdentity ??
+            (await this.waitForBridgeResolver(established.network)),
         )
-      : await this.discoverResolver(established.network);
+      : await this.discoverResolver(established.network, resolverIdentity);
   }
 
   async prepareRun(): Promise<AppleRunNetworkPlan> {
     await using resources = new AsyncDisposableStack();
-    const established = resources.use(await this.establishNetwork());
+    const snapshot = await this.snapshot(resources);
+    const { established, resolverIdentity } = snapshot;
     const resolver =
       this.options.dns === "default"
         ? undefined
-        : resources.use(await this.prepareResolver(established));
+        : resources.use(
+            await this.prepareResolver(established, resolverIdentity),
+          );
     const lease = resources.move();
-    return {
+    const plan: AppleRunNetworkPlan = {
       dns: resolver?.resolver,
       environment: mappingsEnvironment(established.network.gateway),
       networkName: this.selectedNetwork,
       [Symbol.asyncDispose]: () => lease.disposeAsync(),
     };
+    const scope = this.startupScope.getStore();
+    if (!scope) return plan;
+    scope.resources.use(plan);
+    return { ...plan, async [Symbol.asyncDispose]() {} };
   }
 
   async prepareBuild(): Promise<void> {

@@ -367,31 +367,37 @@ describe("AppleContainerService", () => {
 
     await runWithTestLogger(
       async () => {
-        await service.instances.startDetached({
-          name: "sandbox-project",
-          image: {
-            reference: "sandbox-project:latest",
-            digest: "sha256:image",
-          },
-          labels: { project: "alpha" },
-          environment: { SANDBOX: "1" },
-          mounts: [
-            {
-              type: "storage",
-              storage: { id: "cache" },
-              targetPath: "/cache",
-              readOnly: false,
+        await service.withInstanceStartup(async () => {
+          await service.getCompatibilityIdentity();
+          await service.instances.startDetached({
+            name: "sandbox-project",
+            image: {
+              reference: "sandbox-project:latest",
+              digest: "sha256:image",
             },
-          ],
-          ports: [],
-          init: true,
-          removeOnExit: true,
-          resources: {},
-          security: {
-            capabilities: ["NET_ADMIN"],
-            nestedContainerRuntime: false,
-          },
+            labels: { project: "alpha" },
+            environment: { SANDBOX: "1" },
+            mounts: [
+              {
+                type: "storage",
+                storage: { id: "cache" },
+                targetPath: "/cache",
+                readOnly: false,
+              },
+            ],
+            ports: [],
+            init: true,
+            removeOnExit: true,
+            resources: {},
+            security: {
+              capabilities: ["NET_ADMIN"],
+              nestedContainerRuntime: false,
+            },
+          });
         });
+        expect(
+          commands.events().filter((event) => event.args[0] === "network"),
+        ).toHaveLength(1);
         await expect(
           service.instances.inspect("sandbox-project"),
         ).resolves.toMatchObject({

@@ -27,6 +27,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST NOT use `any`, `@ts-ignore`, or `biome-ignore`.
 - You MUST reproduce bugs with a failing test first.
 - You MUST verify CLI bug fixes with the reported command when the required runtime is available.
+- You MUST verify each startup optimization with the reported CLI command and record its timings before proceeding to the next optimization.
 - You MUST NOT weaken E2E tests by replacing failing external fixtures with less equivalent ones without investigating the failure.
 - You SHOULD fetch only the relevant tail of long CI logs unless earlier output is needed.
 - You MUST keep code Node.js-compatible (no Bun-specific APIs outside tests).

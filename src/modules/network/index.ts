@@ -17,10 +17,8 @@ export {
 /** @lintignore Public container network bootstrap API. */
 export {
   type ContainerNetworkLifecycle,
-  startContainerNetwork,
+  installContainerNetworkSecurity,
 } from "./bootstrap/network-bootstrap.js";
-/** @lintignore Public host-command network exception workflow. */
-export { allowHostCommandNetworkAccess } from "./host-command-network-access.js";
 /** @lintignore Public network policy API. */
 export {
   type NetworkPolicy,

@@ -57,6 +57,8 @@ export interface SandboxRuntime {
   readonly storage: SandboxStorageOperations;
   ensureHostReady(): Promise<SandboxRuntimeInfo>;
   getCompatibilityIdentity(): Promise<string>;
+  /** Share discovery through hash, reuse, and creation. Await all startup work inside the callback, but keep attached sessions outside it. */
+  withInstanceStartup<T>(operation: () => Promise<T>): Promise<T>;
   getDiskSpaceAdvice(): string;
 }
 

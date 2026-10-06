@@ -44,6 +44,38 @@ function ensureReady(
 }
 
 describe("Apple container host validation", () => {
+  test("starts independent host probes together", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    givenBaseHost(commands);
+    const started: string[] = [];
+    const gate = Promise.withResolvers<void>();
+    const service = new AppleContainerService(
+      async (command, args, options) => {
+        started.push(command);
+        await gate.promise;
+        return commands.executor(command, args, options);
+      },
+    );
+    const readiness = runWithTestLogger(() => service.ensureHostReady(), {
+      platform: "darwin",
+    });
+    const probes = [...started];
+    gate.resolve();
+    await readiness;
+    expect(probes).toEqual(["uname", "sw_vers", "container", "container"]);
+  });
+
+  test("keeps architecture diagnostics ahead of concurrent probe failures", async () => {
+    const service = new AppleContainerService(async (command) => {
+      if (command === "uname") return "x86_64";
+      throw new Error("probe failed");
+    });
+    await expect(
+      runWithTestLogger(() => service.ensureHostReady(), {
+        platform: "darwin",
+      }),
+    ).rejects.toThrow("requires Apple silicon. Found x86_64");
+  });
   test("rejects a non-macOS host before runtime commands", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     await expect(ensureReady(commands, "linux")).rejects.toThrow(

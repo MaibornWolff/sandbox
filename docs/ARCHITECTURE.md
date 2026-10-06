@@ -73,6 +73,8 @@ The host command:
 - starts one authenticated host-command broker for each normal session
 - reports status and diagnostic information
 
+Update notices use the cached result from an earlier invocation. When a refresh is due, the host starts a detached update worker and does not wait for it. The worker has a bounded registry timeout. Its separate, atomically published cache prevents update checks from overwriting image or storage state. Failed attempts delay the next refresh.
+
 ### Container environment
 
 The container environment:
@@ -157,6 +159,8 @@ A normal session can reach its host-command broker through the container runtime
 
 The Apple adapter owns its runtime-specific network behavior. Configuration selects `default`, `host`, or `host-ipv6` DNS once when it constructs the adapter. Host mode selects a guest-usable server from the current primary macOS DNS configuration. It does not use scoped resolvers or substitute public DNS. Resolver discovery, readiness, and runtime arguments stay private to the adapter. The guest DNS proxy provides exact Apple host aliases, without subdomain mappings. Sandbox does not add a privileged host setup workflow.
 
+Each instance-startup scope shares one network snapshot between the compatibility check and container creation. The scope releases discovery helpers on reuse, creation, or failure. Independent scopes read current network and DNS state. User sessions run outside this scope.
+
 In `host` and `host-ipv6` modes, the adapter revalidates shared builder DNS before each image build. Concurrent preparation calls share only the in-progress check. A process-owned filesystem lock serializes builder DNS preparation across Sandbox processes. Only the owner releases its lock. An abandoned lock requires manual recovery because filesystem checks cannot safely delete a lock that another process has replaced.
 
 See [Network Firewall](./NETWORK-FIREWALL.md).
@@ -170,9 +174,12 @@ flowchart LR
   Config[Merge configuration] --> Image[Select or build image]
   Image --> Runtime[Prepare host runtime cache]
   Runtime --> Create[Create container]
-  Create --> Apply[Apply copy-mode settings]
-  Apply --> Services[Start container services]
-  Services --> Session[Run session as non-root user]
+  Create --> Security[Install IPv4 and IPv6 firewall policies]
+  Security --> Apply[Apply copy-mode settings as non-root user]
+  Security --> Services[Start container services]
+  Apply --> Ready[Wait for settings and services]
+  Services --> Ready
+  Ready --> Session[Run session as non-root user]
   Session --> Idle{Sessions remain active?}
   Idle -->|Yes| Wait[Keep container running]
   Wait --> Idle
@@ -182,12 +189,12 @@ flowchart LR
 
 1. Merge configuration.
 2. Select or build the image.
-3. Prepare the runtime cache, then create the container with its read-only bind mount and network policy. Stop startup if runtime preparation fails.
-4. Apply copy-mode settings. Stop startup if this operation fails.
-5. Start required container services.
-6. Start a host-command broker for the normal execution session.
+3. Prepare the runtime cache and mounts. Stop startup if runtime preparation fails.
+4. Start the session host-command broker, then find a compatible container or create one.
+5. For a new container, install both firewall policies before starting services and applying copy-mode settings. Apply settings as the non-root user while services become ready. Cancel and settle pending startup work if either operation fails.
+6. Wait for container readiness and install the bounded session broker exception in one guest operation. `modules/sandbox-containers` owns this session preparation and its cleanup.
 7. Run the requested command as the non-root user.
-8. Stop the broker and its active host children when the execution ends.
+8. Remove the session broker exception. Stop the broker and its active host children when the execution ends.
 9. Keep the container available while sessions remain active.
 10. Synchronize new mount-mode settings during a normal stop.
 11. Stop or remove the container according to the command and configuration.

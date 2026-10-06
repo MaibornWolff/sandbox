@@ -1,3 +1,7 @@
+import {
+  runUpdateCheckWorker,
+  UPDATE_CHECK_WORKER_ARGUMENT,
+} from "#modules/self-update/index.js";
 import { createSystemClock, provideClock } from "#platform/clock/index.js";
 import {
   createProductionRuntimeProvider,
@@ -62,9 +66,13 @@ export async function runProductionSandboxApplication(
         provideWebSocketService(webSocketService),
       ],
       () =>
-        runWithProcessManager(processManager, () =>
-          createSandboxApplication().run(argv),
-        ),
+        runWithProcessManager(processManager, async () => {
+          if (argv[0] === UPDATE_CHECK_WORKER_ARGUMENT && argv.length === 2) {
+            await runUpdateCheckWorker(argv[1] ?? "");
+            return 0;
+          }
+          return createSandboxApplication().run(argv);
+        }),
     );
   } finally {
     controller.abort();

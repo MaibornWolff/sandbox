@@ -64,9 +64,9 @@ export async function setupContainerNetworkSystemTest(
     variables: { HOME: home, ...variables },
     platform: "linux",
   });
-  const processes = createProcessTestHarness();
-  const tcp = createStatefulTcpService();
   const clock = createTestClock();
+  const processes = createProcessTestHarness(clock.clock);
+  const tcp = createStatefulTcpService();
   const terminal: TestTerminal = createTestTerminal();
   const writeLog = (message: string) =>
     terminal.io.stderr.write(`${message}\n`);

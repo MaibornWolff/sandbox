@@ -189,6 +189,158 @@ async function withHostEnvironment<T>(
 }
 
 describe("Apple private networking owner", () => {
+  test("shares discovery within an execution and refreshes the next execution", async () => {
+    const harness = createExecutor({
+      networks: [NETWORK, NETWORK.replace("first", "second")],
+      hostDns: [HOST_DNS, HOST_DNS.replaceAll(HOST_RESOLVER, "192.0.2.53")],
+    });
+    const networking = new AppleNetworking(harness.exec, { dns: "host" });
+    const identities: string[] = [];
+    const resolvers: (string | undefined)[] = [];
+    for (let index = 0; index < 2; index++) {
+      await networking.withInstanceStartup(async () => {
+        identities.push(await networking.compatibilityIdentity());
+        await using plan = await networking.prepareRun();
+        resolvers.push(plan.dns);
+      });
+    }
+    expect(identities[0]).not.toBe(identities[1]);
+    expect(resolvers).toEqual([HOST_RESOLVER, "192.0.2.53"]);
+    expect(count(harness.events, ["network", "list"])).toBe(2);
+    expect(count(harness.events, ["--dns"])).toBe(2);
+  });
+
+  test("shares pending discovery between callers in one startup scope", async () => {
+    const harness = createExecutor();
+    const networking = new AppleNetworking(harness.exec, { dns: "host" });
+    await networking.withInstanceStartup(async () => {
+      const [first, second, plan] = await Promise.all([
+        networking.compatibilityIdentity(),
+        networking.compatibilityIdentity(),
+        networking.prepareRun(),
+      ]);
+      await using _plan = plan;
+      expect(first).toBe(second);
+      expect(plan.dns).toBe(HOST_RESOLVER);
+    });
+    expect(count(harness.events, ["network", "list"])).toBe(1);
+    expect(count(harness.events, ["--dns"])).toBe(1);
+  });
+
+  test("starts host DNS discovery before network discovery completes", async () => {
+    const harness = createExecutor();
+    const gate = Promise.withResolvers<void>();
+    const started: string[] = [];
+    const networking = new AppleNetworking(
+      async (command, args, options) => {
+        started.push(command);
+        await gate.promise;
+        return harness.exec(command, args, options);
+      },
+      { dns: "host" },
+    );
+    const preparation = networking.prepareRun();
+    const probes = [...started];
+    gate.resolve();
+    await using plan = await preparation;
+    expect(probes).toEqual(["container", "scutil"]);
+    expect(plan.dns).toBe(HOST_RESOLVER);
+  });
+
+  test("retains the cold network helper through compatibility and run setup", async () => {
+    const harness = createExecutor({ networks: ["[]", "[]", NETWORK] });
+    const networking = new AppleNetworking(harness.exec, { dns: "host-ipv6" });
+    await networking.withInstanceStartup(async () => {
+      await networking.compatibilityIdentity();
+      expect(count(harness.events, ["delete"])).toBe(0);
+      const plan = await networking.prepareRun();
+      expect(plan.dns).toBe(RESOLVER);
+      expect(count(harness.events, ["run"])).toBe(1);
+      expect(count(harness.events, ["delete"])).toBe(0);
+      await plan[Symbol.asyncDispose]();
+      expect(count(harness.events, ["delete"])).toBe(0);
+      await using retry = await networking.prepareRun();
+      expect(retry.dns).toBe(RESOLVER);
+      expect(count(harness.events, ["run"])).toBe(1);
+    });
+    expect(count(harness.events, ["delete"])).toBe(1);
+  });
+
+  test("releases compatibility helpers when execution fails before creation", async () => {
+    const harness = createExecutor({ networks: ["[]", "[]", NETWORK] });
+    const networking = new AppleNetworking(harness.exec, { dns: "default" });
+    await expect(
+      networking.withInstanceStartup(async () => {
+        await networking.compatibilityIdentity();
+        throw new Error("execution failed");
+      }),
+    ).rejects.toThrow("execution failed");
+    expect(count(harness.events, ["run"])).toBe(1);
+    expect(count(harness.events, ["delete"])).toBe(1);
+  });
+  test("releases a helper when compatibility finds an existing instance", async () => {
+    const harness = createExecutor({ networks: ["[]", "[]", NETWORK] });
+    const networking = new AppleNetworking(harness.exec, { dns: "default" });
+    await networking.withInstanceStartup(async () => {
+      await networking.compatibilityIdentity();
+      expect(count(harness.events, ["delete"])).toBe(0);
+    });
+    expect(count(harness.events, ["delete"])).toBe(1);
+  });
+
+  test("cleans a late network helper after concurrent host DNS failure", async () => {
+    const harness = createExecutor({ networks: ["[]", "[]", NETWORK] });
+    const gate = Promise.withResolvers<void>();
+    const dnsStarted = Promise.withResolvers<void>();
+    const networking = new AppleNetworking(
+      async (command, args, options) => {
+        if (command === "scutil") {
+          dnsStarted.resolve();
+          throw new Error("host DNS failed");
+        }
+        await gate.promise;
+        return harness.exec(command, args, options);
+      },
+      { dns: "host" },
+    );
+    const preparation = networking.withInstanceStartup(() =>
+      networking.prepareRun(),
+    );
+    await dnsStarted.promise;
+    gate.resolve();
+    await expect(preparation).rejects.toThrow("host DNS failed");
+    expect(count(harness.events, ["run"])).toBe(1);
+    expect(count(harness.events, ["delete"])).toBe(1);
+  });
+
+  test("keeps overlapping startup scopes independent", async () => {
+    const harness = createExecutor({
+      hostDns: [HOST_DNS, HOST_DNS.replaceAll(HOST_RESOLVER, "192.0.2.53")],
+    });
+    const networking = new AppleNetworking(harness.exec, { dns: "host" });
+    const firstReady = Promise.withResolvers<void>();
+    const secondReady = Promise.withResolvers<void>();
+    const first = networking.withInstanceStartup(async () => {
+      const identity = await networking.compatibilityIdentity();
+      firstReady.resolve();
+      await secondReady.promise;
+      await using plan = await networking.prepareRun();
+      expect(plan.dns).toBe(HOST_RESOLVER);
+      return identity;
+    });
+    await firstReady.promise;
+    const second = networking.withInstanceStartup(async () => {
+      const identity = await networking.compatibilityIdentity();
+      secondReady.resolve();
+      await using plan = await networking.prepareRun();
+      expect(plan.dns).toBe("192.0.2.53");
+      return identity;
+    });
+    const identities = await Promise.all([first, second]);
+    expect(identities[0]).not.toBe(identities[1]);
+    expect(count(harness.events, ["network", "list"])).toBe(2);
+  });
+
   test("uses the inspected gateway without changing the resolver in default mode", async () => {
     const harness = createExecutor();
     const networking = new AppleNetworking(harness.exec, { dns: "default" });

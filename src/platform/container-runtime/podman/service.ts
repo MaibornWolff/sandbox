@@ -101,6 +101,10 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
     return this.host.ensureReady();
   }
 
+  withInstanceStartup<T>(operation: () => Promise<T>): Promise<T> {
+    return operation();
+  }
+
   async getCompatibilityIdentity(): Promise<string> {
     return "podman";
   }

@@ -441,7 +441,7 @@ describe("container lifecycle mechanics", () => {
 
     await runWithDependencies(
       [provideProcessManager(processes.manager), provideTerminal(terminal.io)],
-      () => runSettingsApplyAsSandbox(),
+      () => runSettingsApplyAsSandbox(new AbortController().signal),
     );
     expect(processes.requests[0]).toEqual({
       command: "/usr/sbin/gosu",
@@ -451,6 +451,7 @@ describe("container lifecycle mechanics", () => {
         "settings",
         "apply",
       ],
+      signal: expect.any(AbortSignal),
     });
   });
 

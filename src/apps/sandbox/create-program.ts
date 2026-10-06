@@ -36,12 +36,8 @@ function registerCommands(program: Command): void {
       displaySandboxInfo();
       return;
     }
-    const updateCheck = warnIfUpdateAvailable();
-    try {
-      await runShell(normalizeCliOptions(options));
-    } finally {
-      await updateCheck;
-    }
+    warnIfUpdateAvailable();
+    await runShell(normalizeCliOptions(options));
   });
 
   program
@@ -75,14 +71,8 @@ Note:
       if (mergedOptions.silent) {
         getLogger().setSilent(true);
       }
-      const updateCheck = mergedOptions.silent
-        ? Promise.resolve()
-        : warnIfUpdateAvailable();
-      try {
-        await runCommand(command, mergedOptions);
-      } finally {
-        await updateCheck;
-      }
+      if (!mergedOptions.silent) warnIfUpdateAvailable();
+      await runCommand(command, mergedOptions);
     });
 
   registerEscapeCommand(program);

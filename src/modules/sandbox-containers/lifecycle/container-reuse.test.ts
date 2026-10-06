@@ -9,8 +9,8 @@ import { runWithTestLogger } from "#test/host-test-scope.js";
 import {
   createFreshContainer,
   findOrCreateContainer,
-  waitForReady,
 } from "./container-reuse.js";
+import { prepareContainerSession } from "./host-command-network-access.js";
 
 function createSpec(): SandboxInstanceSpec {
   return {
@@ -28,6 +28,57 @@ function createSpec(): SandboxInstanceSpec {
 }
 
 describe("container reuse", () => {
+  test.each(["reuse", "fresh"])(
+    "uses one safe snapshot for %s creation",
+    async (mode) => {
+      const harness = createStatefulContainerRuntimeHarness();
+      for (const status of ["exited", "dead", "paused", "created"] as const) {
+        harness.instances.create({
+          name: `sandbox-project-${status}`,
+          image: "sandbox-project:latest",
+          labels: { "sandbox.project": "project" },
+          status,
+        });
+      }
+      const runtime = (await harness.provider.resolve()).runtime;
+      await runWithTestLogger(() =>
+        mode === "reuse"
+          ? findOrCreateContainer(runtime, "project", "expected", createSpec())
+          : createFreshContainer(runtime, "project", createSpec()),
+      );
+      expect(
+        harness.events().filter((event) => event.type === "container.list"),
+      ).toHaveLength(1);
+      expect(harness.instances.find("sandbox-project-exited")).toBeUndefined();
+      expect(harness.instances.find("sandbox-project-dead")).toBeUndefined();
+      expect(harness.instances.find("sandbox-project-paused")?.status).toBe(
+        "paused",
+      );
+      expect(harness.instances.find("sandbox-project-created")?.status).toBe(
+        "created",
+      );
+    },
+  );
+
+  test("does not create or remove containers when the snapshot fails", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.system.fail("container.list", new Error("snapshot unavailable"));
+    const runtime = (await harness.provider.resolve()).runtime;
+    await expect(
+      runWithTestLogger(() =>
+        findOrCreateContainer(runtime, "project", "expected", createSpec()),
+      ),
+    ).rejects.toThrow("snapshot unavailable");
+    expect(
+      harness
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.create" ||
+            event.type === "container.remove",
+        ),
+    ).toHaveLength(0);
+  });
   test("does not delete another caller's instance before it starts", async () => {
     const harness = createStatefulContainerRuntimeHarness();
     harness.instances.create({
@@ -109,7 +160,8 @@ describe("container reuse", () => {
     let queries = 0;
     runtime.instances.list = async (query) => {
       const instances = await list(query);
-      if (query?.states?.includes("running") && ++queries <= 4) return [];
+      if (query?.labels?.["sandbox.project"] === "project" && ++queries <= 4)
+        return [];
       return instances;
     };
     runtime.instances.startDetached = () =>
@@ -178,7 +230,13 @@ describe("container reuse", () => {
     });
     const runtime = (await harness.provider.resolve()).runtime;
     await expect(
-      runWithTestLogger(() => waitForReady(runtime, "sandbox-project", 500)),
+      runWithTestLogger(async () => {
+        await using _session = await prepareContainerSession({
+          containers: runtime.instances,
+          containerId: "sandbox-project",
+          timeoutMs: 500,
+        });
+      }),
     ).resolves.toBeUndefined();
   });
 
@@ -193,7 +251,13 @@ describe("container reuse", () => {
     });
     const runtime = (await harness.provider.resolve()).runtime;
     await expect(
-      runWithTestLogger(() => waitForReady(runtime, "sandbox-project", 50)),
+      runWithTestLogger(() =>
+        prepareContainerSession({
+          containers: runtime.instances,
+          containerId: "sandbox-project",
+          timeoutMs: 50,
+        }),
+      ),
     ).rejects.toThrow("container state is exited");
   });
 });

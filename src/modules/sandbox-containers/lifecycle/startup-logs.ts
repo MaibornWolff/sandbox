@@ -17,28 +17,45 @@ export function captureStartupLogs(
   const lines: string[] = [];
   const decoder = new StringDecoder("utf8");
   let pending = "";
-  const capture = (chunk: Buffer): void => {
-    const values = `${pending}${decoder.write(chunk)}`.split("\n");
-    pending = values.pop() ?? "";
-    for (const value of values) {
-      const line = value.slice(0, MAX_LINE_LENGTH).replace(/\r$/u, "");
-      lines.push(line);
-      if (lines.length > MAX_LINES) lines.shift();
-      getLogger().debug(line);
+  let truncated = false;
+  const finishLine = (debug: boolean): void => {
+    const line =
+      pending.replace(/\r$/u, "") + (truncated ? " [truncated]" : "");
+    lines.push(line);
+    if (lines.length > MAX_LINES) lines.shift();
+    if (debug) getLogger().debug(line);
+    pending = "";
+    truncated = false;
+  };
+  const append = (text: string): void => {
+    let start = 0;
+    while (start < text.length) {
+      const newline = text.indexOf("\n", start);
+      const end = newline === -1 ? text.length : newline;
+      const retainedEnd = Math.min(
+        end,
+        start + MAX_LINE_LENGTH - pending.length,
+      );
+      pending += text.slice(start, retainedEnd);
+      truncated ||= retainedEnd < end;
+      if (newline === -1) break;
+      finishLine(true);
+      start = newline + 1;
     }
   };
+  const capture = (chunk: Buffer): void => append(decoder.write(chunk));
   const subscription = runtime.instances.followLogs(containerName, {
     tail: MAX_LINES,
     onOutput: capture,
     onError: capture,
   });
-  const stop = async (): Promise<void> => {
-    await subscription.stop();
-    const final = `${pending}${decoder.end()}`;
-    if (final) {
-      lines.push(final.slice(0, MAX_LINE_LENGTH));
-      if (lines.length > MAX_LINES) lines.shift();
-    }
+  let stopped: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    stopped ??= subscription.stop().then(() => {
+      append(decoder.end());
+      if (pending || truncated) finishLine(false);
+    });
+    return stopped;
   };
   return {
     reportFailure() {

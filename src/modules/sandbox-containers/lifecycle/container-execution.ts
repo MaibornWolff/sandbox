@@ -8,7 +8,6 @@ import {
   HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE,
   startHostCommandEscapeSession,
 } from "#modules/host-command-escape/index.js";
-import { allowHostCommandNetworkAccess } from "#modules/network/index.js";
 import type { BuildImagesResult } from "#modules/sandbox-images/index.js";
 import {
   cleanupSandboxRuntimeAfterSession,
@@ -38,9 +37,12 @@ import {
   createFreshContainer,
   findOrCreateContainer,
   pickFreshContainerName,
-  waitForReady,
 } from "./container-reuse.js";
 import { resolveHostAgentTitle } from "./host-agent-title.js";
+import {
+  ContainerReadinessError,
+  prepareContainerSession,
+} from "./host-command-network-access.js";
 import {
   prepareSandboxEnvironment,
   warnIfX11Unavailable,
@@ -115,6 +117,41 @@ async function runForegroundContainer(
   throwForChildExit(result.exitCode);
 }
 
+async function prepareResolvedSession(
+  service: SandboxRuntime,
+  options: {
+    readonly containerName: string;
+    readonly created: boolean;
+    readonly endpoint?: string;
+  },
+): Promise<{
+  readonly containerName: string;
+  readonly access: AsyncDisposable;
+}> {
+  const logger = getLogger();
+  if (options.created) logger.info("Creating sandbox container...");
+  await using resources = new AsyncDisposableStack();
+  const logCapture = options.created
+    ? resources.use(captureStartupLogs(service, options.containerName))
+    : undefined;
+  const access = await prepareContainerSession({
+    containers: service.instances,
+    containerId: options.containerName,
+    endpoint: options.endpoint,
+    timeoutMs: options.created ? 30_000 : 5_000,
+  }).catch(async (error) => {
+    if (logCapture) {
+      await logCapture.stop();
+      logCapture.reportFailure();
+    }
+    throw error;
+  });
+  resources.use(access);
+  await logCapture?.stop();
+  logger.debug(`Container ${chalk.cyan(options.containerName)} is ready`);
+  return { containerName: options.containerName, access: resources.move() };
+}
+
 async function resolveExecutionContainer(
   service: SandboxRuntime,
   options: {
@@ -122,18 +159,23 @@ async function resolveExecutionContainer(
     readonly imageIdentity: string;
     readonly projectSlug: string;
     readonly skipReuse: boolean;
+    readonly endpoint?: string;
   },
-): Promise<{ readonly containerName: string; readonly created: boolean }> {
+): Promise<{
+  readonly containerName: string;
+  readonly access: AsyncDisposable;
+}> {
   const logger = getLogger();
   if (options.skipReuse) {
-    return {
+    return prepareResolvedSession(service, {
       containerName: await createFreshContainer(
         service,
         options.projectSlug,
         options.containerSpec,
       ),
       created: true,
-    };
+      endpoint: options.endpoint,
+    });
   }
 
   const imageIdentity =
@@ -162,24 +204,31 @@ async function resolveExecutionContainer(
     options.containerSpec,
   );
 
-  if (!result.created) {
-    try {
-      await waitForReady(service, result.containerName, 5_000);
-      logger.debug(`Reusing existing container: ${result.containerName}`);
-    } catch {
-      logger.debug(
-        `Reused container ${result.containerName} stopped, creating new one`,
-      );
-      result = await findOrCreateContainer(
-        service,
-        options.projectSlug,
-        hash,
-        options.containerSpec,
-      );
-      return { ...result, created: true };
-    }
+  try {
+    return await prepareResolvedSession(service, {
+      ...result,
+      endpoint: options.endpoint,
+    });
+  } catch (error) {
+    if (result.created || !(error instanceof ContainerReadinessError))
+      throw error;
+    const instance = await service.instances.inspect(result.containerName);
+    if (instance && instance.state !== "exited" && instance.state !== "dead")
+      throw error;
+    logger.debug(
+      `Reused container ${chalk.cyan(result.containerName)} stopped, creating new one`,
+    );
+    result = await findOrCreateContainer(
+      service,
+      options.projectSlug,
+      hash,
+      options.containerSpec,
+    );
+    return prepareResolvedSession(service, {
+      ...result,
+      endpoint: options.endpoint,
+    });
   }
-  return result;
 }
 
 async function execute(
@@ -233,25 +282,6 @@ async function execute(
     return;
   }
 
-  const resolved = await resolveExecutionContainer(service, {
-    containerSpec,
-    imageIdentity: buildResult.image.digest,
-    projectSlug,
-    skipReuse,
-  });
-  if (resolved.created) {
-    logger.info("Creating sandbox container...");
-    const logCapture = captureStartupLogs(service, resolved.containerName);
-    await waitForReady(service, resolved.containerName).catch(async (error) => {
-      await logCapture.stop();
-      logCapture.reportFailure();
-      throw error;
-    });
-    await logCapture.stop();
-    logger.debug(`Container ${resolved.containerName} is ready`);
-  }
-  logger.endTiming("Container setup");
-
   await using hostCommandEscapeSession = await startHostCommandEscapeSession({
     commandRules: config.allowHostCommands,
     hostProjectRoot: projectRoot,
@@ -265,13 +295,19 @@ async function execute(
   if (!brokerEndpoint) {
     throw new Error("The host-command broker did not provide an endpoint.");
   }
-  await using _hostCommandNetworkAccess = config.noProxy
-    ? undefined
-    : await allowHostCommandNetworkAccess(
-        service.instances,
-        resolved.containerName,
-        brokerEndpoint,
-      );
+  await using sessionResources = new AsyncDisposableStack();
+  const containerName = await service.withInstanceStartup(async () => {
+    const resolved = await resolveExecutionContainer(service, {
+      containerSpec,
+      imageIdentity: buildResult.image.digest,
+      projectSlug,
+      skipReuse,
+      endpoint: config.noProxy ? undefined : brokerEndpoint,
+    });
+    sessionResources.use(resolved.access);
+    return resolved.containerName;
+  });
+  logger.endTiming("Container setup");
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
   }
@@ -289,7 +325,7 @@ async function execute(
   const title = resolveHostAgentTitle(command);
   if (title) logger.debug(`Host agent title: ${chalk.cyan(title)}`);
   const result = await service.instances.execAttached(
-    resolved.containerName,
+    containerName,
     execution.spec,
     {
       ...execution.session,

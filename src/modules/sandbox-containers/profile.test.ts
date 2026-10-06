@@ -26,7 +26,7 @@ describe("docker/configs/profile", () => {
   test("returns early when SANDBOX_PROFILE_LOADED is already set", () => {
     const script = readProfile();
     const guardIndex = script.indexOf(
-      '[ -n "${SANDBOX_PROFILE_LOADED:-}" ] && return 0',
+      `[ -n "\${SANDBOX_PROFILE_LOADED:-}" ] && return 0`,
     );
     expect(guardIndex).toBeGreaterThanOrEqual(0);
   });
@@ -34,7 +34,7 @@ describe("docker/configs/profile", () => {
   test("guard appears before all substantive content so appended lines are protected", () => {
     const script = readProfile();
     const guardIndex = script.indexOf(
-      '[ -n "${SANDBOX_PROFILE_LOADED:-}" ] && return 0',
+      `[ -n "\${SANDBOX_PROFILE_LOADED:-}" ] && return 0`,
     );
     const exportIndex = script.indexOf("export SANDBOX_PROFILE_LOADED=1");
     const miseIndex = script.indexOf("mise activate");

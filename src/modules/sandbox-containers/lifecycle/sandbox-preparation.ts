@@ -84,7 +84,13 @@ export async function prepareSandboxEnvironment(
 ): Promise<BuildImagesResult> {
   const logger = getLogger();
   displayConfigWarnings(silent);
-  await services.runtime.ensureHostReady();
+  logger.debug("Checking runtime host and X11 availability");
+  const [host, x11] = await Promise.allSettled([
+    services.runtime.ensureHostReady(),
+    detectX11(),
+  ]);
+  if (host.status === "rejected") throw host.reason;
+  if (x11.status === "rejected") throw x11.reason;
 
   const skipBuild = cliOptions.noBuild || cliOptions.build === false;
   const label = skipBuild ? "Image resolution" : "Image checks and builds";

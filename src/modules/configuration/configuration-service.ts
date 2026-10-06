@@ -58,10 +58,6 @@ export function getConfigurationService(): ConfigurationService {
 
 class ConfigurationExitError extends Error {
   readonly exitCode = 1;
-
-  constructor(message: string) {
-    super(message);
-  }
 }
 
 export function createConfigurationService(): ConfigurationService {

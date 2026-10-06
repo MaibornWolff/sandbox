@@ -26,41 +26,35 @@ interface RunningContainer {
   readonly state: SandboxInstanceSummary["state"];
 }
 
-async function queryRunningContainers(
+async function queryRetainedContainers(
   service: SandboxRuntime,
   projectSlug: string,
 ): Promise<RunningContainer[]> {
-  const entries = await service.instances.list({
-    labels: { [SANDBOX_PROJECT_LABEL]: projectSlug },
-    states: ["created", "running"],
-  });
-  return entries.map((entry) => ({
-    id: entry.id,
-    name: entry.name,
-    hash: entry.labels[SANDBOX_HASH_LABEL] ?? null,
-    state: entry.state,
-  }));
-}
-
-async function removeStoppedContainers(
-  service: SandboxRuntime,
-  projectSlug: string,
-): Promise<void> {
   const logger = getLogger();
   let entries: SandboxInstanceSummary[];
   try {
     entries = await service.instances.list({
       all: true,
       labels: { [SANDBOX_PROJECT_LABEL]: projectSlug },
-      states: ["exited", "dead"],
     });
   } catch (error) {
     logger.warn(
       `Could not establish stopped-container cleanup safety: ${error instanceof Error ? error.message : String(error)}`,
     );
-    return;
+    throw error;
   }
+  const retained: RunningContainer[] = [];
   for (const entry of entries) {
+    const container = {
+      id: entry.id,
+      name: entry.name,
+      hash: entry.labels[SANDBOX_HASH_LABEL] ?? null,
+      state: entry.state,
+    };
+    if (entry.state !== "exited" && entry.state !== "dead") {
+      retained.push(container);
+      continue;
+    }
     try {
       await service.instances.remove(entry.id, { force: true });
       logger.debug(`Removed stopped container: ${entry.id}`);
@@ -68,8 +62,10 @@ async function removeStoppedContainers(
       logger.warn(
         `Could not remove stopped container ${entry.id}: ${error instanceof Error ? error.message : String(error)}`,
       );
+      retained.push(container);
     }
   }
+  return retained;
 }
 
 function pickContainerName(slug: string, takenNames: Set<string>): string {
@@ -95,7 +91,7 @@ async function removeIdleObsoleteContainer(
   container: RunningContainer,
   expectedHash: string,
 ): Promise<RunningContainer | null> {
-  if (container.hash === expectedHash || container.state === "created")
+  if (container.hash === expectedHash || container.state !== "running")
     return container;
   const logger = getLogger();
   if (!(await isContainerIdle(service, container.id))) {
@@ -131,69 +127,11 @@ async function removeIdleObsoleteContainers(
   );
 }
 
-async function reportReadinessFailure(
-  service: SandboxRuntime,
-  containerName: string,
-  message: string,
-): Promise<never> {
-  const logger = getLogger();
-  const inspection = await service.instances.inspect(containerName);
-  if (!inspection) {
-    logger.error(
-      "Container no longer exists. It probably crashed and was removed.",
-    );
-  } else {
-    logger.error(`Container status: ${inspection.state}`);
-    const logs = await service.instances.readLogs(containerName, { tail: 50 });
-    logger.error(`Container logs:\n${logs}`);
-  }
-  throw new Error(
-    `Container ${containerName} failed during startup: ${message}`,
-  );
-}
-
-export async function waitForReady(
-  service: SandboxRuntime,
-  containerName: string,
-  timeoutMs = 30_000,
-): Promise<void> {
-  const intervalMs = 50;
-  const attempts = Math.max(1, Math.ceil(timeoutMs / intervalMs));
-  const command =
-    `i=0; while [ "$i" -lt ${attempts} ]; do ` +
-    "[ -f /tmp/.sandbox-ready ] && exit 0; " +
-    `i=$((i + 1)); sleep ${intervalMs / 1_000}; done; exit 124`;
-  let exitCode: number;
-  try {
-    exitCode = (
-      await service.instances.exec(containerName, {
-        command: ["sh", "-c", command],
-      })
-    ).exitCode;
-  } catch (error) {
-    const inspection = await service.instances.inspect(containerName);
-    const message = inspection
-      ? `container state is ${inspection.state}`
-      : error instanceof Error
-        ? error.message
-        : String(error);
-    return reportReadinessFailure(service, containerName, message);
-  }
-  if (exitCode === 0) return;
-  const inspection = await service.instances.inspect(containerName);
-  const message =
-    inspection?.state === "running"
-      ? `readiness timed out after ${timeoutMs}ms`
-      : `container state is ${inspection?.state ?? "missing"}`;
-  return reportReadinessFailure(service, containerName, message);
-}
-
 export async function pickFreshContainerName(
   service: SandboxRuntime,
   slug: string,
 ): Promise<string> {
-  await removeStoppedContainers(service, slug);
-  const running = await queryRunningContainers(service, slug);
+  const running = await queryRetainedContainers(service, slug);
   return pickContainerName(slug, new Set(running.map((entry) => entry.name)));
 }
 
@@ -214,8 +152,7 @@ export async function createFreshContainer(
   slug: string,
   spec: SandboxInstanceSpec,
 ): Promise<string> {
-  await removeStoppedContainers(service, slug);
-  const running = await queryRunningContainers(service, slug);
+  const running = await queryRetainedContainers(service, slug);
   const containerName = pickContainerName(
     slug,
     new Set(running.map((entry) => entry.name)),
@@ -238,13 +175,16 @@ export async function findOrCreateContainer(
   const retryDeadline = clock.now() + NAME_CONFLICT_RETRY_TIMEOUT_MS;
   let conflictAttempt = 0;
   while (true) {
-    await removeStoppedContainers(service, slug);
     const running = await removeIdleObsoleteContainers(
       service,
-      await queryRunningContainers(service, slug),
+      await queryRetainedContainers(service, slug),
       hash,
     );
-    const matching = running.find((container) => container.hash === hash);
+    const matching = running.find(
+      (container) =>
+        container.hash === hash &&
+        (container.state === "running" || container.state === "created"),
+    );
     if (matching) {
       logger.debug(
         `Reusing existing container: ${matching.name} (hash=${hash})`,

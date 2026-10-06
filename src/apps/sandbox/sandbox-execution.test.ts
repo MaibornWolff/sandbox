@@ -25,6 +25,73 @@ function givenSuccessfulInteractiveProcess(
 }
 
 describe("sandbox shell and run", () => {
+  test("overlaps X11 detection with host validation and waits on host failure", async () => {
+    await using app = await setupSandboxAppTest({
+      platform: "darwin",
+      runtimeBoundary: "process",
+    });
+    app.global.writeConfig('runtime = "docker"\n');
+    const host = app.processes.expectStart({
+      match: { command: "docker", args: ["--version"] },
+    });
+    const x11 = app.processes.expectStart({ match: { command: "pgrep" } });
+    let completed = false;
+    const execution = app.cli
+      .run("--no-build", "run", "true")
+      .then((result) => {
+        completed = true;
+        return result;
+      });
+    await host.waitForStart();
+    const detectionStarted = app.processes.requests.some(
+      (request) => request.command === "pgrep",
+    );
+    host.resolveResult({ exitCode: 1, stdout: "", stderr: "offline" });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const completedBeforeDetection = completed;
+    x11.resolveResult({ exitCode: 0, stdout: "123", stderr: "" });
+    const result = await execution;
+    expect(detectionStarted).toBe(true);
+    expect(completedBeforeDetection).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Docker daemon is not running");
+    expect(result.stderr).not.toContain("X11 clipboard not available");
+  });
+
+  test.each([
+    { silent: false, available: false, clipboard: "auto" },
+    { silent: true, available: false, clipboard: "auto" },
+    { silent: false, available: true, clipboard: "auto" },
+    { silent: false, available: false, clipboard: "disabled" },
+  ])(
+    "detects X11 once and preserves warning behavior: %j",
+    async ({ silent, available, clipboard }) => {
+      await using app = await setupSandboxAppTest({ platform: "darwin" });
+      app.global.writeConfig(`clipboard = "${clipboard}"\n`);
+      app.processes.expectStart({ match: { command: "pgrep" } }).resolveResult({
+        exitCode: available ? 0 : 1,
+        stdout: available ? "123" : "",
+        stderr: "",
+      });
+      givenSuccessfulInteractiveProcess(app);
+      const result = await app.cli.run(
+        "run",
+        ...(silent ? ["--silent"] : []),
+        "true",
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr.includes("X11 clipboard not available")).toBe(
+        !silent && !available && clipboard !== "disabled",
+      );
+      expect(
+        app.processes.requests.filter((request) => request.command === "pgrep"),
+      ).toHaveLength(1);
+      expect(
+        app.runtime.events().find((event) => event.type === "container.create")
+          ?.options.environment.X11_AVAILABLE,
+      ).toBe(String(available));
+    },
+  );
   test("uses a versioned runtime cache and schedules cleanup after the session", async () => {
     await using app = await setupSandboxAppTest();
     givenSuccessfulInteractiveProcess(app);
@@ -160,13 +227,18 @@ describe("sandbox shell and run", () => {
   });
 
   test("reports configuration and runtime failures without spawning", async () => {
-    await using malformed = await setupSandboxAppTest();
+    await using malformed = await setupSandboxAppTest({ platform: "darwin" });
     const configFailure = await malformed.cli.run("--no-proxy", "run", "zsh");
     expect(configFailure.exitCode).toBe(1);
     expect(configFailure.stderr).toContain(
       "--no-proxy requires --full-network to be enabled",
     );
     expect(interactiveRequest(malformed)).toBeUndefined();
+    expect(
+      malformed.processes.requests.some(
+        (request) => request.command === "pgrep",
+      ),
+    ).toBe(false);
 
     await using runtimeFailure = await setupSandboxAppTest();
     runtimeFailure.runtime.system.fail("resolve", new Error("daemon offline"));
@@ -254,6 +326,62 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     expect(app.runtime.instances.all()).toHaveLength(2);
   });
 
+  test.each([false, true])(
+    "prepares new and reused sessions in one exec with noProxy=%s",
+    async (noProxy) => {
+      await using app = await setupSandboxAppTest();
+      const options = noProxy ? ["--full-network", "--no-proxy"] : [];
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const start = app.runtime.events().length;
+        givenSuccessfulInteractiveProcess(app);
+        expect((await app.cli.run(...options, "run", "true")).exitCode).toBe(0);
+        const events = app.runtime.events().slice(start);
+        const attached = events.findIndex(
+          (event) => event.type === "container.exec-attached",
+        );
+        expect(attached).toBeGreaterThan(0);
+        const preparation = events
+          .slice(0, attached)
+          .filter((event) => event.type === "container.exec");
+        expect(preparation).toHaveLength(1);
+        expect(preparation[0]?.command.includes("/usr/sbin/iptables")).toBe(
+          !noProxy,
+        );
+        expect(
+          events
+            .slice(attached)
+            .filter((event) => event.type === "container.exec"),
+        ).toHaveLength(noProxy ? 0 : 1);
+      }
+    },
+  );
+
+  test("recovers when a reused container stops during readiness", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    const previous = app.runtime.instances.all()[0];
+    expect(previous).toBeDefined();
+    if (!previous) throw new Error("Missing initial container");
+    const runtime = (await app.runtime.provider.resolve()).runtime;
+    await runtime.instances.remove(previous.id, { force: true });
+    const reused = app.runtime.instances.create({
+      name: previous.name,
+      image: previous.image,
+      labels: previous.labels,
+      status: "running",
+    });
+    reused.givenStopsOnReadinessAttempt(1);
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    expect(reused.snapshot().status).toBe("removed");
+    const attached = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached");
+    expect(attached).toHaveLength(2);
+    expect(attached[1]?.containerId).not.toBe(reused.id);
+  });
+
   test("opens only the session broker port and removes the rule after execution", async () => {
     await using app = await setupSandboxAppTest({ runtime: "apple-container" });
     await app.project.givenConfig({
@@ -268,10 +396,21 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       .events()
       .flatMap((event) =>
         event.type === "container.exec" &&
-        event.command[0] === "/usr/sbin/iptables"
-          ? [event.command]
+        event.command.includes("/usr/sbin/iptables")
+          ? [event.command.slice(event.command.indexOf("/usr/sbin/iptables"))]
           : [],
       );
+    const preparation = app.runtime
+      .events()
+      .filter(
+        (event) =>
+          event.type === "container.exec" &&
+          event.command.some((part) => part.includes("/tmp/.sandbox-ready")),
+      );
+    expect(preparation).toHaveLength(1);
+    expect(preparation[0]).toMatchObject({
+      command: expect.arrayContaining(["/usr/sbin/iptables", "-I"]),
+    });
     expect(firewallCommands).toHaveLength(2);
     expect(firewallCommands[0]).toContain("-I");
     expect(firewallCommands[1]).toContain("-D");

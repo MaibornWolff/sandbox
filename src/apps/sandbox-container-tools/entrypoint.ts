@@ -1,8 +1,8 @@
 import {
   type ContainerNetworkLifecycle,
+  installContainerNetworkSecurity,
   parseGuestHostMappings,
   parseNetworkBootstrapRequest,
-  startContainerNetwork,
 } from "#modules/network/index.js";
 import { type Clock, getClock } from "#platform/clock/index.js";
 import {
@@ -16,7 +16,6 @@ import {
   runSettingsSyncAsSandbox,
   startIdeBridge,
   terminateContainerSessions,
-  writeSshProxyConfiguration,
 } from "#platform/container-system/index.js";
 import {
   getSandboxEnvironment,
@@ -71,17 +70,17 @@ export async function runContainerEntrypoint(
     );
     const serializedNetwork = environment.variables.SANDBOX_FIREWALL;
     const networkStartup = serializedNetwork
-      ? initializeManagedNetwork(
-          serializedNetwork,
-          networkCancellation.signal,
-          () => receivedSignal !== undefined,
-          hostMappings,
-          hostAccessName,
+      ? installContainerNetworkSecurity(
+          parseNetworkBootstrapRequest(serializedNetwork),
+          { signal: networkCancellation.signal, hostMappings, hostAccessName },
         ).then((lifecycle) => {
-          logger.debug("managed network started");
+          logger.debug("managed network security installed");
           return lifecycle;
         })
-      : Promise.resolve({ failure: new Promise<Error>(() => undefined) });
+      : Promise.resolve({
+          readiness: Promise.resolve(),
+          failure: new Promise<Error>(() => undefined),
+        });
     const startupResult = await Promise.race([
       networkStartup.then((lifecycle) => ({
         type: "started" as const,
@@ -91,14 +90,18 @@ export async function runContainerEntrypoint(
     ]);
     if (startupResult.type === "signal") {
       await settleNetworkStartup(
-        networkStartup,
+        networkStartup.then((lifecycle) => lifecycle.readiness),
         "network startup stopped after signal",
       );
       return getExitCodeForSignal(startupResult.signal);
     }
 
-    await runSettingsApplyAsSandbox();
-    logger.debug("copied settings applied");
+    const startupSignal = await completeStartup({
+      lifecycle: startupResult.lifecycle,
+      cancellation: networkCancellation,
+      signalReceived,
+    });
+    if (startupSignal) return getExitCodeForSignal(startupSignal);
     const idePort = parseIdeBridgePort(
       environment.variables.CLAUDE_CODE_SSE_PORT,
     );
@@ -140,6 +143,34 @@ export async function runContainerEntrypoint(
   return receivedSignal ? getExitCodeForSignal(receivedSignal) : 0;
 }
 
+async function completeStartup(options: {
+  readonly lifecycle: ContainerNetworkLifecycle;
+  readonly cancellation: AbortController;
+  readonly signalReceived: Promise<NodeJS.Signals>;
+}): Promise<NodeJS.Signals | undefined> {
+  const { lifecycle, cancellation, signalReceived } = options;
+  const settings = runSettingsApplyAsSandbox(cancellation.signal).then(() => {
+    getLogger().debug("copied settings applied");
+  });
+  const pending = [lifecycle.readiness, settings];
+  try {
+    const result = await Promise.race([
+      Promise.all(pending).then(() => undefined),
+      lifecycle.failure.then((error) => {
+        throw error;
+      }),
+      signalReceived,
+    ]);
+    if (result) cancellation.abort();
+    return result;
+  } catch (error) {
+    cancellation.abort(error);
+    throw error;
+  } finally {
+    await Promise.allSettled(pending);
+  }
+}
+
 async function shutdownManagedChildren(
   processes: ProcessManager,
   receivedSignal: NodeJS.Signals | undefined,
@@ -164,23 +195,6 @@ async function settleNetworkStartup(
       `${failureContext}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-}
-
-async function initializeManagedNetwork(
-  serializedNetwork: string,
-  signal: AbortSignal,
-  signalWasReceived: () => boolean,
-  hostMappings: readonly { readonly host: string; readonly address: string }[],
-  hostAccessName: string,
-): Promise<ContainerNetworkLifecycle> {
-  const request = parseNetworkBootstrapRequest(serializedNetwork);
-  const lifecycle = await startContainerNetwork(request, {
-    signal,
-    hostMappings,
-    hostAccessName,
-  });
-  if (!request.noProxy && !signalWasReceived()) writeSshProxyConfiguration();
-  return lifecycle;
 }
 
 interface IdleState {

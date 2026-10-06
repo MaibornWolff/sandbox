@@ -1,10 +1,9 @@
-import type { ContainerMount } from "../container-contract.js";
+import type {
+  ContainerDetails,
+  ContainerMount,
+} from "../container-contract.js";
 
-export type ManagedContainerStatus =
-  | "created"
-  | "running"
-  | "exited"
-  | "removed";
+export type ManagedContainerStatus = ContainerDetails["state"] | "removed";
 
 export interface ManagedExecSession {
   readonly pid: string;
@@ -117,6 +116,18 @@ export function createManagedContainer(
     return "";
   }
 
+  function resolveReadinessScript(command: readonly string[]): string {
+    const script =
+      command[0] === "sh" && command[1] === "-c" ? command[2] : undefined;
+    const attempts = script?.match(/\[ "\$i" -ge (\d+) \]/u)?.[1];
+    if (!attempts) return resolveReadiness();
+    container.waitUntilReady(Number(attempts));
+    const output =
+      command.length > 4 ? container.resolveExecResult(command.slice(4)) : "";
+    const message = script?.match(/printf '%s\\n' '([^']*)'/u)?.[1] ?? "";
+    return `${message}\n${output}`;
+  }
+
   const container: ManagedContainerState = {
     id: values.id,
     name: values.name,
@@ -155,7 +166,7 @@ export function createManagedContainer(
     resolveExecResult(command) {
       const fixture = execFixtures.get(commandKey(command));
       if (fixture) return resolveFixture(fixture);
-      if (isReadinessCommand(command)) return resolveReadiness();
+      if (isReadinessCommand(command)) return resolveReadinessScript(command);
       if (isSessionDetailsCommand(command)) return formatSessions(sessions);
       if (command[0] === "/usr/sbin/iptables") return "";
       if (isIdleCommand(command) && sessions.length === 0) return "";

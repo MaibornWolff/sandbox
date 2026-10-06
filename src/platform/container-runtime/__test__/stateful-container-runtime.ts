@@ -862,6 +862,7 @@ class StatefulRuntimeWorld {
                 },
         } as const;
       },
+      withInstanceStartup: (operation) => operation(),
       getCompatibilityIdentity: async () => this.compatibilityIdentity,
       getDiskSpaceAdvice: () => {
         this.recordedEvents.push({ type: "hint.prune" });

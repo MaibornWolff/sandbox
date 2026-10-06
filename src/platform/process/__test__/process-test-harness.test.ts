@@ -168,6 +168,25 @@ describe("process test harness", () => {
     await expect(managed.result).resolves.toEqual({ exitCode: 19 });
   });
 
+  test("keeps input failures for pending and subsequent writes", async () => {
+    const harness = createProcessTestHarness();
+    await using cleanup = new AsyncDisposableStack();
+    cleanup.defer(() => harness.dispose());
+    const process = harness.expectStart({ match: { stdio: "stream" } });
+    const managed = startStreaming(harness);
+    process.pauseInput();
+    const writing = managed.stdin.write(Buffer.from("pending"));
+    await process.waitForInput();
+    const failure = new Error("input closed");
+    process.failInput(failure);
+    await expect(writing).rejects.toBe(failure);
+    process.failInput(new Error("later failure"));
+    await expect(managed.stdin.write(Buffer.from("next"))).rejects.toBe(
+      failure,
+    );
+    process.exit();
+  });
+
   test("settles streaming operations on signal and disposal", async () => {
     const harness = createProcessTestHarness();
     const process = harness.expectStart({ match: { stdio: "stream" } });

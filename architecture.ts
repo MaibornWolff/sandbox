@@ -115,14 +115,10 @@ export const architecture = defineArchitecture({
         "terminal",
         "text",
       ],
+      testDependencies: ["dependency-injection"],
     },
     network: {
-      dependencies: [
-        "configuration",
-        "container-runtime",
-        "container-system",
-        "logging",
-      ],
+      dependencies: ["configuration", "container-system"],
     },
     "network-diagnostics": {
       dependencies: [
@@ -204,6 +200,8 @@ export const architecture = defineArchitecture({
       dependencies: [
         "workspace-setup",
         "npm",
+        "process",
+        "environment",
         "state",
         "filesystem",
         "clock",
@@ -211,6 +209,7 @@ export const architecture = defineArchitecture({
         "terminal",
         "errors",
       ],
+      testDependencies: ["dependency-injection"],
     },
   },
   platform: {
@@ -241,7 +240,7 @@ export const architecture = defineArchitecture({
       dependencies: ["dependency-injection", "environment", "process"],
     },
     "dependency-injection": { dependencies: [] },
-    npm: { dependencies: ["process"] },
+    npm: { dependencies: ["process", "clock"] },
     state: { dependencies: ["filesystem", "environment"] },
     "container-system": {
       dependencies: [

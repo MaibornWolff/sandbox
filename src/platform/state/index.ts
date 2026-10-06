@@ -1,11 +1,19 @@
 import * as path from "node:path";
 import { z } from "zod";
-import { getHostEnvironment } from "#platform/environment/index.js";
 import {
   ensureDirectory,
   readJsonRecord,
   writeTextFile,
 } from "#platform/filesystem/index.js";
+
+import { getStatePath } from "./state-path.js";
+
+export {
+  claimUpdateRefresh,
+  finishUpdateRefresh,
+  readUpdateCache,
+  startUpdateRefresh,
+} from "./update-cache.js";
 
 const stateSchema = z
   .object({
@@ -30,14 +38,6 @@ const stateSchema = z
   .passthrough();
 
 type State = z.infer<typeof stateSchema>;
-
-function getStatePath(): string {
-  return path.join(
-    getHostEnvironment().dataHomeDirectory,
-    "sandbox",
-    "state.json",
-  );
-}
 
 export function readState(statePath = getStatePath()): State {
   const result = stateSchema.safeParse(readJsonRecord(statePath));

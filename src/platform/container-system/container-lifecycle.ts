@@ -256,18 +256,20 @@ export async function terminateContainerSessions(
 
 async function runSettingsCommandAsSandbox(
   command: "apply" | "sync",
+  signal?: AbortSignal,
 ): Promise<void> {
-  const output = await executeContainerCommand("/usr/sbin/gosu", [
-    "sandbox",
-    "/usr/local/bin/sandbox-container-tools",
-    "settings",
-    command,
-  ]);
+  const output = await executeContainerCommand(
+    "/usr/sbin/gosu",
+    ["sandbox", "/usr/local/bin/sandbox-container-tools", "settings", command],
+    signal ? { signal } : {},
+  );
   if (output.trim()) getTerminal().stdout.write(`${output.trimEnd()}\n`);
 }
 
-export async function runSettingsApplyAsSandbox(): Promise<void> {
-  await runSettingsCommandAsSandbox("apply");
+export async function runSettingsApplyAsSandbox(
+  signal: AbortSignal,
+): Promise<void> {
+  await runSettingsCommandAsSandbox("apply", signal);
 }
 
 export async function runSettingsSyncAsSandbox(): Promise<void> {

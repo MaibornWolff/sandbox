@@ -46,8 +46,8 @@ beforeAll(async () => {
   projectDir = await createTempProject("pid1-lifecycle");
   await writeProjectFile(
     projectDir,
-    ".sandbox/config.toml",
-    'env = ["SANDBOX_IDLE_TIMEOUT_SECONDS=2"]\n',
+    ".sandbox/docker/Dockerfile",
+    "FROM sandbox-base:latest\nENV SANDBOX_IDLE_TIMEOUT_SECONDS=2\n",
   );
   sb = createSandbox({ cwd: projectDir, timeoutSeconds: 45 });
 });

@@ -55,9 +55,10 @@ export function configureGlobalOptions(program: Command): void {
     )
     .option(
       "-e, --env <env>",
-      "Set env var (repeatable)\n" +
+      "Set session env var (repeatable)\n" +
         "  MY_VAR         → pass through from host\n" +
-        "  FOO=bar        → set explicit value",
+        "  FOO=bar        → set explicit value\n" +
+        "  Reserved: SANDBOX, SANDBOX_*, CLAUDE_CODE_SSE_PORT, DISPLAY, X11_AVAILABLE",
       (value: string, previous: string[]) => {
         return previous ? [...previous, value] : [value];
       },

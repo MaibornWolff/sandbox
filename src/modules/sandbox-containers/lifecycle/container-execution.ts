@@ -27,6 +27,7 @@ import {
   windowsPathToDocker,
 } from "#shared/text/index.js";
 import { buildContainerArgs } from "../arguments/container-arguments.js";
+import { validateConfiguredEnvironment } from "../arguments/environment-arguments.js";
 import { buildExecArgs } from "../arguments/session-arguments.js";
 import { computeContainerHash } from "../container-hashing.js";
 import type { SandboxContext } from "../sandbox-context.js";
@@ -261,6 +262,7 @@ async function execute(
     command,
     stdin,
     tty,
+    environment: config.env,
     proxyEnabled: !config.noProxy,
     hostCommandEscapeEnvironment: hostCommandEscapeSession.clientEnvironment,
     verbose,
@@ -293,6 +295,12 @@ export async function executeInSandbox(
   if (useVerboseTiming) logger.startTiming("Load config");
   const { config, projectRoot, repositoryRoots, configuredRuntime } =
     await getConfigurationService().load(cliOptions);
+  validateConfiguredEnvironment(config.env);
+  if (executorOptions.foreground && config.env.length > 0) {
+    logger.warn(
+      `${chalk.cyan("sandbox container start")} does not start a session and does not apply env`,
+    );
+  }
   const runtimeService = await getRuntimeProvider().resolve(configuredRuntime);
   config.runtime = runtimeService.runtime;
   if (useVerboseTiming) logger.endTiming("Load config");

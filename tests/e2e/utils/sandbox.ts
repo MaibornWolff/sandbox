@@ -34,6 +34,7 @@ interface SandboxOptions {
 interface SandboxExecOptions {
   stdin?: string;
   timeoutSeconds?: number;
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 interface SandboxCommandInteraction {
@@ -150,6 +151,7 @@ function startSandboxCommand(options: {
     env: {
       ...process.env,
       ...options.env,
+      ...options.execOptions.env,
       SANDBOX_TRUST_ALL: "1",
       SANDBOX_CONFIG_DIR: options.configDir,
     },
@@ -299,6 +301,7 @@ export function createSandbox(opts?: SandboxOptions) {
       env: {
         ...process.env,
         ...opts?.env,
+        ...execOptions.env,
         ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
         HOME: homeDir,
         SANDBOX_TRUST_ALL: "1",

@@ -91,6 +91,26 @@ readonly = true
 
 Run `sandbox config` to inspect the merged configuration.
 
+## Session Environment
+
+`env` and `-e, --env` apply to each Sandbox shell or command and its child processes. They do not apply to container entrypoints or startup services. `sandbox container start` starts no session, so it warns when configured `env` values are present and does not apply them.
+
+Sandbox resolves host passthrough values and variable expansion once per CLI invocation. Unset host passthrough values are skipped. Empty values and values that contain `=` are preserved.
+
+For each variable, the last assignment in user, project, and CLI order wins. Available automatic terminal values then override user values. Managed proxy, host command escape, and debug values have the highest priority. Sandbox sends one final assignment per name. An omitted name does not remove an image-provided default.
+
+These names are reserved for Sandbox and cause a configuration error:
+
+- `SANDBOX` and all names with the `SANDBOX_` prefix
+- `CLAUDE_CODE_SSE_PORT`
+- `DISPLAY` and `X11_AVAILABLE`
+
+Changes to session values do not rebuild images or prevent container reuse. Generated startup values, mounts, images, and the host-selected IDE bridge port still affect container identity. Existing containers can require replacement after this update through the normal reuse checks.
+
+A new process receives values from its own invocation. Existing processes keep their values. Shared servers such as tmux do not receive a new environment automatically. Direct `docker exec` or `podman exec` commands do not receive Sandbox session values.
+
+Sessions share a container and filesystem. Different environment values do not isolate sessions. Secrets passed at session execution can still be accessible to other container processes.
+
 ## Configuration Reference
 
 See the [default user configuration](../templates/config.toml) and [project configuration](../templates/project-config.toml).

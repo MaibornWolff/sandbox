@@ -51,6 +51,7 @@ Use these rules when talking to the user:
 - You MUST NOT use hollow transition words ("Furthermore", "Moreover", "Additionally", "In conclusion").
 - You MUST NOT use AI-favored vocabulary ("leverage", "delve", "it's worth noting", "in the realm of").
 - You SHOULD write concisely and directly. Prefer plain words over formal or elaborate phrasing.
+- You SHOULD keep CLI option help focused on user actions and omit internal lifecycle details.
 
 ## Code Style
 

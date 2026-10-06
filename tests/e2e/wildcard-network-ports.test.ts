@@ -35,8 +35,12 @@ beforeAll(async () => {
   "host.docker.internal:*",
   "registry.npmjs.org:443",
 ]
-env = ["SANDBOX_IDLE_TIMEOUT_SECONDS=30"]
 `,
+  );
+  await writeProjectFile(
+    projectDir,
+    ".sandbox/docker/Dockerfile",
+    "FROM sandbox-base:latest\nENV SANDBOX_IDLE_TIMEOUT_SECONDS=30\n",
   );
   sb = createSandbox({ cwd: projectDir, timeoutSeconds: 60 });
 });

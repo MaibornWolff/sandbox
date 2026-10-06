@@ -10,7 +10,6 @@ import {
   createTestDir,
 } from "#test/utils.js";
 import { buildContainerArgs as buildContainerArgsWithoutLogger } from "./container-arguments.js";
-import { buildExecArgs as buildExecArgsWithoutScope } from "./session-arguments.js";
 
 type ContainerArgumentRuntime = Pick<
   ContainerRuntime,
@@ -70,9 +69,6 @@ function buildContainerArgs(
   );
 }
 
-const buildExecArgs: typeof buildExecArgsWithoutScope = (...args) =>
-  runWithTestLogger(() => buildExecArgsWithoutScope(...args));
-
 function buildContainerArgsWithVariables(
   variables: Readonly<Record<string, string>>,
   options: TestBuildContainerArgsOptions,
@@ -87,27 +83,6 @@ function buildContainerArgsWithVariables(
       }),
     { variables },
   );
-}
-
-function getInteractiveShellExecArgs(
-  variables: Readonly<Record<string, string>> = {},
-): string[] {
-  return runWithTestLogger(
-    () =>
-      buildExecArgsWithoutScope({
-        containerName: "sandbox-test-a1b2",
-        currentDir: "/test/project",
-        command: ["zsh"],
-        stdin: true,
-        tty: true,
-        proxyEnabled: true,
-      }),
-    { variables },
-  );
-}
-
-function getInteractiveShellExecArgsWithTerm(term: string): string[] {
-  return getInteractiveShellExecArgs({ TERM: term });
 }
 
 /**
@@ -473,7 +448,7 @@ describe("buildContainerArgs - IDE bridge", () => {
     expect(args[valueIndex - 1]).toBe("-e");
   });
 
-  test("host IDE bridge port overrides a conflicting config value", async () => {
+  test("configured values do not enter the startup environment", async () => {
     const { args } = await buildContainerArgsWithVariables(
       { CLAUDE_CODE_SSE_PORT: "23456" },
       {
@@ -490,7 +465,7 @@ describe("buildContainerArgs - IDE bridge", () => {
     const portAssignments = args.filter((arg) =>
       arg.startsWith("CLAUDE_CODE_SSE_PORT="),
     );
-    expect(portAssignments.at(-1)).toBe("CLAUDE_CODE_SSE_PORT=23456");
+    expect(portAssignments).toEqual(["CLAUDE_CODE_SSE_PORT=23456"]);
   });
 
   test("does not include CLAUDE_CODE_SSE_PORT when unset on the host", async () => {
@@ -505,183 +480,6 @@ describe("buildContainerArgs - IDE bridge", () => {
       a.startsWith("CLAUDE_CODE_SSE_PORT="),
     );
     expect(hasIdePortArg).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildExecArgs tests
-// ---------------------------------------------------------------------------
-
-describe("buildExecArgs", () => {
-  test("includes -it when interactive", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).toContain("-it");
-  });
-
-  test("attaches stdin without tty when non-interactive", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["cat"],
-      stdin: true,
-      tty: false,
-      proxyEnabled: true,
-    });
-    expect(args).toContain("-i");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-t");
-  });
-
-  test("does not include -i separately when interactive", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).toContain("-it");
-    expect(args).not.toContain("-i");
-  });
-
-  test("allocates tty without stdin when requested", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: false,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).toContain("-t");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-i");
-  });
-
-  test("includes working directory", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project/src",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    const wdIdx = args.indexOf("-w");
-    expect(wdIdx).toBeGreaterThanOrEqual(0);
-    expect(args[wdIdx + 1]).toBe("/test/project/src");
-  });
-
-  test("includes container name and exec-entrypoint.sh", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).toContain("sandbox-test-a1b2");
-    expect(args).toContain("/usr/local/bin/exec-entrypoint.sh");
-  });
-
-  test("includes command after exec-entrypoint.sh", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["echo", "hello", "world"],
-      stdin: true,
-      tty: false,
-      proxyEnabled: true,
-    });
-    const entrypointIdx = args.indexOf("/usr/local/bin/exec-entrypoint.sh");
-    expect(args[entrypointIdx + 1]).toBe("echo");
-    expect(args[entrypointIdx + 2]).toBe("hello");
-    expect(args[entrypointIdx + 3]).toBe("world");
-  });
-
-  test("keeps portable TERM values", () => {
-    const args = getInteractiveShellExecArgsWithTerm("tmux-256color");
-
-    expect(args).toEqual(expect.arrayContaining(["TERM=tmux-256color"]));
-  });
-
-  test("falls back to xterm-256color for terminal-specific TERM values", () => {
-    const args = getInteractiveShellExecArgsWithTerm("xterm-some-new-terminal");
-
-    expect(args).toEqual(expect.arrayContaining(["TERM=xterm-256color"]));
-  });
-
-  test("injects host command escape data only into execution sessions", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-      hostCommandEscapeEnvironment: {
-        SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT:
-          "ws://host.docker.internal:4321/session",
-        SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL: "sandbox-host-command-escape.v1",
-        SANDBOX_HOST_COMMAND_ESCAPE_TOKEN: "secret-token",
-      },
-    });
-
-    expect(args).toEqual(
-      expect.arrayContaining([
-        "SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT=ws://host.docker.internal:4321/session",
-        "SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL=sandbox-host-command-escape.v1",
-        "SANDBOX_HOST_COMMAND_ESCAPE_TOKEN=secret-token",
-      ]),
-    );
-  });
-
-  test("includes SANDBOX_DEBUG when verbose", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-      verbose: true,
-    });
-    expect(args).toContain("SANDBOX_DEBUG=1");
-  });
-
-  test("does not include SANDBOX_DEBUG when not verbose", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).not.toContain("SANDBOX_DEBUG=1");
-  });
-
-  test("does not include mounts, ports, or SANDBOX=1", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-    expect(args).not.toContain("-v");
-    expect(args).not.toContain("-p");
-    expect(args).not.toContain("SANDBOX=1");
   });
 });
 
@@ -873,58 +671,6 @@ describe("buildContainerArgs - shmSize", () => {
   test("does not include --shm-size when shmSize is not set", async () => {
     const args = await getArgsForConfig({ ...defaultConfig });
     expect(args).not.toContain("--shm-size");
-  });
-});
-
-describe("buildExecArgs - proxy env vars", () => {
-  test("passes every proxy variable when proxy mode is enabled", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: true,
-    });
-
-    for (const name of [
-      "HTTP_PROXY",
-      "HTTPS_PROXY",
-      "http_proxy",
-      "https_proxy",
-      "NO_PROXY",
-      "no_proxy",
-      "GIT_SSH_COMMAND",
-      "JAVA_TOOL_OPTIONS",
-      "NODE_USE_ENV_PROXY",
-    ]) {
-      expect(args.some((arg) => arg.startsWith(`${name}=`))).toBe(true);
-    }
-  });
-
-  test("passes no proxy variables when proxy mode is disabled", () => {
-    const args = buildExecArgs({
-      containerName: "sandbox-test-a1b2",
-      currentDir: "/test/project",
-      command: ["zsh"],
-      stdin: true,
-      tty: true,
-      proxyEnabled: false,
-    });
-
-    for (const name of [
-      "HTTP_PROXY",
-      "HTTPS_PROXY",
-      "http_proxy",
-      "https_proxy",
-      "NO_PROXY",
-      "no_proxy",
-      "GIT_SSH_COMMAND",
-      "JAVA_TOOL_OPTIONS",
-      "NODE_USE_ENV_PROXY",
-    ]) {
-      expect(args.some((arg) => arg.startsWith(`${name}=`))).toBe(false);
-    }
   });
 });
 

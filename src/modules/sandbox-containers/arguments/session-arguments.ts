@@ -12,42 +12,46 @@ interface BuildExecArgsOptions {
   command: string[];
   stdin: boolean;
   tty: boolean;
+  environment: readonly string[];
   proxyEnabled: boolean;
   hostCommandEscapeEnvironment?: Readonly<Record<string, string>>;
   verbose?: boolean;
 }
 
-function buildSessionArgs(options: {
-  currentDir: string;
-  proxyEnabled: boolean;
-  hostCommandEscapeEnvironment?: Readonly<Record<string, string>>;
-  verbose?: boolean;
-}): string[] {
+function buildSessionArgs(options: BuildExecArgsOptions): string[] {
   const { currentDir, proxyEnabled, verbose } = options;
   const logger = getLogger();
   const args = ["-w", windowsPathToDocker(currentDir)];
   logger.debug(`Working directory: ${windowsPathToDocker(currentDir)}`);
 
-  const passthroughVars = getSessionEnvironmentVariables();
-  for (const { name, value } of passthroughVars) {
-    if (value) args.push("-e", `${name}=${value}`);
+  const environment = new Map<string, string>();
+  for (const assignment of options.environment) {
+    const separator = assignment.indexOf("=");
+    environment.set(
+      assignment.slice(0, separator),
+      assignment.slice(separator + 1),
+    );
+  }
+  for (const { name, value } of getSessionEnvironmentVariables()) {
+    if (value) environment.set(name, value);
   }
   for (const [name, value] of Object.entries(
     getNetworkSessionEnvironment(proxyEnabled),
   )) {
-    args.push("-e", `${name}=${value}`);
+    environment.set(name, value);
   }
   for (const [name, value] of Object.entries(
     options.hostCommandEscapeEnvironment ?? {},
   )) {
-    args.push("-e", `${name}=${value}`);
+    environment.set(name, value);
   }
-  logEnvironmentVariables(
-    passthroughVars
-      .filter(({ value }) => value)
-      .map(({ name, value }) => `${name}=${value}`),
+  if (verbose) environment.set("SANDBOX_DEBUG", "1");
+  const assignments = Array.from(
+    environment,
+    ([name, value]) => `${name}=${value}`,
   );
-  if (verbose) args.push("-e", "SANDBOX_DEBUG=1");
+  logEnvironmentVariables("Session", assignments);
+  for (const assignment of assignments) args.push("-e", assignment);
   return args;
 }
 

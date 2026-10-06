@@ -60,9 +60,7 @@ if (operation === "io") {
   await writeProjectFile(
     projectDir,
     ".sandbox/config.toml",
-    `env = ["SANDBOX_IDLE_TIMEOUT_SECONDS=30"]
-
-[[allow_host_commands]]
+    `[[allow_host_commands]]
 pattern = [${tomlString(process.execPath)}, ${tomlString(fixturePath)}, "io"]
 
 [[allow_host_commands]]
@@ -86,7 +84,13 @@ test_no_match = [
 ]
 `,
   );
+  await writeProjectFile(
+    projectDir,
+    ".sandbox/docker/Dockerfile",
+    "FROM sandbox-base:latest\nENV SANDBOX_IDLE_TIMEOUT_SECONDS=30\n",
+  );
   sb = createSandbox({ cwd: projectDir, timeoutSeconds: 40 });
+  expect((await sb.build()).exitCode).toBe(0);
 });
 
 afterAll(async () => {

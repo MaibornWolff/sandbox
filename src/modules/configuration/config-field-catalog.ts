@@ -112,7 +112,7 @@ export const CONFIG_FIELD_CATALOG = {
     schema: z.array(z.string()).optional(),
     type: "string[]",
     description:
-      'Environment variables to pass into the container. Format: "VAR" (passthrough from host) or "VAR=value" (explicit).',
+      'Environment variables for each shell or command session, not container startup. Format: "VAR" (host passthrough) or "VAR=value" (explicit). Reserved: SANDBOX, SANDBOX_*, CLAUDE_CODE_SSE_PORT, DISPLAY, X11_AVAILABLE.',
     mergeStrategy: "accumulate",
     defaultDecision: "value",
     defaultValue: [],

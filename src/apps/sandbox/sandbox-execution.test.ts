@@ -256,6 +256,152 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     expect(app.runtime.containers.all()).toHaveLength(2);
   });
 
+  test.each([
+    { runtime: "docker" as const, entry: [] },
+    { runtime: "docker" as const, entry: ["run", "true"] },
+    { runtime: "podman" as const, entry: [] },
+    { runtime: "podman" as const, entry: ["run", "true"] },
+  ])(
+    "reuses $runtime containers for session-only changes through $entry",
+    async ({ runtime, entry }) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      app.global.writeConfig(
+        `runtime = "${runtime}"\nenv = ["SESSION_VALUE=global", "GLOBAL_VALUE=global"]\n`,
+      );
+      app.project.writeConfig('env = ["SESSION_VALUE=project"]\n', {
+        trusted: true,
+      });
+      givenSuccessfulInteractiveProcess(app);
+      const first = await app.cli.run(
+        "--verbose",
+        "--env",
+        "SESSION_VALUE=first-secret",
+        ...entry,
+      );
+      expect(first.exitCode).toBe(0);
+      const builds = app.runtime
+        .events()
+        .filter((event) => event.type === "image.build").length;
+      expect(builds).toBeGreaterThan(0);
+      givenSuccessfulInteractiveProcess(app);
+      expect(
+        (await app.cli.run("--env", "SESSION_VALUE=second-secret", ...entry))
+          .exitCode,
+      ).toBe(0);
+      app.global.writeConfig(`runtime = "${runtime}"\n`);
+      app.project.writeConfig("", { trusted: true });
+      givenSuccessfulInteractiveProcess(app);
+      expect((await app.cli.run(...entry)).exitCode).toBe(0);
+
+      const requests = app.processes.requests.filter(
+        (request) => request.stdio === "inherit",
+      );
+      expect(requests).toHaveLength(3);
+      expect(requests[0]?.args).toContain("SESSION_VALUE=first-secret");
+      expect(requests[1]?.args).toContain("SESSION_VALUE=second-secret");
+      for (const request of requests.slice(0, 2)) {
+        expect(request.args).toContain("GLOBAL_VALUE=global");
+        expect(
+          request.args?.filter((arg) => arg.startsWith("SESSION_VALUE=")),
+        ).toHaveLength(1);
+      }
+      expect(
+        requests[2]?.args?.some(
+          (arg) =>
+            arg.startsWith("SESSION_VALUE=") || arg.startsWith("GLOBAL_VALUE="),
+        ),
+      ).toBe(false);
+      const creations = app.runtime
+        .events()
+        .filter((event) => event.type === "container.create");
+      expect(creations).toHaveLength(1);
+      expect(
+        creations[0]?.options.extraArgs?.some(
+          (arg) =>
+            arg.startsWith("SESSION_VALUE=") || arg.startsWith("GLOBAL_VALUE="),
+        ),
+      ).toBe(false);
+      expect(
+        app.runtime.events().filter((event) => event.type === "image.build"),
+      ).toHaveLength(builds);
+      expect(first.stderr).toContain("Startup environment variables");
+      expect(first.stderr).toContain("Session environment variables");
+      expect(first.stderr).not.toContain("first-secret");
+    },
+  );
+
+  test.each([
+    "SANDBOX",
+    "SANDBOX_DEBUG",
+    "SANDBOX_SETTINGS",
+    "SANDBOX_CUSTOM",
+    "CLAUDE_CODE_SSE_PORT",
+    "DISPLAY",
+    "X11_AVAILABLE",
+  ])(
+    "rejects reserved name %s before image preparation without exposing its value",
+    async (name) => {
+      await using app = await setupSandboxAppTest();
+      const result = await app.cli.run(
+        "--verbose",
+        "--env",
+        `${name}=confidential-value`,
+        "run",
+        "true",
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        `Environment variable ${name} is reserved for Sandbox`,
+      );
+      expect(result.stderr).not.toContain("confidential-value");
+      expect(
+        app.runtime
+          .events()
+          .filter(
+            (event) =>
+              event.type === "image.build" || event.type === "container.create",
+          ),
+      ).toEqual([]);
+      expect(interactiveRequest(app)).toBeUndefined();
+    },
+  );
+
+  test("validates reserved names in global and trusted project configuration", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('env = ["SANDBOX_RUNTIME=global-secret"]\n');
+    expect((await app.cli.run()).stderr).toContain(
+      "Environment variable SANDBOX_RUNTIME is reserved for Sandbox",
+    );
+    app.global.writeConfig("");
+    app.project.writeConfig('env = ["DISPLAY=project-secret"]\n', {
+      trusted: true,
+    });
+    const result = await app.cli.run("container", "start");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Environment variable DISPLAY is reserved for Sandbox",
+    );
+    expect(result.stderr).not.toContain("project-secret");
+    expect(
+      app.runtime.events().filter((event) => event.type === "image.build"),
+    ).toEqual([]);
+  });
+
+  test("structural changes still select a new container", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    app.runtime.system.fail(
+      "container.exec",
+      new Error("exit code 1: active session"),
+    );
+    givenSuccessfulInteractiveProcess(app);
+    expect(await app.cli.run("--readonly", "run", "true")).toMatchObject({
+      exitCode: 0,
+    });
+    expect(app.runtime.containers.all()).toHaveLength(2);
+  });
+
   test("uses a new broker token for each execution in a reused container", async () => {
     await using app = await setupSandboxAppTest();
     givenSuccessfulInteractiveProcess(app);
@@ -323,6 +469,32 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
 });
 
 describe("sandbox container start and stop", () => {
+  test("foreground startup excludes configured session values and warns", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('env = ["SESSION_VALUE=private-value"]\n');
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run(
+      "--env",
+      "CLI_VALUE=private-cli",
+      "container",
+      "start",
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "does not start a session and does not apply env",
+    );
+    const args = interactiveRequest(app)?.args ?? [];
+    expect(args).toContain("SANDBOX=1");
+    expect(
+      args.some(
+        (arg) =>
+          arg.startsWith("SESSION_VALUE=") || arg.startsWith("CLI_VALUE="),
+      ),
+    ).toBe(false);
+    expect(result.stderr).not.toContain("private-value");
+    expect(result.stderr).not.toContain("private-cli");
+  });
+
   test("runs container start in the foreground with preserved guidance and exits", async () => {
     await using app = await setupSandboxAppTest();
     app.processes

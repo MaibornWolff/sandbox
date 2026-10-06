@@ -89,7 +89,7 @@ async function configureX11(
     if (display) {
       args.push("-e", `DISPLAY=${display}`);
       args.push("-e", "X11_AVAILABLE=true");
-      logger.debug(`X11 forwarding enabled: DISPLAY=${display}`);
+      logger.debug("Startup X11 forwarding enabled");
 
       // Linux: mount X11 socket
       if (x11Config.platform === "linux" && x11Config.socketPath) {
@@ -117,7 +117,7 @@ async function configureX11(
  * X11, firewall, persistent/settings mounts, cache, custom mounts, ports.
  *
  * Does NOT include: --name, --label sandbox.hash, image,
- * working directory (-w), passthrough env vars, SANDBOX_DEBUG.
+ * working directory (-w), configured env, terminal env, SANDBOX_DEBUG.
  */
 async function buildStructuralArgs(
   service: ContainerArgumentRuntime,
@@ -177,22 +177,8 @@ async function buildStructuralArgs(
   // Fixed environment variables
   args.push("-e", "SANDBOX=1");
 
-  // User-defined environment variables from config
-  for (const env of config.env) {
-    args.push("-e", env);
-  }
-
-  // The host-selected bridge port is structural and must not be overridden by
-  // project configuration.
-  const idePort = addIdeBridgePortEnvironment(args);
-
-  // Log all container-level env vars
-  const allContainerEnv = [
-    "SANDBOX=1",
-    ...config.env,
-    ...(idePort ? [`CLAUDE_CODE_SSE_PORT=${idePort}`] : []),
-  ];
-  logEnvironmentVariables(allContainerEnv);
+  // The host-selected bridge port participates in container reuse identity.
+  addIdeBridgePortEnvironment(args);
 
   // X11 clipboard support
   await configureX11(args, service);
@@ -271,6 +257,10 @@ async function buildStructuralArgs(
   // Port mappings
   addPortArguments(args, config.ports);
 
+  logEnvironmentVariables(
+    "Startup",
+    args.filter((_arg, index) => args[index - 1] === "-e"),
+  );
   return args;
 }
 

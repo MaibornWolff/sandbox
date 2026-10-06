@@ -62,6 +62,8 @@ Use these rules when talking to the user:
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
 - You SHOULD keep functions under 150 lines and cognitive complexity under 15.
+- You SHOULD use explicit branches and named phases for lifecycle logic instead of nested ternaries or compressed expressions.
+- You SHOULD reuse shared timeout and cancellation helpers instead of repeating timer races and cleanup.
 - You SHOULD extract compound validation conditions into named functions when this makes the rule easier to read.
 - You SHOULD extract non-trivial mapping and parsing callbacks into named functions.
 - If `bun cpd` reports clones, you MUST extract into a shared utility.

@@ -647,26 +647,29 @@ export class AppleNetworking implements AppleNetworkOperations {
         async [Symbol.asyncDispose]() {},
       };
     }
-    return established.helper
-      ? await this.resolverFromHelper(
-          established.helper,
-          established.network,
-          resolverIdentity ??
-            (await this.waitForBridgeResolver(established.network)),
-        )
-      : await this.discoverResolver(established.network, resolverIdentity);
+    if (established.helper) {
+      const bridgeResolver =
+        resolverIdentity ??
+        (await this.waitForBridgeResolver(established.network));
+      return await this.resolverFromHelper(
+        established.helper,
+        established.network,
+        bridgeResolver,
+      );
+    }
+    return await this.discoverResolver(established.network, resolverIdentity);
   }
 
   async prepareRun(): Promise<AppleRunNetworkPlan> {
     await using resources = new AsyncDisposableStack();
     const snapshot = await this.snapshot(resources);
     const { established, resolverIdentity } = snapshot;
-    const resolver =
-      this.options.dns === "default"
-        ? undefined
-        : resources.use(
-            await this.prepareResolver(established, resolverIdentity),
-          );
+    let resolver: ResolverLease | undefined;
+    if (this.options.dns !== "default") {
+      resolver = resources.use(
+        await this.prepareResolver(established, resolverIdentity),
+      );
+    }
     const lease = resources.move();
     const plan: AppleRunNetworkPlan = {
       dns: resolver?.resolver,

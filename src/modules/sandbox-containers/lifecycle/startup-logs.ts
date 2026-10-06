@@ -27,21 +27,21 @@ export function captureStartupLogs(
     pending = "";
     truncated = false;
   };
+  const appendSegment = (segment: string): void => {
+    const remaining = MAX_LINE_LENGTH - pending.length;
+    pending += segment.slice(0, remaining);
+    if (segment.length > remaining) truncated = true;
+  };
   const append = (text: string): void => {
     let start = 0;
-    while (start < text.length) {
-      const newline = text.indexOf("\n", start);
-      const end = newline === -1 ? text.length : newline;
-      const retainedEnd = Math.min(
-        end,
-        start + MAX_LINE_LENGTH - pending.length,
-      );
-      pending += text.slice(start, retainedEnd);
-      truncated ||= retainedEnd < end;
-      if (newline === -1) break;
+    let newline = text.indexOf("\n");
+    while (newline !== -1) {
+      appendSegment(text.slice(start, newline));
       finishLine(true);
       start = newline + 1;
+      newline = text.indexOf("\n", start);
     }
+    appendSegment(text.slice(start));
   };
   const capture = (chunk: Buffer): void => append(decoder.write(chunk));
   const subscription = runtime.instances.followLogs(containerName, {
@@ -49,11 +49,17 @@ export function captureStartupLogs(
     onOutput: capture,
     onError: capture,
   });
+  const flush = (): void => {
+    append(decoder.end());
+    if (pending || truncated) finishLine(false);
+  };
   let stopped: Promise<void> | undefined;
   const stop = (): Promise<void> => {
-    stopped ??= subscription.stop().then(() => {
-      append(decoder.end());
-      if (pending || truncated) finishLine(false);
+    stopped ??= subscription.stop().then(flush, (error: unknown) => {
+      getLogger().warn(
+        `Could not stop startup log capture for ${containerName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      flush();
     });
     return stopped;
   };

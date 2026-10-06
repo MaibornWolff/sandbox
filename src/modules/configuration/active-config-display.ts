@@ -1,9 +1,6 @@
 import { getLogger } from "#platform/logging/index.js";
 import type { Config } from "./config.js";
 
-/**
- * Show active configuration before starting shell
- */
 export function showActiveConfig(cfg: Config): void {
   const active: string[] = [];
 
@@ -29,6 +26,6 @@ export function showActiveConfig(cfg: Config): void {
   }
 
   if (active.length > 0) {
-    getLogger().info(`Active: ${active.join(", ")}`);
+    getLogger().debug(`Active: ${active.join(", ")}`);
   }
 }

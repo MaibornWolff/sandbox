@@ -67,35 +67,48 @@ test.each([true, false])(
   },
 );
 
-test("stops startup log capture once when explicitly stopped and disposed", async () => {
-  const harness = createStatefulContainerRuntimeHarness();
-  const runtime = (await harness.provider.resolve()).runtime;
-  let stops = 0;
-  await runWithTestLogger(async () => {
-    await using capture = captureStartupLogs(
-      {
-        ...runtime,
-        instances: {
-          ...runtime.instances,
-          followLogs: (_id, options) => {
-            options.onOutput(Buffer.from("partial startup line"));
-            const completion = Promise.withResolvers<CommandResult>();
-            const stop = async () => {
-              stops++;
-              completion.resolve({ exitCode: 0, stdout: "", stderr: "" });
-            };
-            return {
-              completion: completion.promise,
-              stop,
-              [Symbol.asyncDispose]: stop,
-            };
+test.each([false, true])(
+  "stops log capture once and reports retained output when stop fails=%s",
+  async (stopFails) => {
+    const harness = createStatefulContainerRuntimeHarness();
+    const runtime = (await harness.provider.resolve()).runtime;
+    let stops = 0;
+    await runWithTestLogger(async () => {
+      const output: string[] = [];
+      const logger = createLogger(getClock(), (message) =>
+        output.push(message),
+      );
+      await runWithDependencies([provideLogger(logger)], async () => {
+        await using capture = captureStartupLogs(
+          {
+            ...runtime,
+            instances: {
+              ...runtime.instances,
+              followLogs: (_id, options) => {
+                options.onOutput(Buffer.from("partial startup line"));
+                const completion = Promise.withResolvers<CommandResult>();
+                const stop = async () => {
+                  stops++;
+                  completion.resolve({ exitCode: 0, stdout: "", stderr: "" });
+                  if (stopFails) throw new Error("log transport disconnected");
+                };
+                return {
+                  completion: completion.promise,
+                  stop,
+                  [Symbol.asyncDispose]: stop,
+                };
+              },
+            },
           },
-        },
-      },
-      "sandbox-project",
-    );
-    await Promise.all([capture.stop(), capture.stop()]);
-    capture.reportFailure();
-  });
-  expect(stops).toBe(1);
-});
+          "sandbox-project",
+        );
+        await Promise.all([capture.stop(), capture.stop()]);
+        capture.reportFailure();
+        expect(output.join("\n")).toContain("partial startup line");
+        if (stopFails)
+          expect(output.join("\n")).toContain("log transport disconnected");
+      });
+    });
+    expect(stops).toBe(1);
+  },
+);

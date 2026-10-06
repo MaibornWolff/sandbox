@@ -65,22 +65,11 @@ export async function runContainerEntrypoint(
     if (!hostAccessName) {
       throw new Error("SANDBOX_HOST_ACCESS_NAME is required");
     }
-    const hostMappings = parseGuestHostMappings(
-      environment.variables.SANDBOX_GUEST_HOST_MAPPINGS,
-    );
-    const serializedNetwork = environment.variables.SANDBOX_FIREWALL;
-    const networkStartup = serializedNetwork
-      ? installContainerNetworkSecurity(
-          parseNetworkBootstrapRequest(serializedNetwork),
-          { signal: networkCancellation.signal, hostMappings, hostAccessName },
-        ).then((lifecycle) => {
-          logger.debug("managed network security installed");
-          return lifecycle;
-        })
-      : Promise.resolve({
-          readiness: Promise.resolve(),
-          failure: new Promise<Error>(() => undefined),
-        });
+    const networkStartup = prepareNetworkStartup({
+      environment,
+      hostAccessName,
+      signal: networkCancellation.signal,
+    });
     const startupResult = await Promise.race([
       networkStartup.then((lifecycle) => ({
         type: "started" as const,
@@ -141,6 +130,30 @@ export async function runContainerEntrypoint(
     }
   }
   return receivedSignal ? getExitCodeForSignal(receivedSignal) : 0;
+}
+
+async function prepareNetworkStartup(options: {
+  readonly environment: SandboxEnvironment;
+  readonly hostAccessName: string;
+  readonly signal: AbortSignal;
+}): Promise<ContainerNetworkLifecycle> {
+  const { environment, hostAccessName, signal } = options;
+  const hostMappings = parseGuestHostMappings(
+    environment.variables.SANDBOX_GUEST_HOST_MAPPINGS,
+  );
+  const serializedNetwork = environment.variables.SANDBOX_FIREWALL;
+  if (!serializedNetwork) {
+    return {
+      readiness: Promise.resolve(),
+      failure: new Promise<Error>(() => undefined),
+    };
+  }
+  const lifecycle = await installContainerNetworkSecurity(
+    parseNetworkBootstrapRequest(serializedNetwork),
+    { signal, hostMappings, hostAccessName },
+  );
+  getLogger().debug("managed network security installed");
+  return lifecycle;
 }
 
 async function completeStartup(options: {

@@ -5,6 +5,25 @@ import { getLogger } from "#platform/logging/index.js";
 
 const IPTABLES = "/usr/sbin/iptables";
 
+// Read the saved numeric rule because DNS can stop before session cleanup.
+const REMOVE_SESSION_RULE = `
+set -eu
+rules=$(/usr/sbin/iptables-save -t filter)
+rule=$(printf '%s\\n' "$rules" | awk -v comment="$1" '
+  $1 == "-A" && $2 == "OUTPUT" {
+    for (i = 3; i < NF; i++) {
+      if ($i == "--comment" && ($(i + 1) == comment || $(i + 1) == "\\"" comment "\\"")) {
+        sub(/^-A /, "-D ")
+        print
+      }
+    }
+  }
+')
+if [ -n "$rule" ]; then
+  printf '*filter\\n%s\\nCOMMIT\\n' "$rule" | /usr/sbin/iptables-restore --noflush
+fi
+`;
+
 interface HostCommandFirewallPlan {
   readonly add: readonly string[];
   readonly remove: readonly string[];
@@ -55,7 +74,13 @@ export function buildHostCommandFirewallPlan(
   ];
   return {
     add: [IPTABLES, "-I", ...match.slice(0, 1), "1", ...match.slice(1)],
-    remove: [IPTABLES, "-D", ...match],
+    remove: [
+      "sh",
+      "-c",
+      REMOVE_SESSION_RULE,
+      "sandbox-session-cleanup",
+      `sandbox-host-command-${ruleId}`,
+    ],
   };
 }
 
@@ -69,7 +94,7 @@ async function removeFirewallRule(options: {
   if (result.exitCode === 0) return;
   throw Object.assign(
     new Error(
-      `Failed to remove host-command broker network access with exit code ${result.exitCode}.`,
+      `Failed to remove host-command broker network access with exit code ${result.exitCode}: ${result.stderr.trim() || "no error output"}`,
     ),
     { exitCode: result.exitCode },
   );
@@ -177,22 +202,22 @@ export async function prepareContainerSession(options: {
   if (result.exitCode !== 0) {
     await cleanFailedSession(containers, containerId, plan);
     if (!result.stdout.split("\n").includes(ready)) {
-      const failure =
-        result.exitCode === 124
-          ? undefined
-          : {
-              error: Object.assign(
-                new Error(
-                  `Failed to prepare container session with exit code ${result.exitCode}: ${result.stderr.trim() || "runtime returned no readiness confirmation"}`,
-                ),
-                { exitCode: result.exitCode },
-              ),
-            };
+      if (result.exitCode === 124) {
+        return reportReadinessFailure({ containers, containerId, timeoutMs });
+      }
+      const detail =
+        result.stderr.trim() || "runtime returned no readiness confirmation";
+      const error = Object.assign(
+        new Error(
+          `Failed to prepare container session with exit code ${result.exitCode}: ${detail}`,
+        ),
+        { exitCode: result.exitCode },
+      );
       return reportReadinessFailure({
         containers,
         containerId,
         timeoutMs,
-        failure,
+        failure: { error },
       });
     }
     throw Object.assign(
@@ -215,6 +240,9 @@ export async function prepareContainerSession(options: {
           command: plan.remove,
         });
       } catch (error) {
+        logger.debug(
+          `Session firewall cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
         const instance = await containers.inspect(containerId);
         const namespaceEnded =
           instance === null ||

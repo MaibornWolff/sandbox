@@ -16,6 +16,15 @@ function hostname(output: string): string {
   return value;
 }
 
+function sessionFirewallRules(output: string): string[] {
+  return output
+    .split("\n")
+    .filter(
+      (line) =>
+        line.startsWith("-A OUTPUT ") && line.includes("sandbox-host-command-"),
+    );
+}
+
 async function waitForStatus(
   predicate: (output: string) => boolean,
   failureMessage: string,
@@ -63,17 +72,28 @@ describe("container PID 1 lifecycle", () => {
       "--",
       "sh",
       "-c",
-      "touch /tmp/pid1-session-marker; printf 'session-active\\n'; hostname; sleep 4",
+      "touch /tmp/pid1-session-marker; printf 'session-active\\n'; hostname; while [ ! -f /tmp/pid1-session-done ]; do sleep 0.05; done",
     ]);
     await longSession.waitForOutput("session-active");
+    const active = await sb.networkLogs("--raw");
+    expect(active.exitCode).toBe(0);
+    const originalRules = sessionFirewallRules(active.stdout);
+    expect(originalRules).toHaveLength(1);
 
     const shortSession = await sb.run(
       "sh",
       "-c",
       "test -f /tmp/pid1-session-marker && hostname",
     );
-    const longResult = await longSession.result;
     expect(shortSession.exitCode).toBe(0);
+    const afterShortSession = await sb.networkLogs("--raw");
+    expect(afterShortSession.exitCode).toBe(0);
+    expect(sessionFirewallRules(afterShortSession.stdout)).toEqual(
+      originalRules,
+    );
+
+    expect((await sb.run("touch", "/tmp/pid1-session-done")).exitCode).toBe(0);
+    const longResult = await longSession.result;
     expect(longResult.exitCode).toBe(0);
     expect(hostname(shortSession.stdout)).toBe(hostname(longResult.stdout));
 
@@ -107,13 +127,16 @@ describe("container PID 1 lifecycle", () => {
   });
 
   test("forwards sandbox stop to an active container session", async () => {
-    const session = sb.run("sleep", "30");
-    await waitForStatus(
-      (output) => output.includes("sleep 30"),
-      "Timed out waiting for the active sleep session",
-    );
+    const session = sb.start([
+      "run",
+      "--",
+      "sh",
+      "-c",
+      "printf 'session-active\\n'; exec sleep 30",
+    ]);
+    await session.waitForOutput("session-active");
     const stopped = await sb.stop();
-    const sessionResult = await session;
+    const sessionResult = await session.result;
 
     expect(stopped.exitCode).toBe(0);
     expect(sessionResult.exitCode).toBe(143);

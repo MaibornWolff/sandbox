@@ -51,6 +51,7 @@ test("my feature works", async () => {
 ## Rules
 
 - You MUST verify DNS-provider logic with deterministic tests and use the configured DNS mode for general network E2E coverage.
+- You MUST keep general E2E tests runnable on Linux with the CI-selected container runtime.
 - You MUST only use E2E tests for behavior that requires a real container runtime. Examples: published ports and bind-mount enforcement. Negative example: exit-code orchestration with a fake runtime.
 - You MUST NOT use the default `sandbox` instance from `utils/sandbox.js`. Always create a dedicated one with `createSandbox({ cwd: projectDir })`.
 - You MUST call `cleanupProject()` in `afterAll`. It calls `sb.stop()` and removes the temp dir.

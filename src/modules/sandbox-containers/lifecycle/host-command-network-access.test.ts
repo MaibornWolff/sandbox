@@ -10,6 +10,14 @@ import {
   prepareContainerSession,
 } from "./host-command-network-access.js";
 
+function installedRuleComment(command: readonly string[] | undefined): string {
+  const commentIndex = command?.indexOf("--comment") ?? -1;
+  const comment = command?.[commentIndex + 1];
+  if (commentIndex < 0 || !comment)
+    throw new Error("Missing session rule comment");
+  return comment;
+}
+
 describe("host-command broker network access", () => {
   test.each([true, false])(
     "waits for delayed readiness in one exec with proxy=%s",
@@ -92,13 +100,7 @@ describe("host-command broker network access", () => {
           expect(
             harness.events().filter((event) => event.type === "container.logs"),
           ).toHaveLength(0);
-          const added = calls[0]?.slice(4) ?? [];
-          expect(calls[1]).toEqual([
-            "/usr/sbin/iptables",
-            "-D",
-            "OUTPUT",
-            ...added.slice(4),
-          ]);
+          expect(calls[1]?.at(-1)).toBe(installedRuleComment(calls[0]));
         }
         expect(calls).toHaveLength(2);
       });
@@ -135,12 +137,7 @@ describe("host-command broker network access", () => {
         message: expect.stringContaining("exec response lost"),
       });
       expect(calls).toHaveLength(2);
-      expect(calls[1]).toEqual([
-        "/usr/sbin/iptables",
-        "-D",
-        "OUTPUT",
-        ...(calls[0]?.slice(8) ?? []),
-      ]);
+      expect(calls[1]?.at(-1)).toBe(installedRuleComment(calls[0]));
       expect(
         harness.events().filter((event) => event.type === "container.logs"),
       ).toHaveLength(0);
@@ -201,12 +198,7 @@ describe("host-command broker network access", () => {
           );
         }
         expect(calls).toHaveLength(2);
-        expect(calls[1]).toEqual([
-          "/usr/sbin/iptables",
-          "-D",
-          "OUTPUT",
-          ...(calls[0]?.slice(8) ?? []),
-        ]);
+        expect(calls[1]?.at(-1)).toBe(installedRuleComment(calls[0]));
         expect(
           harness.events().filter((event) => event.type === "container.logs"),
         ).toHaveLength(state === "exited" || state === "dead" ? 1 : 0);
@@ -317,18 +309,8 @@ describe("host-command broker network access", () => {
     const first = calls[0]?.command.slice(4) ?? [];
     const second = calls[1]?.command.slice(4) ?? [];
     expect(first).not.toEqual(second);
-    expect(calls[2]?.command).toEqual([
-      "/usr/sbin/iptables",
-      "-D",
-      "OUTPUT",
-      ...second.slice(4),
-    ]);
-    expect(calls[3]?.command).toEqual([
-      "/usr/sbin/iptables",
-      "-D",
-      "OUTPUT",
-      ...first.slice(4),
-    ]);
+    expect(calls[2]?.command.at(-1)).toBe(installedRuleComment(second));
+    expect(calls[3]?.command.at(-1)).toBe(installedRuleComment(first));
     expect(calls[0]?.command[2]).not.toContain("host.container.internal");
   });
 
@@ -398,27 +380,7 @@ describe("host-command broker network access", () => {
       "-j",
       "ACCEPT",
     ]);
-    expect(plan.remove).toEqual([
-      "/usr/sbin/iptables",
-      "-D",
-      "OUTPUT",
-      "-p",
-      "tcp",
-      "-d",
-      "host.container.internal",
-      "--dport",
-      "43123",
-      "-m",
-      "owner",
-      "--uid-owner",
-      "sandbox",
-      "-m",
-      "comment",
-      "--comment",
-      "sandbox-host-command-session",
-      "-j",
-      "ACCEPT",
-    ]);
+    expect(plan.remove.at(-1)).toBe("sandbox-host-command-session");
     expect(plan.add).not.toContain("192.168.0.0/16");
   });
 

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
+import { createSystemClock, waitWithTimeout } from "#platform/clock/index.js";
 import {
   cleanupTestDir,
   createTestDir,
@@ -10,6 +10,7 @@ import {
 
 export async function createUpdateWorkerFixture(status = 200) {
   await using resources = new AsyncDisposableStack();
+  const clock = createSystemClock();
   let safeToRemove = true;
   const root = createTestDir("production-update-worker");
   resources.defer(() => {
@@ -118,7 +119,7 @@ if (process.argv.includes("--internal-update-check")) {
         safeToRemove = true;
         return;
       }
-      await delay(50);
+      await clock.sleep(50);
     }
     const active = workerStarts().filter((pid) => !workerExits().includes(pid));
     throw new Error(
@@ -128,7 +129,7 @@ if (process.argv.includes("--internal-update-check")) {
   async function waitForCache(): Promise<void> {
     for (let attempt = 0; attempt < 400; attempt++) {
       if (cache().latestVersion || cache().error) return;
-      await delay(50);
+      await clock.sleep(50);
     }
     throw new Error("Update worker did not write its result");
   }
@@ -170,7 +171,17 @@ if (process.argv.includes("--internal-update-check")) {
       parents.push(execution);
       return execution;
     },
-    waitForRequest: () => request.promise,
+    async waitForRequest(): Promise<void> {
+      const result = await waitWithTimeout(request.promise, {
+        clock,
+        milliseconds: 10_000,
+      });
+      if (!result.completed) {
+        throw new Error(
+          `Update worker did not request the registry within 10 seconds. Starts: ${workerStarts().join(", ") || "none"}. Exits: ${workerExits().join(", ") || "none"}. Cache: ${JSON.stringify(cache())}`,
+        );
+      }
+    },
     release: () => gate.resolve(),
     waitForCache,
     cache,

@@ -169,6 +169,8 @@ export function createManagedContainer(
       if (isReadinessCommand(command)) return resolveReadinessScript(command);
       if (isSessionDetailsCommand(command)) return formatSessions(sessions);
       if (command[0] === "/usr/sbin/iptables") return "";
+      if (command.some((part) => part.includes("/usr/sbin/iptables-save")))
+        return "";
       if (isIdleCommand(command) && sessions.length === 0) return "";
       if (isIdleCommand(command)) throw new Error("exit code 1");
       throw new Error(

@@ -1,4 +1,4 @@
-import { getClock } from "#platform/clock/index.js";
+import { getClock, waitWithTimeout } from "#platform/clock/index.js";
 import {
   ExecError,
   getProcessManager,
@@ -17,13 +17,11 @@ async function boundedResult(
   child: ManagedProcess<ProcessResult>,
   timeout: number,
 ): Promise<ProcessResult> {
-  const controller = new AbortController();
-  using _deadline = { [Symbol.dispose]: () => controller.abort() };
-  const expired = getClock()
-    .sleep(timeout, { signal: controller.signal })
-    .then(() => undefined);
-  const result = await Promise.race([child.result, expired]);
-  if (result !== undefined) return result;
+  const result = await waitWithTimeout(child.result, {
+    clock: getClock(),
+    milliseconds: timeout,
+  });
+  if (result.completed) return result.value;
   await child.stop({
     gracefulTimeoutMilliseconds: 1_000,
     forceTimeoutMilliseconds: 1_000,

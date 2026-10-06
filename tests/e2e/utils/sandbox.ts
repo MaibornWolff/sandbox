@@ -267,12 +267,14 @@ export function createSandbox(opts?: SandboxOptions) {
   ): Promise<SandboxResult> {
     const timeout = execOptions.timeoutSeconds ?? defaultTimeout;
     const sandboxArgs = [...args];
-    const commandArgs = [
-      timeoutBin,
+    const commandArgs = [timeoutBin];
+    // Keep interactive children in the terminal's foreground process group.
+    if (terminal) commandArgs.push("--foreground");
+    commandArgs.push(
       String(timeout),
       opts?.binary ?? SANDBOX_BIN,
       ...sandboxArgs,
-    ];
+    );
     const allArgs = terminal
       ? buildTerminalCommandArgs({
           scriptPath: resolveTerminalBin(),

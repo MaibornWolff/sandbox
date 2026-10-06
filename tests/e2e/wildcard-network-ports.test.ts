@@ -11,6 +11,12 @@ let projectDir: string;
 let sb: SandboxInstance;
 let hostServer: Server;
 let hostPort: number;
+let hostName = "host.docker.internal";
+if (process.env.SANDBOX_TEST_RUNTIME === "podman") {
+  hostName = "host.containers.internal";
+} else if (process.env.SANDBOX_TEST_RUNTIME === "apple-container") {
+  hostName = "host.container.internal";
+}
 
 beforeAll(async () => {
   hostServer = createServer((_request, response) => {
@@ -32,7 +38,7 @@ beforeAll(async () => {
     projectDir,
     ".sandbox/config.toml",
     `allow_network = [
-  "host.docker.internal:*",
+  "${hostName}:*",
   "registry.npmjs.org:443",
 ]
 `,
@@ -61,7 +67,7 @@ describe("wildcard network port enforcement", () => {
       "",
       "--proxy",
       "http://127.0.0.1:8888",
-      `http://host.docker.internal:${hostPort}/`,
+      `http://${hostName}:${hostPort}/`,
     );
     expect(allowed.exitCode).toBe(0);
     expect(allowed.stdout).toContain("wildcard-port-service");

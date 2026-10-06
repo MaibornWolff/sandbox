@@ -32,15 +32,17 @@ function attemptDirectory(attempt: number): string {
 
 export function readUpdateCache(): UpdateCache {
   const cachePath = path.join(cacheDirectory(), "cache.json");
-  const legacy = pathExists(cachePath) ? {} : readJsonRecord(getStatePath());
-  const parsed = cacheSchema.safeParse(
-    pathExists(cachePath)
-      ? readJsonRecord(cachePath)
-      : {
-          latestVersion: legacy.latestVersion,
-          checkedAt: legacy.latestVersionCheckedAt,
-        },
-  );
+  let data: unknown;
+  if (pathExists(cachePath)) {
+    data = readJsonRecord(cachePath);
+  } else {
+    const legacy = readJsonRecord(getStatePath());
+    data = {
+      latestVersion: legacy.latestVersion,
+      checkedAt: legacy.latestVersionCheckedAt,
+    };
+  }
+  const parsed = cacheSchema.safeParse(data);
   return parsed.success ? parsed.data : {};
 }
 
@@ -66,11 +68,14 @@ function validAttempt(token: string, now: number): number | undefined {
   if (!/^\d+$/.test(token)) return undefined;
   const attempt = Number(token);
   const current = Math.floor(now / RETRY_INTERVAL);
-  return Number.isSafeInteger(attempt) &&
-    attempt <= current &&
-    attempt >= current - 1
-    ? attempt
-    : undefined;
+  if (
+    !Number.isSafeInteger(attempt) ||
+    attempt > current ||
+    attempt < current - 1
+  ) {
+    return undefined;
+  }
+  return attempt;
 }
 
 export function startUpdateRefresh(token: string, now: number): boolean {
@@ -89,11 +94,12 @@ export function finishUpdateRefresh(
 ): void {
   const attempt = validAttempt(token, now);
   if (attempt === undefined || !pathExists(attemptDirectory(attempt))) return;
-  const previous = readUpdateCache();
-  const cache: UpdateCache =
-    "latestVersion" in result
-      ? { latestVersion: result.latestVersion, checkedAt: now }
-      : { ...previous, error: result.error.slice(0, 500) };
+  let cache: UpdateCache;
+  if ("latestVersion" in result) {
+    cache = { latestVersion: result.latestVersion, checkedAt: now };
+  } else {
+    cache = { ...readUpdateCache(), error: result.error.slice(0, 500) };
+  }
   const temporary = path.join(attemptDirectory(attempt), "result.json");
   writeTextFile(temporary, `${JSON.stringify(cache)}\n`);
   renamePath(temporary, path.join(cacheDirectory(), "cache.json"));

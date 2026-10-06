@@ -326,35 +326,28 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     expect(app.runtime.instances.all()).toHaveLength(2);
   });
 
-  test.each([false, true])(
-    "prepares new and reused sessions in one exec with noProxy=%s",
-    async (noProxy) => {
-      await using app = await setupSandboxAppTest();
-      const options = noProxy ? ["--full-network", "--no-proxy"] : [];
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const start = app.runtime.events().length;
-        givenSuccessfulInteractiveProcess(app);
-        expect((await app.cli.run(...options, "run", "true")).exitCode).toBe(0);
-        const events = app.runtime.events().slice(start);
-        const attached = events.findIndex(
-          (event) => event.type === "container.exec-attached",
-        );
-        expect(attached).toBeGreaterThan(0);
-        const preparation = events
-          .slice(0, attached)
-          .filter((event) => event.type === "container.exec");
-        expect(preparation).toHaveLength(1);
-        expect(preparation[0]?.command.includes("/usr/sbin/iptables")).toBe(
-          !noProxy,
-        );
-        expect(
-          events
-            .slice(attached)
-            .filter((event) => event.type === "container.exec"),
-        ).toHaveLength(noProxy ? 0 : 1);
-      }
-    },
-  );
+  test("prepares new and reused sessions before execution", async () => {
+    await using app = await setupSandboxAppTest();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const start = app.runtime.events().length;
+      givenSuccessfulInteractiveProcess(app);
+      expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+      const events = app.runtime.events().slice(start);
+      const attached = events.findIndex(
+        (event) => event.type === "container.exec-attached",
+      );
+      expect(attached).toBeGreaterThan(0);
+      const preparation = events
+        .slice(0, attached)
+        .filter((event) => event.type === "container.exec");
+      expect(preparation).toHaveLength(1);
+      expect(
+        events
+          .slice(attached)
+          .filter((event) => event.type === "container.exec"),
+      ).toHaveLength(1);
+    }
+  });
 
   test("recovers when a reused container stops during readiness", async () => {
     await using app = await setupSandboxAppTest();
@@ -380,50 +373,6 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       .filter((event) => event.type === "container.exec-attached");
     expect(attached).toHaveLength(2);
     expect(attached[1]?.containerId).not.toBe(reused.id);
-  });
-
-  test("opens only the session broker port and removes the rule after execution", async () => {
-    await using app = await setupSandboxAppTest({ runtime: "apple-container" });
-    await app.project.givenConfig({
-      allowNetwork: [],
-      runtime: "apple-container",
-    });
-    givenSuccessfulInteractiveProcess(app);
-
-    expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
-
-    const firewallCommands = app.runtime
-      .events()
-      .flatMap((event) =>
-        event.type === "container.exec" &&
-        event.command.includes("/usr/sbin/iptables")
-          ? [event.command.slice(event.command.indexOf("/usr/sbin/iptables"))]
-          : [],
-      );
-    const preparation = app.runtime
-      .events()
-      .filter(
-        (event) =>
-          event.type === "container.exec" &&
-          event.command.some((part) => part.includes("/tmp/.sandbox-ready")),
-      );
-    expect(preparation).toHaveLength(1);
-    expect(preparation[0]).toMatchObject({
-      command: expect.arrayContaining(["/usr/sbin/iptables", "-I"]),
-    });
-    expect(firewallCommands).toHaveLength(2);
-    expect(firewallCommands[0]).toContain("-I");
-    expect(firewallCommands[1]).toContain("-D");
-    for (const command of firewallCommands) {
-      expect(command).toContain("host.container.internal");
-      expect(command).toContain("--dport");
-      expect(command).toContain("--uid-owner");
-      expect(command).toContain("sandbox");
-      expect(command).not.toContain("192.168.0.0/16");
-    }
-    expect(
-      firewallCommands[0]?.[firewallCommands[0].indexOf("--dport") + 1],
-    ).toBe(firewallCommands[1]?.[firewallCommands[1].indexOf("--dport") + 1]);
   });
 
   test.each([

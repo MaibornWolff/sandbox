@@ -1,5 +1,5 @@
 import chalk from "chalk";
-import type { Clock } from "#platform/clock/index.js";
+import { type Clock, waitWithTimeout } from "#platform/clock/index.js";
 import {
   formatErrorDiagnostics,
   getLogger,
@@ -142,28 +142,6 @@ function isMissingSignalError(error: unknown): boolean {
     "code" in error &&
     error.code === "ESRCH"
   );
-}
-
-async function waitWithTimeout<T>(
-  completion: Promise<T>,
-  clock: ProcessClock,
-  milliseconds: number,
-): Promise<
-  | { readonly completed: true; readonly value: T }
-  | { readonly completed: false }
-> {
-  if (milliseconds <= 0) return { completed: false };
-  const controller = new AbortController();
-  try {
-    return await Promise.race([
-      completion.then((value) => ({ completed: true as const, value })),
-      clock
-        .sleep(milliseconds, { signal: controller.signal })
-        .then(() => ({ completed: false as const })),
-    ]);
-  } finally {
-    controller.abort();
-  }
 }
 
 class ManagedProcessHandle<TResult> implements ManagedProcess<TResult> {
@@ -360,7 +338,10 @@ class ManagedProcessHandle<TResult> implements ManagedProcess<TResult> {
     if (!this.signalVerified("SIGKILL")) return await this.exited;
     this.finishIfMissing("SIGKILL");
     if (this.exit) return this.exit;
-    const forced = await waitWithTimeout(this.exited, this.clock, forceTimeout);
+    const forced = await waitWithTimeout(this.exited, {
+      clock: this.clock,
+      milliseconds: forceTimeout,
+    });
     if (forced.completed) return forced.value;
     this.unrefSurvivor();
     throw new ProcessShutdownError(
@@ -389,11 +370,10 @@ class ManagedProcessHandle<TResult> implements ManagedProcess<TResult> {
       if (!this.signalVerified(gracefulSignal)) return await this.exited;
       this.finishIfMissing(gracefulSignal);
       if (this.exit) return this.exit;
-      const graceful = await waitWithTimeout(
-        this.exited,
-        this.clock,
-        gracefulTimeout,
-      );
+      const graceful = await waitWithTimeout(this.exited, {
+        clock: this.clock,
+        milliseconds: gracefulTimeout,
+      });
       if (graceful.completed) return graceful.value;
       return await this.forceStop(gracefulTimeout, forceTimeout);
     } catch (error) {

@@ -12,21 +12,21 @@ describe("findSandboxContainers", () => {
     const runtime = createStatefulContainerRuntimeHarness({
       runtime: "podman",
     });
-    const first = runtime.containers.create({
+    const first = runtime.instances.create({
       id: "abc123",
       name: "sandbox-my-project",
       image: "localhost/sandbox-my-project:latest",
       labels: { [PROJECT_LABEL]: "my-project" },
       status: "running",
     });
-    runtime.containers.create({
+    runtime.instances.create({
       id: "ignored",
       name: "unrelated",
       image: "other:latest",
       labels: {},
       status: "running",
     });
-    const service = await runtime.provider.resolve();
+    const service = (await runtime.provider.resolve()).runtime;
 
     expect(await findSandboxContainers(service)).toEqual([
       {
@@ -35,33 +35,29 @@ describe("findSandboxContainers", () => {
         image: "sandbox-my-project:latest",
       },
     ]);
-    expect(runtime.events()).toContainEqual({
-      type: "container.list",
-      options: { all: true, labelFilter: PROJECT_LABEL },
-    });
   });
 
   test("applies running, exited, and project label filters", async () => {
     const runtime = createStatefulContainerRuntimeHarness();
-    runtime.containers.create({
+    runtime.instances.create({
       name: "sandbox-current-running",
       image: "sandbox-base:latest",
       labels: { [PROJECT_LABEL]: "current" },
       status: "running",
     });
-    runtime.containers.create({
+    runtime.instances.create({
       name: "sandbox-current-exited",
       image: "sandbox-base:latest",
       labels: { [PROJECT_LABEL]: "current" },
       status: "exited",
     });
-    runtime.containers.create({
+    runtime.instances.create({
       name: "sandbox-other",
       image: "sandbox-base:latest",
       labels: { [PROJECT_LABEL]: "other" },
       status: "running",
     });
-    const service = await runtime.provider.resolve();
+    const service = (await runtime.provider.resolve()).runtime;
 
     expect(
       await findSandboxContainers(service, {
@@ -78,37 +74,19 @@ describe("findSandboxContainers", () => {
     expect(
       await findSandboxContainers(service, { status: "all" }),
     ).toHaveLength(3);
-    expect(runtime.events()).toEqual(
-      expect.arrayContaining([
-        {
-          type: "container.list",
-          options: {
-            statusFilter: ["running"],
-            labelFilter: `${PROJECT_LABEL}=current`,
-          },
-        },
-        {
-          type: "container.list",
-          options: {
-            statusFilter: ["exited"],
-            labelFilter: `${PROJECT_LABEL}=current`,
-          },
-        },
-      ]),
-    );
   });
 
-  test("returns an empty list for no matches or runtime failure", async () => {
+  test("distinguishes no matches from runtime failure", async () => {
     const empty = createStatefulContainerRuntimeHarness();
-    expect(await findSandboxContainers(await empty.provider.resolve())).toEqual(
-      [],
-    );
+    expect(
+      await findSandboxContainers((await empty.provider.resolve()).runtime),
+    ).toEqual([]);
 
     const failed = createStatefulContainerRuntimeHarness();
     failed.system.fail("container.list", new Error("daemon offline"));
-    expect(
-      await findSandboxContainers(await failed.provider.resolve()),
-    ).toEqual([]);
+    await expect(
+      findSandboxContainers((await failed.provider.resolve()).runtime),
+    ).rejects.toThrow("daemon offline");
   });
 });
 

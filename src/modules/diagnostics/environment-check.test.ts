@@ -11,6 +11,7 @@ function status(overrides: Partial<EnvironmentStatus>): EnvironmentStatus {
       runtime: null,
       memoryOk: false,
       memoryGB: null,
+      memoryScope: "unknown",
     },
     x11: { available: false, display: null, xhostConfigured: false },
     ...overrides,
@@ -26,6 +27,7 @@ describe("renderEnvironmentStatus", () => {
           runtime: "docker",
           memoryOk: true,
           memoryGB: 8,
+          memoryScope: "shared-runtime-vm",
         },
       }),
     );
@@ -42,6 +44,7 @@ describe("renderEnvironmentStatus", () => {
           runtime: "podman",
           memoryOk: false,
           memoryGB: 2,
+          memoryScope: "shared-runtime-vm",
         },
       }),
     );

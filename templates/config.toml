@@ -1,7 +1,13 @@
 # Sandbox configuration - see README for details
 
-# Runtime (auto-detected if not set)
+# Runtime: "docker", "podman", or "apple-container" (auto-detected if not set)
+# Automatic order: Docker, Podman, then Apple container
 # runtime = "docker"
+
+# Apple container DNS: "default" keeps the runtime resolver.
+# Use "host" for primary macOS DNS, or "host-ipv6" for its bridge DNS proxy.
+# [runtimes.apple-container]
+# dns = "host"
 
 # Session environment: applies to each shell or command, not startup services.
 # Changes to these values do not prevent container reuse.

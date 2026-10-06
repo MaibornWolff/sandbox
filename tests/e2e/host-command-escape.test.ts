@@ -20,6 +20,12 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+function readOpenInvocations(): string[] {
+  return existsSync(openInvocationPath)
+    ? readFileSync(openInvocationPath, "utf8").trim().split("\n")
+    : [];
+}
+
 beforeAll(async () => {
   projectDir = await createTempProject("host-command-escape");
   fixturePath = join(projectDir, "host-command-fixture.mjs");
@@ -178,16 +184,15 @@ describe("host command escape", () => {
       expect(result.stdout).toContain(`opened:${target}`);
     }
 
-    expect(readFileSync(openInvocationPath, "utf8").trim().split("\n")).toEqual(
-      [
-        '["report.HTML"]',
-        '["http://example.com/report"]',
-        '["https://example.com/report"]',
-      ],
-    );
+    expect(readOpenInvocations()).toEqual([
+      '["report.HTML"]',
+      '["http://example.com/report"]',
+      '["https://example.com/report"]',
+    ]);
   });
 
   test("rejects unsafe open targets and trailing arguments before host process creation", async () => {
+    const previousInvocations = readOpenInvocations();
     const rejectedArguments = [
       ["/Applications/Calculator.app"],
       ["file:///tmp/report.html"],
@@ -219,9 +224,7 @@ describe("host command escape", () => {
     );
     expect(trailing.exitCode).toBe(126);
     expect(trailing.stderr).toContain("command is not allowed");
-    expect(
-      readFileSync(openInvocationPath, "utf8").trim().split("\n"),
-    ).toHaveLength(3);
+    expect(readOpenInvocations()).toEqual(previousInvocations);
   });
 
   test("denies unmatched commands before they can create a host effect", async () => {

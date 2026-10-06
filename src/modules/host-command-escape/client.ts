@@ -51,13 +51,13 @@ function readInputChunk(
   if (signal.aborted) return Promise.resolve(undefined);
   return new Promise((resolve, reject) => {
     const cleanup = () => {
+      input.pause();
       input.removeListener("data", onData);
       input.removeListener("end", onEnd);
       input.removeListener("error", onError);
       signal.removeEventListener("abort", onAbort);
     };
     const onData = (chunk: Uint8Array | string) => {
-      input.pause();
       cleanup();
       resolve(chunk);
     };

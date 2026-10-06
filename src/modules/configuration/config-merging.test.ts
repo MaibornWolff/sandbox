@@ -34,6 +34,7 @@ describe("CONFIG_MERGE_RULES", () => {
     expect(CONFIG_MERGE_RULES.fullNetwork.strategy).toBe("override");
     expect(CONFIG_MERGE_RULES.noProxy.strategy).toBe("override");
     expect(CONFIG_MERGE_RULES.shmSize.strategy).toBe("override");
+    expect(CONFIG_MERGE_RULES.runtimes.strategy).toBe("override");
   });
 });
 
@@ -97,6 +98,27 @@ describe("applyTomlConfig - override strategy", () => {
 
   test("shm_size is undefined by default", () => {
     expect(baseConfig.shmSize).toBeUndefined();
+  });
+
+  test("Apple DNS uses default when omitted and project config overrides global config", async () => {
+    expect(baseConfig.runtimes["apple-container"].dns).toBe("default");
+
+    await applyTomlConfig(
+      baseConfig,
+      { runtimes: { "apple-container": { dns: "host-ipv6" } } },
+      "global",
+      projectDir,
+      {},
+    );
+    await applyTomlConfig(
+      baseConfig,
+      { runtimes: { "apple-container": { dns: "default" } } },
+      "project",
+      projectDir,
+      {},
+    );
+
+    expect(baseConfig.runtimes["apple-container"].dns).toBe("default");
   });
 });
 

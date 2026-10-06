@@ -205,6 +205,7 @@ export async function setupContainerToolsAppTest(
     homeDirectory: homeRoot,
     variables: {
       HOME: homeRoot,
+      SANDBOX_HOST_ACCESS_NAME: "host.docker.internal",
       ...options.variables,
     },
     platform: options.platform ?? "linux",

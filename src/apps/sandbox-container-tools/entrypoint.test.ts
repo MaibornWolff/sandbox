@@ -32,7 +32,8 @@ function givenSuccessfulFirewallCommands(
   app: ContainerToolsAppTest,
   count: number,
 ): void {
-  for (let command = 0; command < count; command += 1) {
+  const ipv6Count = count === 14 ? 9 : 10;
+  for (let command = 0; command < count + ipv6Count; command += 1) {
     app.processes
       .expectStart({ match: { name: undefined } })
       .resolveResult({ exitCode: 0, stdout: "", stderr: "" });
@@ -249,6 +250,30 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     });
   });
 
+  test("applies exact host aliases when networking is disabled", async () => {
+    await using app = await setupContainerToolsAppTest({
+      variables: {
+        SANDBOX_FIREWALL: DISABLED_NETWORK,
+        SANDBOX_GUEST_HOST_MAPPINGS: JSON.stringify([
+          { host: "host.container.internal", address: "192.168.64.1" },
+          { host: "host.docker.internal", address: "192.168.64.1" },
+        ]),
+      },
+    });
+    app.networkState.givenFile("/etc/hosts", "127.0.0.1 localhost\n");
+
+    const execution = app.entrypoint.start();
+    await app.entrypoint.waitForReady();
+    expect(app.networkState.readFile("/etc/hosts")).toBe(
+      "127.0.0.1 localhost\n192.168.64.1\thost.container.internal\n192.168.64.1\thost.docker.internal\n",
+    );
+    expect(await stopReadyEntrypoint(app, execution)).toEqual({
+      exitCode: 143,
+      stdout: "",
+      stderr: "",
+    });
+  });
+
   test("rejects malformed network policy through the managed entrypoint", async () => {
     await using app = await setupContainerToolsAppTest({
       variables: { SANDBOX_FIREWALL: "{" },
@@ -261,15 +286,6 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     });
     expect(app.entrypoint.isReady()).toBe(false);
     expect(app.processes.requests).toEqual([
-      {
-        command: "/usr/sbin/gosu",
-        args: [
-          "sandbox",
-          "/usr/local/bin/sandbox-container-tools",
-          "settings",
-          "apply",
-        ],
-      },
       {
         command: "/usr/sbin/gosu",
         args: [
@@ -323,6 +339,54 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
       "signal:ide-bridge:SIGTERM",
     ]);
   });
+
+  test.each([
+    ["Docker", "host.docker.internal"],
+    ["Podman", "host.containers.internal"],
+    ["Apple container", "host.container.internal"],
+  ] as const)(
+    "uses the resolved %s host name for the IDE bridge and DNS forwarding",
+    async (_runtime, hostAccessName) => {
+      await using app = await setupContainerToolsAppTest({
+        variables: {
+          CLAUDE_CODE_SSE_PORT: "12345",
+          SANDBOX_FIREWALL: MANAGED_NETWORK,
+          SANDBOX_HOST_ACCESS_NAME: hostAccessName,
+        },
+      });
+      givenSuccessfulFirewallCommands(app, 14);
+      app.networkState.givenFile("/etc/resolv.conf", "nameserver 10.0.0.2\n");
+      app.networkState.givenFile(
+        "/usr/share/squid/errors/en/ERR_ACCESS_DENIED",
+        "default",
+      );
+      app.sockets.listen(DNS_ENDPOINT);
+      app.sockets.listen(PROXY_ENDPOINT);
+      const bridge = app.children.givenRequired("ide-bridge");
+      const dnsmasq = app.children.givenRequired("dnsmasq");
+      const squid = app.children.givenRequired("squid");
+      const tcpdump = app.children.givenOptional("tcpdump");
+
+      const execution = app.entrypoint.start();
+      await app.entrypoint.waitForReady();
+
+      expect(
+        app.processes.requests.find((request) => request.name === "ide-bridge")
+          ?.args,
+      ).toContain(`TCP:${hostAccessName}:12345`);
+      expect(
+        app.networkState.readFile("/etc/dnsmasq.d/sandbox.conf"),
+      ).toContain(`server=/${hostAccessName}/10.0.0.2`);
+      expect(
+        await stopReadyEntrypoint(app, execution, [
+          bridge,
+          dnsmasq,
+          squid,
+          tcpdump,
+        ]),
+      ).toEqual({ exitCode: 143, stdout: "", stderr: "" });
+    },
+  );
 
   test("waits for managed DNS and proxy readiness before publishing proxy state", async () => {
     await using app = await setupContainerToolsAppTest({
@@ -433,10 +497,16 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     ]);
   });
 
-  test("starts managed no-proxy networking without proxy services or SSH state", async () => {
+  test("starts managed no-proxy networking with generic host mappings", async () => {
     await using app = await setupContainerToolsAppTest({
-      variables: { SANDBOX_FIREWALL: NO_PROXY_NETWORK },
+      variables: {
+        SANDBOX_FIREWALL: NO_PROXY_NETWORK,
+        SANDBOX_GUEST_HOST_MAPPINGS: JSON.stringify([
+          { host: "host.container.internal", address: "192.168.64.1" },
+        ]),
+      },
     });
+    app.networkState.givenFile("/etc/hosts", "127.0.0.1 localhost\n");
     givenSuccessfulFirewallCommands(app, 10);
     const tcpdump = app.children.givenOptional("tcpdump");
 
@@ -450,6 +520,9 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     expect(
       app.files.exists("/etc/ssh/ssh_config.d/50-sandbox-proxy.conf"),
     ).toBe(false);
+    expect(app.networkState.readFile("/etc/hosts")).toContain(
+      "192.168.64.1\thost.container.internal",
+    );
     expect(childEventLabels(app)).toEqual(["spawn:tcpdump"]);
     expect(await stopReadyEntrypoint(app, execution, [tcpdump])).toEqual({
       exitCode: 143,
@@ -458,7 +531,7 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     });
   });
 
-  test("reports a required child failure before network readiness", async () => {
+  test("does not start an early guest consumer before network readiness", async () => {
     await using app = await setupContainerToolsAppTest({
       variables: {
         CLAUDE_CODE_SSE_PORT: "12345",
@@ -468,29 +541,34 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
     givenSuccessfulFirewallCommands(app, 14);
     app.networkState.givenFile("/etc/resolv.conf", "nameserver 10.0.0.2\n");
     app.sockets.close(DNS_ENDPOINT);
+    app.sockets.listen(PROXY_ENDPOINT);
     const bridge = app.children.givenRequired("ide-bridge");
     const dnsmasq = app.children.givenRequired("dnsmasq");
+    const squid = app.children.givenRequired("squid");
+    const tcpdump = app.children.givenOptional("tcpdump");
 
     const execution = app.entrypoint.start();
     await app.children.waitForSpawn("dnsmasq");
     await app.idle.waitForTick();
-    bridge.exit({ exitCode: 23, stderr: "bridge startup failed" });
-    await dnsmasq.waitForSignal();
-    dnsmasq.exit({ signal: "SIGTERM" });
+    expect(childEventLabels(app)).toEqual(["spawn:dnsmasq"]);
 
-    expect(await execution).toEqual({
-      exitCode: 1,
-      stdout: "",
-      stderr: "ide-bridge exited with code 23\n",
-    });
-    expect(app.entrypoint.isReady()).toBe(false);
-    expect(app.idle.pendingTicks()).toBe(0);
+    app.sockets.listen(DNS_ENDPOINT);
+    await app.idle.advanceToNextTick();
+    await app.entrypoint.waitForReady();
     expect(childEventLabels(app)).toEqual([
-      "spawn:ide-bridge",
       "spawn:dnsmasq",
-      "signal:dnsmasq:SIGTERM",
+      "spawn:squid",
+      "spawn:tcpdump",
+      "spawn:ide-bridge",
     ]);
-    expect(app.signals.subscriptions()).toBe(1);
+    expect(
+      await stopReadyEntrypoint(app, execution, [
+        bridge,
+        dnsmasq,
+        squid,
+        tcpdump,
+      ]),
+    ).toEqual({ exitCode: 143, stdout: "", stderr: "" });
   });
 
   test("reports a required child failure after readiness", async () => {
@@ -632,7 +710,6 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
       ]);
       expect(app.children.pending()).toBe(0);
       expect(finalLifecycleLabels(app)).toEqual([
-        "execute:/usr/sbin/gosu",
         `forward:dnsmasq:${signal}`,
         "execute:/usr/sbin/gosu",
       ]);

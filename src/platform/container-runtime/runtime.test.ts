@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createProcessTestHarness } from "#platform/process/__test__/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import { createStatefulRuntimeCommandExecutor } from "./__test__/index.js";
+import { AppleContainerService } from "./apple/service.js";
 import { DockerService } from "./docker/service.js";
 import { PodmanService } from "./podman/service.js";
 import { createRuntimeService, resolveRuntime } from "./runtime.js";
@@ -19,6 +20,9 @@ describe("resolveRuntime", () => {
     expect(await resolveRuntimeInScope("podman", commands.executor)).toBe(
       "podman",
     );
+    expect(
+      await resolveRuntimeInScope("apple-container", commands.executor),
+    ).toBe("apple-container");
     expect(commands.events()).toEqual([]);
   });
 
@@ -55,7 +59,7 @@ describe("resolveRuntime", () => {
     ]);
   });
 
-  test("throws when no runtime found", async () => {
+  test("falls back to Apple container after Podman", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenFailure(
       { command: "docker", args: ["--version"] },
@@ -65,12 +69,35 @@ describe("resolveRuntime", () => {
       { command: "podman", args: ["--version"] },
       new Error("not found"),
     );
+    commands.givenOutput(
+      { command: "container", args: ["--version"] },
+      "container CLI version 1.4.1",
+    );
+    expect(await resolveRuntimeInScope(undefined, commands.executor)).toBe(
+      "apple-container",
+    );
+    expect(commands.events()).toEqual([
+      { command: "docker", args: ["--version"] },
+      { command: "podman", args: ["--version"] },
+      { command: "container", args: ["--version"] },
+    ]);
+  });
+
+  test("throws when no runtime found", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    for (const command of ["docker", "podman", "container"]) {
+      commands.givenFailure(
+        { command, args: ["--version"] },
+        new Error("not found"),
+      );
+    }
     await expect(
       resolveRuntimeInScope(undefined, commands.executor),
     ).rejects.toThrow("No container runtime found");
     expect(commands.events()).toEqual([
       { command: "docker", args: ["--version"] },
       { command: "podman", args: ["--version"] },
+      { command: "container", args: ["--version"] },
     ]);
   });
 });
@@ -78,16 +105,23 @@ describe("resolveRuntime", () => {
 describe("createRuntimeService", () => {
   test("creates DockerService for docker", () => {
     const commands = createStatefulRuntimeCommandExecutor();
-    expect(createRuntimeService("docker", commands.executor)).toBeInstanceOf(
-      DockerService,
-    );
+    expect(
+      createRuntimeService("docker", commands.executor).runtime,
+    ).toBeInstanceOf(DockerService);
   });
 
   test("creates PodmanService for podman", () => {
     const commands = createStatefulRuntimeCommandExecutor();
-    expect(createRuntimeService("podman", commands.executor)).toBeInstanceOf(
-      PodmanService,
-    );
+    expect(
+      createRuntimeService("podman", commands.executor).runtime,
+    ).toBeInstanceOf(PodmanService);
+  });
+
+  test("creates AppleContainerService for apple-container", () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    expect(
+      createRuntimeService("apple-container", commands.executor).runtime,
+    ).toBeInstanceOf(AppleContainerService);
   });
 });
 
@@ -102,12 +136,14 @@ describe("production runtime provider", () => {
         stderr: "",
       });
 
-    const runtime = await runWithTestLogger(() =>
+    const services = await runWithTestLogger(() =>
       createProductionRuntimeProvider(processes.manager).resolve(),
     );
 
-    expect(runtime).toBeInstanceOf(DockerService);
-    expect(runtime.runtime).toBe("docker");
+    expect(services.runtime).toBeInstanceOf(DockerService);
+    expect(Object.is(services.imageBuilder, services.runtime)).toBe(true);
+    expect(services.runtime.runtime).toBe("docker");
+    expect(services.imageOwnershipKey).toBe("docker");
     expect(processes.requests).toEqual([
       {
         command: "docker",

@@ -49,6 +49,7 @@ export const architecture = defineArchitecture({
     configuration: {
       dependencies: [
         "host-command-escape",
+        "container-runtime",
         "filesystem",
         "environment",
         "clock",
@@ -76,6 +77,7 @@ export const architecture = defineArchitecture({
         "configuration",
         "sandbox-resources",
         "container-runtime",
+        "state",
         "filesystem",
         "environment",
         "logging",
@@ -103,8 +105,9 @@ export const architecture = defineArchitecture({
         "network",
         "sandbox-settings",
         "storage",
-        "clock",
         "container-runtime",
+        "state",
+        "clock",
         "filesystem",
         "environment",
         "git",
@@ -114,7 +117,12 @@ export const architecture = defineArchitecture({
       ],
     },
     network: {
-      dependencies: ["configuration", "container-system"],
+      dependencies: [
+        "configuration",
+        "container-runtime",
+        "container-system",
+        "logging",
+      ],
     },
     "network-diagnostics": {
       dependencies: [
@@ -131,12 +139,7 @@ export const architecture = defineArchitecture({
       ],
     },
     "sandbox-resources": {
-      dependencies: [
-        "configuration",
-        "container-runtime",
-        "filesystem",
-        "logging",
-      ],
+      dependencies: ["container-runtime", "state"],
     },
     "sandbox-settings": {
       dependencies: [
@@ -214,7 +217,9 @@ export const architecture = defineArchitecture({
     "container-runtime": {
       dependencies: [
         "process",
+        "clock",
         "environment",
+        "filesystem",
         "logging",
         "terminal",
         "dependency-injection",

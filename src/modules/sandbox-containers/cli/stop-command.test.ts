@@ -6,14 +6,14 @@ import { buildStopWarning, stopContainers } from "./stop-command.js";
 describe("sandbox stop session cancellation", () => {
   test("signals discovered sessions before stopping their container", async () => {
     const harness = createStatefulContainerRuntimeHarness();
-    const container = harness.containers.create({
+    const container = harness.instances.create({
       name: "managed",
       image: "sandbox-project:latest",
       labels: {},
       status: "running",
     });
     container.givenExecResult(["kill", "-TERM", "--", "41", "42"], "");
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
 
     const stopped = await runWithTestLogger(() =>
       stopContainers(runtime, [
@@ -41,7 +41,7 @@ describe("sandbox stop session cancellation", () => {
 
   test("still stops a container when explicit session cancellation fails", async () => {
     const harness = createStatefulContainerRuntimeHarness();
-    const container = harness.containers.create({
+    const container = harness.instances.create({
       name: "managed",
       image: "sandbox-project:latest",
       labels: {},
@@ -51,7 +51,7 @@ describe("sandbox stop session cancellation", () => {
       ["kill", "-TERM", "--", "41"],
       new Error("session already exited"),
     );
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
 
     const stopped = await runWithTestLogger(() =>
       stopContainers(runtime, [

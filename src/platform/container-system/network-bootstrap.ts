@@ -32,6 +32,12 @@ export interface ContainerNetworkSystem {
   readonly applyFirewall: (
     commands: readonly (readonly string[])[],
   ) => Promise<void>;
+  readonly applyIpv6Firewall: (
+    commands: readonly (readonly string[])[],
+  ) => Promise<void>;
+  readonly applyHostMappings: (
+    mappings: readonly { readonly host: string; readonly address: string }[],
+  ) => Promise<void>;
   readonly discoverUpstreamDns: () => Promise<string>;
   readonly startDnsmasq: (options: {
     readonly config: string;
@@ -45,6 +51,7 @@ export interface ContainerNetworkSystem {
 }
 
 const IPTABLES = "/usr/sbin/iptables";
+const IP6TABLES = "/usr/sbin/ip6tables";
 const DNSMASQ = "/usr/sbin/dnsmasq";
 const SQUID = "/usr/sbin/squid";
 const TCPDUMP = "/usr/bin/tcpdump";
@@ -161,6 +168,88 @@ async function waitForPort(
   );
 }
 
+function readUpstreamResolver(environment: SandboxEnvironment): string {
+  const resolverPath = containerPath(environment, "/etc/resolv.conf");
+  const resolver = fs.readFileSync(resolverPath, "utf8");
+  fs.copyFileSync(
+    resolverPath,
+    containerPath(environment, "/etc/resolv.conf.upstream"),
+  );
+  const upstream = resolver
+    .split(/\r?\n/u)
+    .map((line) => line.trim().match(/^nameserver\s+(\S+)/)?.[1])
+    .find((value): value is string => Boolean(value));
+  if (!upstream) throw new Error("No upstream DNS server found");
+  return upstream;
+}
+
+function isLinkLocalInterfaceReady(
+  environment: SandboxEnvironment,
+  interfaceName: string,
+): boolean {
+  const interfacesPath = containerPath(environment, "/proc/net/if_inet6");
+  const interfaces = fs.existsSync(interfacesPath)
+    ? fs.readFileSync(interfacesPath, "utf8")
+    : "";
+  return interfaces.split(/\r?\n/u).some((line) => {
+    const fields = line.trim().split(/\s+/u);
+    const flags = Number.parseInt(fields[4] ?? "", 16);
+    return (
+      fields[3] === "20" &&
+      fields[5] === interfaceName &&
+      Number.isFinite(flags) &&
+      (flags & 0x40) === 0
+    );
+  });
+}
+
+async function waitForScopedIpv6Resolver(options: {
+  readonly environment: SandboxEnvironment;
+  readonly tcp: TcpService;
+  readonly clock: Clock;
+  readonly signal?: AbortSignal;
+  readonly throwIfCancelled: () => void;
+  readonly upstream: string;
+}): Promise<void> {
+  const [address, interfaceName] = options.upstream.split("%", 2);
+  if (!address || !interfaceName) {
+    throw new Error(`Invalid scoped IPv6 DNS resolver: ${options.upstream}`);
+  }
+  const interfaceDeadline = options.clock.now() + 5_000;
+  while (options.clock.now() < interfaceDeadline) {
+    options.throwIfCancelled();
+    if (isLinkLocalInterfaceReady(options.environment, interfaceName)) break;
+    await options.clock.sleep(
+      100,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+  }
+  if (!isLinkLocalInterfaceReady(options.environment, interfaceName)) {
+    throw new Error(
+      `The Apple container IPv6 interface ${interfaceName} was not ready within 5 seconds.`,
+    );
+  }
+  const resolverDeadline = options.clock.now() + 5_000;
+  while (options.clock.now() < resolverDeadline) {
+    options.throwIfCancelled();
+    const connected = await options.tcp.canConnect(
+      { host: options.upstream, port: 53 },
+      {
+        timeoutMilliseconds: 250,
+        ...(options.signal ? { signal: options.signal } : {}),
+      },
+    );
+    if (connected) return;
+    await options.clock.sleep(
+      100,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+  }
+  throw new Error(
+    `The Apple host IPv6 DNS resolver on ${interfaceName} did not respond within 5 seconds.`,
+  );
+}
+
 async function prepareSquidFilesystem(
   environment: SandboxEnvironment,
   throwIfCancelled: () => void,
@@ -252,21 +341,46 @@ function createNetworkInterface(
         debug(`iptables ${args.join(" ")}`);
         await runCommand(IPTABLES, args);
       }
-      debug("firewall configured");
+      debug("IPv4 firewall configured");
+    },
+    async applyIpv6Firewall(commands) {
+      for (const args of commands) {
+        debug(`ip6tables ${args.join(" ")}`);
+        await runCommand(IP6TABLES, args);
+      }
+      debug("IPv6 firewall configured");
+    },
+    async applyHostMappings(mappings) {
+      if (mappings.length === 0) return;
+      const hostsPath = containerPath(environment, "/etc/hosts");
+      const current = fs.readFileSync(hostsPath, "utf8");
+      const mappedHosts = new Set(mappings.map(({ host }) => host));
+      const retained = current
+        .split(/\r?\n/u)
+        .filter(
+          (line) => !line.split(/\s+/u).some((part) => mappedHosts.has(part)),
+        );
+      const records = mappings.map(
+        ({ host, address }) => `${address}\t${host}`,
+      );
+      fs.writeFileSync(
+        hostsPath,
+        `${retained.filter(Boolean).join("\n")}\n${records.join("\n")}\n`,
+      );
+      debug(`applied ${mappings.length} guest host mappings`);
     },
     async discoverUpstreamDns() {
       throwIfCancelled();
-      const resolverPath = containerPath(environment, "/etc/resolv.conf");
-      const resolver = fs.readFileSync(resolverPath, "utf8");
-      fs.copyFileSync(
-        resolverPath,
-        containerPath(environment, "/etc/resolv.conf.upstream"),
-      );
-      const upstream = resolver
-        .split(/\r?\n/)
-        .map((line) => line.trim().match(/^nameserver\s+(\S+)/)?.[1])
-        .find((value): value is string => Boolean(value));
-      if (!upstream) throw new Error("No upstream DNS server found");
+      const upstream = readUpstreamResolver(environment);
+      if (!upstream.includes(":")) return upstream;
+      await waitForScopedIpv6Resolver({
+        environment,
+        tcp,
+        clock,
+        ...(signal ? { signal } : {}),
+        throwIfCancelled,
+        upstream,
+      });
       return upstream;
     },
     async startDnsmasq({ config }) {

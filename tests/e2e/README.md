@@ -1,4 +1,4 @@
-# Docker-Backed End-to-End Tests
+# Container-Backed End-to-End Tests
 
 These tests verify behavior that requires a real container boundary. They do not repeat complete command or business-rule matrices.
 
@@ -6,9 +6,11 @@ These tests verify behavior that requires a real container boundary. They do not
 
 Install these dependencies:
 
-- a Docker-compatible runtime
+- Docker, Podman, or Apple `container` 1.4.1 or newer
+- macOS 26 or newer for Apple `container`
+- Node.js 24 or newer
 - GNU `timeout` or `gtimeout`
-- the util-linux `script` command with support for `-q -e -c`
+- util-linux `script` on Linux, or the built-in BSD `script` on macOS
 - Git
 
 Allow outbound Domain Name System (DNS) and secure Hypertext Transfer Protocol (HTTPS) traffic for network and tool-installation fixtures.
@@ -35,6 +37,42 @@ SANDBOX_BIN=/absolute/path/to/main.js bun test --timeout 30000 tests/e2e/
 
 Set `SANDBOX_TEST_TMP` to use another runtime-shared temporary directory. The default directory is `test-tmp/e2e` in the repository.
 
+## Apple Runtime Selection
+
+The test harness creates isolated configuration. It does not use your normal user or repository configuration. Select Apple and its DNS mode explicitly:
+
+```bash
+SANDBOX_TEST_RUNTIME=apple-container \
+SANDBOX_TEST_APPLE_DNS=host \
+SANDBOX_E2E_APPLE=1 \
+SANDBOX_E2E_APPLE_HOST=1 \
+bun run test:e2e
+```
+
+`SANDBOX_TEST_APPLE_DNS` accepts `default`, `host`, or `host-ipv6`. If you omit it, the runtime default applies. This selector does not change the product default.
+
+`SANDBOX_E2E_APPLE=1` enables the Apple no-build and exact host-alias tests. These tests use the DNS mode selected by the test harness. Provider-specific selection and readiness logic use deterministic tests. The E2E suite does not require the host IPv6 DNS proxy.
+
+For a focused test, build the CLI first and run only the required file or test name:
+
+```bash
+SANDBOX_TEST_RUNTIME=apple-container SANDBOX_TEST_APPLE_DNS=host \
+bun test --timeout 30000 tests/e2e/network.test.ts \
+  --test-name-pattern 'allowed domain resolves via DNS'
+```
+
+## Apple Host DNS Regression
+
+The host DNS regression requires Apple `container` on macOS 26 or newer. It uses the primary macOS DNS server, not the runtime DNS proxy. If the shared builder uses a different resolver, wait for active builds to finish before you stop it. The test does not stop an active builder automatically.
+
+After you build the CLI, run the focused test:
+
+```bash
+SANDBOX_E2E_APPLE_HOST=1 bun test tests/e2e/apple-host-dns.test.ts
+```
+
+The test installs and executes just, fetches the mise signing key through restricted guest DNS, and checks that direct public DNS is blocked.
+
 ## Fixture Rules
 
 - Create one temporary project for each test file.
@@ -50,7 +88,6 @@ External fixtures are part of the tested boundary. The network tests require the
 
 - `container-settings.test.ts`: existing and missing mount-mode and copy-mode settings, ownership, IDE bridge readiness, synchronization, and atomic replacement
 - `container-start-signals.test.ts`: interrupt and termination signal behavior through the host CLI, runtime CLI, and container entrypoint
-- `image-migration.test.ts`: migration of a legacy project Dockerfile
 - `runtime-package.test.ts`: read-only runtime caches, unchanged tool images after runtime edits, concurrent starts, and active-session version isolation
 - `init-mise.test.ts`: mise image build and tool installation
 - `init-php.test.ts`: PHP and Composer image build

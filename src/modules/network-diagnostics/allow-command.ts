@@ -30,11 +30,11 @@ export async function networkAllowCommand(
   const terminal = getTerminal();
   const logger = getLogger();
   const clock = getClock();
-  const { config, projectRoot, configuredRuntime } =
+  const { config, projectRoot, runtimeResolution } =
     await configuration.load(options);
-  const runtimeService = await runtimeProvider.resolve(configuredRuntime);
+  const { runtime } = await runtimeProvider.resolve(runtimeResolution);
 
-  const containers = await findNetworkContainers(runtimeService, {
+  const containers = await findNetworkContainers(runtime, {
     status: "running",
     projectSlug: generateProjectSlug(projectRoot),
   });
@@ -46,7 +46,7 @@ export async function networkAllowCommand(
   const allEntries = [];
   for (const container of containers) {
     const entries = await collectContainerEntries(
-      runtimeService,
+      runtime,
       container,
       true,
       clock.now(),

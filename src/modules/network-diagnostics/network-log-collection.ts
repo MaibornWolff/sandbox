@@ -1,4 +1,4 @@
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { aggregateBlocked, parseBlockedLog } from "./blocked-log-parsing.js";
 import {
   buildContainerDiagnosticCommand,
@@ -19,16 +19,16 @@ import type {
 import { aggregateProxyLog, parseProxyLog } from "./proxy-log-parsing.js";
 
 async function readContainerLog(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
   source: NetworkDiagnosticSource,
 ): Promise<string | null> {
   try {
-    return await service.execInContainer(
-      containerId,
-      buildContainerDiagnosticCommand(source),
-      { user: "root" },
-    );
+    const result = await service.instances.exec(containerId, {
+      command: buildContainerDiagnosticCommand(source),
+      user: "root",
+    });
+    return result.exitCode === 0 ? result.stdout : null;
   } catch {
     return null;
   }
@@ -102,7 +102,7 @@ function addDnsEntries(
 }
 
 export async function collectContainerEntries(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   container: NetworkContainer,
   useReverseDns: boolean,
   referenceTime: number,

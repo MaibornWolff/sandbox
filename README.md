@@ -23,9 +23,11 @@ Bringing AI coding agents into your team? [MaibornWolff](https://www.maibornwolf
 
 ### Prerequisites
 
-- Install and start Docker or Podman.
+- Install and start Docker, Podman, or Apple `container`.
   - On Windows, use Rancher Desktop with the Windows Subsystem for Linux 2 (WSL2) backend or use Podman.
   - On macOS or Linux, use Docker with [Colima](https://colima.run/), Rancher Desktop, or Podman.
+  - Apple `container` requires Apple silicon, macOS 26 or newer, and version 1.4.1 or newer. Start it with `container system start`.
+
 ### Install
 
 ```bash
@@ -59,7 +61,7 @@ cd your-project
 sandbox run claude      # or: sandbox run codex, sandbox run opencode
 ```
 
-The first run builds a Docker image. Later runs can use the cached image. The agent has read-write access to the mounted project directory.
+The first run builds a container image. Later runs can use the cached image. The agent has read-write access to the mounted project directory.
 
 ### 4. Ask Sandbox for help
 
@@ -359,6 +361,33 @@ Built-in defaults
 
 Run `sandbox config` to see your final merged configuration.
 
+### Container runtime
+
+Sandbox detects runtimes in this order: Docker, Podman, then Apple `container`. Set a runtime when you do not want automatic selection:
+
+```toml
+runtime = "apple-container" # Or "docker" or "podman"
+```
+
+Apple `container` uses its default resolver. If the runtime DNS proxy does not answer, select the primary host resolver:
+
+```toml
+[runtimes.apple-container]
+dns = "host"
+```
+
+Supported values are `default`, `host`, and `host-ipv6`. The default is `default`.
+
+- `default` does not change the Apple resolver or an externally configured builder.
+- `host` reads the current macOS primary DNS configuration. It selects the first server that is not a loopback or link-local address. It does not substitute a public DNS server or select a resolver from another network interface. Use this mode when the host DNS server is reachable from containers but the runtime DNS proxy is not. Local-only DNS services are not supported. Domain-specific VPN resolvers are not selected.
+- `host-ipv6` discovers the macOS IPv6 bridge resolver. This mode requires a working host IPv6 DNS proxy.
+
+Sandbox does not save discovered resolver addresses or interfaces. In `host` and `host-ipv6` modes, Sandbox changes a stopped shared builder only when its effective resolver differs. If a running shared builder has different settings, wait for active builds to finish. Then run `container builder stop` and retry.
+
+In `host` and `host-ipv6` modes, Sandbox checks the shared builder resolver before each image build. If a stopped process left a builder DNS lock, Sandbox reports the lock file and stops. Confirm that no Sandbox builds are running before you remove the reported lock file. Then retry the build. Sandbox does not automatically remove another process's lock.
+
+Apple uses `host.container.internal` for host access. It also provides `host.docker.internal` as a compatibility alias. These aliases match only the exact names, not subdomains. Host services must listen on an address that the Apple container gateway can reach. Services that listen only on localhost are not supported.
+
 ### User configuration
 
 The user configuration is at `~/.config/sandbox/config.toml`. On Windows, it is at `%APPDATA%/sandbox/config.toml`.
@@ -487,9 +516,9 @@ sandbox --readonly --clipboard disabled run claude
 Sandbox uses three Docker image layers:
 
 ```
-sandbox--base (Debian + git + Python + networking tools)
-  → sandbox--user (~/.config/sandbox/docker/Dockerfile)
-    → sandbox--project (.sandbox/docker/Dockerfile)
+sandbox-base (Debian + git + Python + networking tools)
+  → sandbox-user (~/.config/sandbox/docker/Dockerfile)
+    → sandbox-<project-slug> (.sandbox/docker/Dockerfile)
 ```
 
 Add tools at any level. Images are cached and only rebuild when their content changes.

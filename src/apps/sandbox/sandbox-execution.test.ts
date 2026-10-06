@@ -8,6 +8,14 @@ function interactiveRequest(
   return app.processes.requests.find((request) => request.stdio === "inherit");
 }
 
+function attachedExecution(
+  app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
+) {
+  return app.runtime
+    .events()
+    .findLast((event) => event.type === "container.exec-attached");
+}
+
 function givenSuccessfulInteractiveProcess(
   app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
 ): void {
@@ -23,7 +31,7 @@ describe("sandbox shell and run", () => {
 
     expect((await app.cli.run("run", "true")).exitCode).toBe(0);
 
-    const container = app.runtime.containers.all()[0];
+    const container = app.runtime.instances.all()[0];
     const runtimeId = container?.labels["sandbox.runtime"];
     expect(runtimeId).toMatch(/^\d+\.\d+\.\d+[^/]*-[a-f0-9]{64}$/);
     expect(
@@ -46,14 +54,16 @@ describe("sandbox shell and run", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Creating sandbox container");
     expect(result.stderr).toContain("Starting sandbox shell");
-    const request = interactiveRequest(app);
-    expect(request).toMatchObject({ command: "docker", stdio: "inherit" });
-    expect(request?.args).toContain("-it");
-    expect(request?.args?.slice(-2)).toEqual([
+    const execution = attachedExecution(app);
+    expect(execution?.spec.command).toEqual([
       "/usr/local/bin/exec-entrypoint.sh",
       "zsh",
     ]);
-    expect(app.runtime.containers.all()).toHaveLength(1);
+    expect(execution?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: true,
+    });
+    expect(app.runtime.instances.all()).toHaveLength(1);
   });
 
   test("preserves root shell child exit codes", async () => {
@@ -76,14 +86,10 @@ describe("sandbox shell and run", () => {
     const result = await app.cli.run();
 
     expect(result.exitCode).toBe(0);
-    const args = interactiveRequest(app)?.args ?? [];
-    expect(args).toContain("-i");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-t");
-    expect(args.slice(-2)).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "zsh",
-    ]);
+    expect(attachedExecution(app)?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: false,
+    });
   });
 
   test("shows container information and rejects unknown root commands", async () => {
@@ -111,21 +117,20 @@ describe("sandbox shell and run", () => {
     expect(
       (await interactive.cli.run("run", "--", "sh", "-c", "echo ok")).exitCode,
     ).toBe(0);
-    const interactiveArgs = interactiveRequest(interactive)?.args ?? [];
-    expect(interactiveArgs).toContain("-it");
-    expect(interactiveArgs.slice(-4)).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "sh",
-      "-c",
-      "echo ok",
-    ]);
+    expect(attachedExecution(interactive)).toMatchObject({
+      spec: {
+        command: ["/usr/local/bin/exec-entrypoint.sh", "sh", "-c", "echo ok"],
+      },
+      session: { attachStdin: true, allocateTerminal: true },
+    });
 
     await using piped = await setupSandboxAppTest({ interactive: false });
     givenSuccessfulInteractiveProcess(piped);
     expect((await piped.cli.run("run", "node", "script.js")).exitCode).toBe(0);
-    const pipedArgs = interactiveRequest(piped)?.args ?? [];
-    expect(pipedArgs).toContain("-i");
-    expect(pipedArgs).not.toContain("-it");
+    expect(attachedExecution(piped)?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: false,
+    });
   });
 
   test("preserves silent validation, child exit codes, and title restoration", async () => {
@@ -189,21 +194,14 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       result.stderr.indexOf("Started host command escape session"),
     );
     expect(result.stderr).toContain("Stopped host command escape session");
-    expect(result.stderr).toContain("Exec command:");
-    const execArgs = interactiveRequest(app)?.args ?? [];
-    const tokenAssignment = execArgs.find((argument) =>
-      argument.startsWith("SANDBOX_HOST_COMMAND_ESCAPE_TOKEN="),
-    );
-    expect(tokenAssignment).toBeDefined();
-    expect(execArgs).toEqual(
-      expect.arrayContaining([
-        "SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL=sandbox-host-command-escape.v1",
-      ]),
-    );
-    expect(result.stderr).not.toContain(tokenAssignment?.split("=")[1] ?? "");
-    expect(result.stderr).toContain(
-      "SANDBOX_HOST_COMMAND_ESCAPE_TOKEN=<redacted>",
-    );
+    expect(result.stderr).toContain("Exec mode:");
+    const executionEnvironment = attachedExecution(app)?.spec.environment;
+    const token = executionEnvironment?.SANDBOX_HOST_COMMAND_ESCAPE_TOKEN;
+    expect(token).toBeDefined();
+    expect(executionEnvironment).toMatchObject({
+      SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL: "sandbox-host-command-escape.v1",
+    });
+    expect(result.stderr).not.toContain(token ?? "");
     expect(
       app.processes
         .actions()
@@ -215,7 +213,6 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     ).toMatchObject({
       type: "start",
       request: {
-        args: expect.arrayContaining(["logs", "--follow", "--tail", "200"]),
         stdio: "ignore",
         stdin: "ignore",
         onStdout: expect.any(Function),
@@ -229,8 +226,9 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     const result = await app.cli.run("--no-build", "run", "zsh");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "Image sandbox-base:latest is not available",
+      "No complete image record exists for sandbox-base:latest",
     );
+    expect(result.stderr).toContain("Run sandbox build first");
   });
 
   test("reuses healthy containers and creates fresh containers when reuse is disabled", async () => {
@@ -253,7 +251,40 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     givenSuccessfulInteractiveProcess(app);
     const second = await app.cli.run("--no-container-reuse", "run", "zsh");
     expect(second.exitCode).toBe(0);
-    expect(app.runtime.containers.all()).toHaveLength(2);
+    expect(app.runtime.instances.all()).toHaveLength(2);
+  });
+
+  test("opens only the session broker port and removes the rule after execution", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "apple-container" });
+    await app.project.givenConfig({
+      allowNetwork: [],
+      runtime: "apple-container",
+    });
+    givenSuccessfulInteractiveProcess(app);
+
+    expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
+
+    const firewallCommands = app.runtime
+      .events()
+      .flatMap((event) =>
+        event.type === "container.exec" &&
+        event.command[0] === "/usr/sbin/iptables"
+          ? [event.command]
+          : [],
+      );
+    expect(firewallCommands).toHaveLength(2);
+    expect(firewallCommands[0]).toContain("-I");
+    expect(firewallCommands[1]).toContain("-D");
+    for (const command of firewallCommands) {
+      expect(command).toContain("host.container.internal");
+      expect(command).toContain("--dport");
+      expect(command).toContain("--uid-owner");
+      expect(command).toContain("sandbox");
+      expect(command).not.toContain("192.168.0.0/16");
+    }
+    expect(
+      firewallCommands[0]?.[firewallCommands[0].indexOf("--dport") + 1],
+    ).toBe(firewallCommands[1]?.[firewallCommands[1].indexOf("--dport") + 1]);
   });
 
   test.each([
@@ -261,6 +292,8 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     { runtime: "docker" as const, entry: ["run", "true"] },
     { runtime: "podman" as const, entry: [] },
     { runtime: "podman" as const, entry: ["run", "true"] },
+    { runtime: "apple-container" as const, entry: [] },
+    { runtime: "apple-container" as const, entry: ["run", "true"] },
   ])(
     "reuses $runtime containers for session-only changes through $entry",
     async ({ runtime, entry }) => {
@@ -293,34 +326,34 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       givenSuccessfulInteractiveProcess(app);
       expect((await app.cli.run(...entry)).exitCode).toBe(0);
 
-      const requests = app.processes.requests.filter(
-        (request) => request.stdio === "inherit",
+      const executions = app.runtime
+        .events()
+        .filter((event) => event.type === "container.exec-attached");
+      expect(executions).toHaveLength(3);
+      expect(executions[0]?.spec.environment).toMatchObject({
+        SESSION_VALUE: "first-secret",
+        GLOBAL_VALUE: "global",
+      });
+      expect(executions[1]?.spec.environment).toMatchObject({
+        SESSION_VALUE: "second-secret",
+        GLOBAL_VALUE: "global",
+      });
+      expect(executions[2]?.spec.environment).not.toHaveProperty(
+        "SESSION_VALUE",
       );
-      expect(requests).toHaveLength(3);
-      expect(requests[0]?.args).toContain("SESSION_VALUE=first-secret");
-      expect(requests[1]?.args).toContain("SESSION_VALUE=second-secret");
-      for (const request of requests.slice(0, 2)) {
-        expect(request.args).toContain("GLOBAL_VALUE=global");
-        expect(
-          request.args?.filter((arg) => arg.startsWith("SESSION_VALUE=")),
-        ).toHaveLength(1);
-      }
-      expect(
-        requests[2]?.args?.some(
-          (arg) =>
-            arg.startsWith("SESSION_VALUE=") || arg.startsWith("GLOBAL_VALUE="),
-        ),
-      ).toBe(false);
+      expect(executions[2]?.spec.environment).not.toHaveProperty(
+        "GLOBAL_VALUE",
+      );
       const creations = app.runtime
         .events()
         .filter((event) => event.type === "container.create");
       expect(creations).toHaveLength(1);
-      expect(
-        creations[0]?.options.extraArgs?.some(
-          (arg) =>
-            arg.startsWith("SESSION_VALUE=") || arg.startsWith("GLOBAL_VALUE="),
-        ),
-      ).toBe(false);
+      expect(creations[0]?.options.environment).not.toHaveProperty(
+        "SESSION_VALUE",
+      );
+      expect(creations[0]?.options.environment).not.toHaveProperty(
+        "GLOBAL_VALUE",
+      );
       expect(
         app.runtime.events().filter((event) => event.type === "image.build"),
       ).toHaveLength(builds);
@@ -391,15 +424,17 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     await using app = await setupSandboxAppTest();
     givenSuccessfulInteractiveProcess(app);
     expect((await app.cli.run("run", "true")).exitCode).toBe(0);
-    app.runtime.system.fail(
-      "container.exec",
-      new Error("exit code 1: active session"),
-    );
     givenSuccessfulInteractiveProcess(app);
     expect(await app.cli.run("--readonly", "run", "true")).toMatchObject({
       exitCode: 0,
     });
-    expect(app.runtime.containers.all()).toHaveLength(2);
+    const creations = app.runtime
+      .events()
+      .filter((event) => event.type === "container.create");
+    expect(creations).toHaveLength(2);
+    expect(creations[0]?.options.labels?.["sandbox.hash"]).not.toBe(
+      creations[1]?.options.labels?.["sandbox.hash"],
+    );
   });
 
   test("uses a new broker token for each execution in a reused container", async () => {
@@ -409,12 +444,11 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     givenSuccessfulInteractiveProcess(app);
     expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
 
-    const tokens = app.processes.requests
-      .filter((request) => request.stdio === "inherit")
-      .map((request) =>
-        request.args?.find((argument) =>
-          argument.startsWith("SANDBOX_HOST_COMMAND_ESCAPE_TOKEN="),
-        ),
+    const tokens = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached")
+      .map(
+        (event) => event.spec.environment?.SANDBOX_HOST_COMMAND_ESCAPE_TOKEN,
       );
     expect(tokens).toHaveLength(2);
     expect(tokens[0]).toBeDefined();
@@ -422,21 +456,25 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     expect(tokens[0]).not.toBe(tokens[1]);
   });
 
-  test("uses the runtime-specific broker host name", async () => {
-    await using app = await setupSandboxAppTest({ runtime: "podman" });
-    await app.project.givenConfig({ allowNetwork: [], runtime: "podman" });
-    givenSuccessfulInteractiveProcess(app);
+  test.each([
+    ["docker", "host.docker.internal"],
+    ["podman", "host.containers.internal"],
+    ["apple-container", "host.container.internal"],
+  ] as const)(
+    "uses the resolved %s host name for the host-command broker",
+    async (runtime, hostAccessName) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      await app.project.givenConfig({ allowNetwork: [], runtime });
+      givenSuccessfulInteractiveProcess(app);
 
-    expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
+      expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
 
-    expect(interactiveRequest(app)?.args).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(
-          /^SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT=ws:\/\/host\.containers\.internal:/u,
-        ),
-      ]),
-    );
-  });
+      expect(
+        attachedExecution(app)?.spec.environment
+          ?.SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT,
+      ).toStartWith(`ws://${hostAccessName}:`);
+    },
+  );
 
   test("confirms home-root safety and suppresses its display in silent mode", async () => {
     await using rejected = await setupSandboxAppTest({ workspaceAtHome: true });
@@ -483,14 +521,13 @@ describe("sandbox container start and stop", () => {
     expect(result.stderr).toContain(
       "does not start a session and does not apply env",
     );
-    const args = interactiveRequest(app)?.args ?? [];
-    expect(args).toContain("SANDBOX=1");
-    expect(
-      args.some(
-        (arg) =>
-          arg.startsWith("SESSION_VALUE=") || arg.startsWith("CLI_VALUE="),
-      ),
-    ).toBe(false);
+    const creation = app.runtime
+      .events()
+      .find((event) => event.type === "container.create");
+    expect(creation?.options.environment.SANDBOX).toBe("1");
+    expect(creation?.options.environment).not.toHaveProperty("SESSION_VALUE");
+    expect(creation?.options.environment).not.toHaveProperty("CLI_VALUE");
+    expect(attachedExecution(app)).toBeUndefined();
     expect(result.stderr).not.toContain("private-value");
     expect(result.stderr).not.toContain("private-cli");
   });
@@ -506,20 +543,8 @@ describe("sandbox container start and stop", () => {
     expect(result.stdout).toContain("Starting container");
     expect(result.stdout).toContain("in foreground (Ctrl+C to stop)");
     expect(result.stdout).toContain("Container stopped. Inspect with:");
-    const args = interactiveRequest(app)?.args ?? [];
-    expect(args.slice(0, 4)).toEqual([
-      "run",
-      "--init",
-      "--name",
-      expect.any(String),
-    ]);
-    expect(args).not.toContain("exec");
-    expect(args).not.toContain("-i");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-t");
-    expect(
-      args.some((argument) => argument.includes("HOST_COMMAND_ESCAPE")),
-    ).toBe(false);
+    expect(app.runtime.instances.all()).toHaveLength(1);
+    expect(attachedExecution(app)).toBeUndefined();
     expect(result.stderr).not.toContain("host command escape session");
 
     await using existing = await setupSandboxAppTest();
@@ -527,6 +552,8 @@ describe("sandbox container start and stop", () => {
       id: "sha256:base",
       references: ["sandbox-base:latest"],
     });
+    existing.runtime.images.givenNextBuild({ id: `sha256:${"a".repeat(64)}` });
+    expect((await existing.cli.run("build")).exitCode).toBe(0);
     givenSuccessfulInteractiveProcess(existing);
     expect(
       (await existing.cli.run("--no-build", "container", "start")).exitCode,
@@ -554,7 +581,7 @@ describe("sandbox container start and stop", () => {
       state: "running",
       sessions: [{ pid: "42", command: "zsh" }],
     });
-    confirmed.runtime.containers.create({
+    confirmed.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
       labels: { "sandbox.project": "other-project" },
@@ -565,19 +592,19 @@ describe("sandbox container start and stop", () => {
     await confirmed.tui.user.type("y");
     expect((await execution).exitCode).toBe(0);
     expect(
-      confirmed.runtime.containers
+      confirmed.runtime.instances
         .all()
         .find((container) => container.id === own.id)?.status,
     ).toBe("removed");
     expect(
-      confirmed.runtime.containers.find("sandbox-other-project")?.status,
+      confirmed.runtime.instances.find("sandbox-other-project")?.status,
     ).toBe("running");
 
     await using forced = await setupSandboxAppTest({ runtime: "podman" });
     forced.global.writeConfig('runtime = "podman"\n');
     await forced.project.givenConfig({ allowNetwork: [] });
     forced.project.givenContainer({ state: "running" });
-    forced.runtime.containers.create({
+    forced.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
       labels: { "sandbox.project": "other-project" },
@@ -601,7 +628,7 @@ describe("sandbox container start and stop", () => {
     const result = await execution;
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Cancelled");
-    expect(app.runtime.containers.find(container.id)?.status).toBe("running");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
   });
 
   test("settles stop confirmation when the user presses Ctrl-C", async () => {
@@ -616,7 +643,7 @@ describe("sandbox container start and stop", () => {
     const result = await execution;
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Cancelled");
-    expect(app.runtime.containers.find(container.id)?.status).toBe("running");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
   });
 });
 
@@ -639,8 +666,8 @@ test("overlapping host executions isolate runtime, process manager, terminal, cl
   await first.clock.advanceBy(500);
   expect(first.clock.currentTime()).not.toBe(second.clock.currentTime());
   expect(first.project.root).not.toBe(second.project.root);
-  expect(first.runtime.containers.all()).toHaveLength(1);
-  expect(second.runtime.containers.all()).toHaveLength(1);
+  expect(first.runtime.instances.all()).toHaveLength(1);
+  expect(second.runtime.instances.all()).toHaveLength(1);
   expect(first.tui.output()).not.toBe("");
   expect(second.tui.output()).not.toBe("");
 

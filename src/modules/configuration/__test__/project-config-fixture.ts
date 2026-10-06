@@ -17,7 +17,7 @@ interface TrustedProjectConfigOptions {
   readonly trustStorePath: string;
   readonly allowNetwork?: readonly AllowedNetwork[];
   readonly allowHostCommands?: readonly CommandPattern[];
-  readonly runtime?: "docker" | "podman";
+  readonly runtime?: "apple-container" | "docker" | "podman";
   readonly content?: string;
 }
 

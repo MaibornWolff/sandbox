@@ -18,6 +18,6 @@ export type {
   LayerType,
 } from "./image-build-contracts.js";
 /** @lintignore Public sandbox image cleanup API. */
-export { removeDanglingImages } from "./image-cleanup.js";
+export { removeUnusedManagedImages } from "./image-cleanup.js";
 /** @lintignore Public sandbox image asset path API. */
 export { getDockerBuildContextDirectory } from "./sandbox-image-paths.js";

@@ -66,6 +66,17 @@ describe("redactCommandForDisplay", () => {
     ).toBe("docker run --env 'DEBUG=value with spaces' 'weird'\\''image'");
   });
 
+  test("does not expose a selected DNS address", () => {
+    const result = redactCommandForDisplay("container", [
+      "run",
+      "--dns",
+      "fe80::1234%ens4",
+      "image",
+    ]);
+    expect(result).toBe("container run --dns '<redacted>' image");
+    expect(result).not.toContain("fe80::1234");
+  });
+
   test("returns only command when there are no args", () => {
     expect(redactCommandForDisplay("docker")).toBe("docker");
   });

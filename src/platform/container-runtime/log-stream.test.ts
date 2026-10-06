@@ -36,7 +36,10 @@ describe("container log stream", () => {
     const stream = runWithDependencies(
       [provideLogger(logger), provideProcessManager(processes.manager)],
       () =>
-        startContainerLogStream({ binaryName: "podman" }, "sandbox-project"),
+        startContainerLogStream(
+          { binaryName: "podman", runtime: "podman" },
+          "sandbox-project",
+        ),
     );
     clock.advanceBy(25);
     child.emitStdout("[container-tools] entrypoint starting\n");
@@ -89,7 +92,10 @@ describe("container log stream", () => {
     const stream = runWithDependencies(
       [provideLogger(logger), provideProcessManager(processes.manager)],
       () =>
-        startContainerLogStream({ binaryName: "docker" }, "failed-container"),
+        startContainerLogStream(
+          { binaryName: "docker", runtime: "docker" },
+          "failed-container",
+        ),
     );
 
     child.emitStdout("[container-tools] entrypoint starting\n");
@@ -120,7 +126,10 @@ describe("container log stream", () => {
     const stream = runWithDependencies(
       [provideLogger(logger), provideProcessManager(processes.manager)],
       () =>
-        startContainerLogStream({ binaryName: "docker" }, "sandbox-project"),
+        startContainerLogStream(
+          { binaryName: "docker", runtime: "docker" },
+          "sandbox-project",
+        ),
     );
 
     const stopping = stream.stop();

@@ -1,4 +1,8 @@
 export { getExitCodeForSignal } from "./exit-code.js";
+export {
+  getCurrentPid,
+  probePid as getProcessIdentityStatus,
+} from "./node-process-adapter.js";
 export { createNodeProcessManager } from "./node-process-manager.js";
 export { ExecError, executeProcessCommand } from "./process-command.js";
 export { runWithProcessManager } from "./process-lifecycle.js";

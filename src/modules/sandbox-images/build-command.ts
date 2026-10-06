@@ -43,9 +43,9 @@ async function runBuild(
       "Cannot specify both --user and --project flags",
     );
   }
-  const { projectRoot, configuredRuntime } =
+  const { projectRoot, runtimeResolution } =
     await getConfigurationService().load(options);
-  const service = await getRuntimeProvider().resolve(configuredRuntime);
+  const service = await getRuntimeProvider().resolve(runtimeResolution);
   await buildImages(service, {
     targetLayer,
     buildTrigger: noCache ? "always" : "if-needed",

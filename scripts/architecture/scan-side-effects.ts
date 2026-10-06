@@ -42,6 +42,7 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
   ],
   process: [/^src\/platform\/process\/node-process-adapter\.ts$/u],
   "network I/O": [
+    /^src\/platform\/container-runtime\/apple\/(?:host-access|networking)\.ts$/u,
     /^src\/platform\/container-system\/(?:dns|tcp-service)\.ts$/u,
     /^src\/platform\/websocket\/node-websocket-service\.ts$/u,
   ],
@@ -50,7 +51,12 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
 const PROCESS_FACTORY_FILES = new Map<string, ReadonlySet<string>>([
   [
     "src/platform/process/node-process-adapter.ts",
-    new Set(["createNodeProcessAdapter", "linuxStartTime", "probePid"]),
+    new Set([
+      "createNodeProcessAdapter",
+      "getCurrentPid",
+      "linuxStartTime",
+      "probePid",
+    ]),
   ],
   [
     "src/platform/environment/host-environment.ts",
@@ -188,6 +194,10 @@ const APPROVED_COLLABORATOR_CONTRACTS = new Map<string, ReadonlySet<string>>([
     new Set(["ConfigurationService"]),
   ],
   ["src/platform/clock/clock.ts", new Set(["Clock"])],
+  [
+    "src/platform/container-runtime/sandbox-contract.ts",
+    new Set(["SandboxRuntimeSelection"]),
+  ],
   [
     "src/platform/container-runtime/runtime-provider.ts",
     new Set(["ContainerRuntimeProvider"]),

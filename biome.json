@@ -46,7 +46,7 @@
   "files": {
     "includes": [
       "**",
-      "!**/.*",
+      "!!**/.agents/worktrees",
       "!dist",
       "!coverage",
       "!test-tmp",

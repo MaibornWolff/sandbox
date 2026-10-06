@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
-import { createNodeProcessAdapter } from "./node-process-adapter.js";
+import {
+  createNodeProcessAdapter,
+  getCurrentPid,
+} from "./node-process-adapter.js";
 
 function createAdapter(platform: NodeJS.Platform = "linux") {
   return createNodeProcessAdapter({
@@ -18,6 +21,10 @@ function createAdapter(platform: NodeJS.Platform = "linux") {
 }
 
 describe("Node process adapter", () => {
+  test("reports the current owner process identifier", () => {
+    expect(getCurrentPid()).toBe(process.pid);
+  });
+
   test("passes shell metacharacters to commands as literal arguments", async () => {
     const argument = "value & echo unsafe | <input> %PATH%";
     const result = await createAdapter().start({

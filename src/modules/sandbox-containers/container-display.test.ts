@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
 import { getContainerDisplay } from "./container-display.js";
 
 const available = {
@@ -10,11 +9,9 @@ const available = {
 };
 
 describe("getContainerDisplay", () => {
-  test("returns null when X11 is unavailable", async () => {
-    const runtime =
-      await createStatefulContainerRuntimeHarness().provider.resolve();
+  test("returns null when X11 is unavailable", () => {
     expect(
-      getContainerDisplay(runtime, {
+      getContainerDisplay("host.docker.internal", {
         ...available,
         available: false,
         display: null,
@@ -22,18 +19,13 @@ describe("getContainerDisplay", () => {
     ).toBeNull();
   });
 
-  test("maps the host display through Docker and Podman", async () => {
-    const docker = await createStatefulContainerRuntimeHarness({
-      runtime: "docker",
-    }).provider.resolve();
-    const podman = await createStatefulContainerRuntimeHarness({
-      runtime: "podman",
-    }).provider.resolve();
-    expect(getContainerDisplay(docker, available)).toBe(
-      "host.docker.internal:2",
-    );
-    expect(getContainerDisplay(podman, available)).toBe(
-      "host.containers.internal:2",
+  test.each([
+    "host.docker.internal",
+    "host.containers.internal",
+    "host.container.internal",
+  ])("maps %s through the resolved host-access name", (hostAccessName) => {
+    expect(getContainerDisplay(hostAccessName, available)).toBe(
+      `${hostAccessName}:2`,
     );
   });
 });

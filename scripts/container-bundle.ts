@@ -7,6 +7,7 @@ const ALLOWED_SOURCE_ROOTS = [
   "src/modules/sandbox-settings/",
   "src/modules/storage/",
   "src/platform/clock/",
+  "src/platform/container-runtime/",
   "src/platform/container-system/",
   "src/platform/dependency-injection/",
   "src/platform/environment/",
@@ -20,7 +21,7 @@ const ALLOWED_SOURCE_ROOTS = [
 function normalizeInputPath(repoRoot: string, inputPath: string): string {
   const absolutePath = path.isAbsolute(inputPath)
     ? inputPath
-    : path.resolve(repoRoot, inputPath);
+    : path.resolve(inputPath);
   return path.relative(repoRoot, absolutePath).replaceAll("\\", "/");
 }
 

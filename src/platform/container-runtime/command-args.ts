@@ -1,80 +1,92 @@
-import type { CreateContainerOptions, ImageBuildOptions } from "./types.js";
+import type {
+  ContainerMount,
+  ContainerSpec,
+  ExecSpec,
+  TerminalSessionOptions,
+} from "./container-contract.js";
 
-interface BuildImageArgsOptions {
-  includeLoad?: boolean;
-  includeSecrets?: boolean;
+function formatMount(mount: ContainerMount): string {
+  const source = mount.type === "bind" ? mount.sourcePath : mount.volumeName;
+  return `${source}:${mount.targetPath}:${mount.readOnly ? "ro" : "rw"}`;
 }
 
-function pushLabelsAndExtraArgs(
+function formatPort(port: ContainerSpec["ports"][number]): string {
+  const address = port.hostAddress ? `${port.hostAddress}:` : "";
+  return `${address}${port.hostPort}:${port.containerPort}/${port.protocol}`;
+}
+
+function pushEnvironment(
   args: string[],
-  options: { labels?: Record<string, string>; extraArgs?: string[] },
+  environment: Readonly<Record<string, string>>,
 ): void {
-  if (options.labels) {
-    for (const [key, value] of Object.entries(options.labels)) {
-      args.push("--label", `${key}=${value}`);
-    }
-  }
-  if (options.extraArgs) {
-    args.push(...options.extraArgs);
+  for (const [key, value] of Object.entries(environment)) {
+    args.push("-e", `${key}=${value}`);
   }
 }
 
-export function buildCreateContainerArgs(
-  options: CreateContainerOptions,
+export function buildContainerRunArgs(
+  spec: ContainerSpec,
+  mode: "attached" | "detached",
+  runtime: "apple-container" | "docker" | "podman",
 ): string[] {
-  const args = ["run", "-d"];
-  if (options.autoRemove !== false) {
-    args.push("--rm");
+  const args = ["run"];
+  if (mode === "detached") args.push("-d");
+  if (spec.removeOnExit) args.push("--rm");
+  if (spec.init) args.push("--init");
+  args.push("--name", spec.name);
+  for (const [key, value] of Object.entries(spec.labels)) {
+    args.push("--label", `${key}=${value}`);
   }
-  args.push("--init", "--name", options.name);
-  pushLabelsAndExtraArgs(args, options);
-  args.push(options.image);
+  pushEnvironment(args, spec.environment);
+  for (const mount of spec.mounts) args.push("-v", formatMount(mount));
+  for (const port of spec.ports) args.push("-p", formatPort(port));
+  for (const capability of spec.security.capabilities) {
+    args.push("--cap-add", capability);
+  }
+  if (runtime === "docker") {
+    args.push("--add-host=host.docker.internal:host-gateway");
+  }
+  if (runtime === "podman") {
+    args.push("--network=private", "--cgroups=disabled");
+  }
+  if (runtime !== "apple-container") {
+    args.push(
+      "--sysctl=net.ipv4.tcp_tw_reuse=1",
+      "--sysctl=net.ipv4.ip_local_port_range=1024\t65535",
+      "--sysctl=net.ipv4.tcp_fin_timeout=10",
+    );
+  }
+  if (spec.resources.memoryBytes !== undefined) {
+    args.push("--memory", String(spec.resources.memoryBytes));
+  }
+  if (spec.resources.sharedMemorySize) {
+    args.push("--shm-size", spec.resources.sharedMemorySize);
+  }
+  if (
+    runtime === "apple-container" &&
+    spec.resources.memoryBytes === undefined
+  ) {
+    args.push("--memory", "2G");
+  }
+  args.push(
+    "--ulimit",
+    runtime === "podman" ? "nofile=65535:65535" : "nofile=65536:65536",
+    spec.image,
+  );
   return args;
 }
 
-export function buildImageBuildArgs(
-  options: ImageBuildOptions,
-  config: BuildImageArgsOptions = {},
+export function buildContainerExecArgs(
+  id: string,
+  spec: ExecSpec,
+  session?: TerminalSessionOptions,
 ): string[] {
-  const args = ["build"];
-
-  if (config.includeLoad) {
-    args.push("--load");
-  }
-
-  if (options.noCache) args.push("--no-cache");
-
-  if (options.buildArgs) {
-    for (const [key, value] of Object.entries(options.buildArgs)) {
-      args.push("--build-arg", `${key}=${value}`);
-    }
-  }
-
-  if (config.includeSecrets && options.secrets) {
-    for (const secret of options.secrets) {
-      args.push("--secret", `id=${secret.id},env=${secret.env}`);
-    }
-  }
-
-  pushLabelsAndExtraArgs(args, options);
-
-  args.push("-t", options.tag);
-  args.push("-f", options.dockerfilePath);
-  args.push(options.contextDir);
+  const args = ["exec"];
+  if (session?.attachStdin) args.push("-i");
+  if (session?.allocateTerminal) args.push("-t");
+  if (spec.user) args.push("-u", spec.user);
+  if (spec.workingDirectory) args.push("-w", spec.workingDirectory);
+  pushEnvironment(args, spec.environment ?? {});
+  args.push(id, ...spec.command);
   return args;
-}
-
-export function buildCopyVolumeArgs(source: string, target: string): string[] {
-  return [
-    "run",
-    "--rm",
-    "-v",
-    `${source}:/from`,
-    "-v",
-    `${target}:/to`,
-    "alpine",
-    "sh",
-    "-c",
-    "cp -a /from/. /to/",
-  ];
 }

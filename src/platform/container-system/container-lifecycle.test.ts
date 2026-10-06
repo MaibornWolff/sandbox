@@ -397,7 +397,9 @@ describe("container lifecycle mechanics", () => {
   test("starts an owner-required managed socat bridge", async () => {
     const processes = createProcessTestHarness();
     const child = processes.expectStart({ match: { name: "ide-bridge" } });
-    const lifecycle = processes.run(() => startIdeBridge(12_345));
+    const lifecycle = processes.run(() =>
+      startIdeBridge(12_345, "host.container.internal"),
+    );
 
     child.exit({ exitCode: 7 });
     await expect(lifecycle.failure).resolves.toMatchObject({
@@ -413,7 +415,7 @@ describe("container lifecycle mechanics", () => {
         command: "/usr/bin/socat",
         args: [
           "TCP-LISTEN:12345,bind=127.0.0.1,fork,reuseaddr",
-          "TCP:host.docker.internal:12345",
+          "TCP:host.container.internal:12345",
         ],
         stdio: "ignore",
       },

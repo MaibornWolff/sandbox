@@ -71,6 +71,10 @@ Sandbox tracks the content of each layer. It rebuilds a layer when its build con
 
 Normal builds use the container runtime cache. Upgrade commands request fresh package installation.
 
+Sandbox adds the `sandbox.managed=true` label to each image that it builds. Cleanup finds historical images by this label. It removes a candidate only when the image is untagged and no container uses it. Cleanup stops if a runtime check fails. It does not run a global image prune.
+
+Build secrets use the container runtime secret transport. Sandbox does not put secret values in build arguments or command logs.
+
 ## Build Commands
 
 ```bash

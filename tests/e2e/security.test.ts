@@ -15,6 +15,7 @@ const IP_ADDRESS_PATTERN = /(?:\d+\.\d+\.\d+\.\d+|[0-9a-f:]*:[0-9a-f:]+)/i;
 const ALLOWED_RUNTIME_MOUNT_TARGETS = new Set(["/run/.containerenv"]);
 const READ_ONLY_RUNTIME_MOUNT_TARGETS = new Set([
   "/opt/sandbox-cli",
+  "/.cz-init",
   "/dev/init",
   "/run/.containerinit",
   "/run/podman-init",
@@ -313,6 +314,7 @@ describe("security", () => {
             return !/\(ro(?:,|\))/.test(line);
           }
           if (ALLOWED_RUNTIME_MOUNT_TARGETS.has(target)) return false;
+          if (target === "/") return !/ type (?:overlay|ext4) /.test(line);
           if (
             allowedTargetPrefixes.some((prefix) => target.startsWith(prefix))
           ) {

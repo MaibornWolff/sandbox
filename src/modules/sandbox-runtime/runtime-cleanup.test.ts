@@ -47,13 +47,13 @@ test("removes only old runtime caches not assigned to any container", async () =
   createCacheDirectory(root, "unrelated", old);
 
   const harness = createStatefulContainerRuntimeHarness();
-  harness.containers.create({
+  harness.instances.create({
     name: "running",
     image: "image",
     labels: { [SANDBOX_RUNTIME_LABEL]: running },
     status: "running",
   });
-  harness.containers.create({
+  harness.instances.create({
     name: "stopped",
     image: "image",
     labels: { [SANDBOX_RUNTIME_LABEL]: stopped },
@@ -61,7 +61,7 @@ test("removes only old runtime caches not assigned to any container", async () =
   });
 
   await runInHostTestScope({ root }, async () => {
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
     const lease = await acquireRuntimeCacheLease(leased);
     await cleanupSandboxRuntimeCache(runtime, {
       currentRuntimeId: current,
@@ -114,7 +114,7 @@ test("scheduled cleanup observes its interval and immediate cleanup bypasses it"
   const harness = createStatefulContainerRuntimeHarness();
 
   await runInHostTestScope({ root }, async () => {
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
     await cleanupSandboxRuntimeCache(runtime, {
       currentRuntimeId: current,
       policy: "scheduled",
@@ -152,7 +152,7 @@ test("after-session cleanup does not replace the command result", async () => {
   await runInHostTestScope({ root }, async () => {
     writeFileSync(path.join(root, "data", "sandbox"), "not-a-directory");
     const scheduled = cleanupSandboxRuntimeAfterSession(
-      await harness.provider.resolve(),
+      (await harness.provider.resolve()).runtime,
       `1.72.0-${HASH_A}`,
     );
     await expect(scheduled[Symbol.asyncDispose]()).resolves.toBeUndefined();
@@ -171,7 +171,7 @@ test("container discovery failure preserves caches and permits a retry", async (
   harness.system.fail("container.list", new Error("runtime unavailable"));
 
   await runInHostTestScope({ root }, async () => {
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
     await cleanupSandboxRuntimeCache(runtime, {
       currentRuntimeId: current,
       policy: "scheduled",

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { parseNetworkBootstrapRequest } from "./bootstrap-request-parsing.js";
 import { renderDnsmasqConfig } from "./dnsmasq-config-rendering.js";
-import { buildFirewallPlan } from "./firewall-plan.js";
+import { buildFirewallPlan, buildIpv6FirewallPlan } from "./firewall-plan.js";
+import { parseGuestHostMappings } from "./guest-host-mappings.js";
 import { renderSquidConfig } from "./squid-config-rendering.js";
 
 const restrictedRequest = {
@@ -21,6 +22,32 @@ const allPortRequest = {
     { host: "restricted.example", ports: [443], wildcard: false },
   ],
 };
+
+describe("guest host mappings", () => {
+  test("accepts exact aliases and rejects invalid or conflicting input", () => {
+    expect(
+      parseGuestHostMappings(
+        JSON.stringify([
+          { host: "host.container.internal", address: "192.168.64.1" },
+          { host: "host.docker.internal", address: "192.168.64.1" },
+        ]),
+      ),
+    ).toHaveLength(2);
+    expect(() =>
+      parseGuestHostMappings(
+        JSON.stringify([{ host: "*.internal", address: "192.168.64.1" }]),
+      ),
+    ).toThrow("invalid host");
+    expect(() =>
+      parseGuestHostMappings(
+        JSON.stringify([
+          { host: "host.internal", address: "192.168.64.1" },
+          { host: "host.internal", address: "192.168.64.2" },
+        ]),
+      ),
+    ).toThrow("conflicting addresses");
+  });
+});
 
 describe("network bootstrap request", () => {
   test("normalizes a valid JSON request", () => {
@@ -116,6 +143,13 @@ describe("firewall planning", () => {
         .filter((command) => command.includes("proxy"))
         .map((command) => command[command.indexOf("--dport") + 1]),
     ).toEqual(["22", "443", "8080"]);
+    for (const privateRange of [
+      "10.0.0.0/8",
+      "172.16.0.0/12",
+      "192.168.0.0/16",
+    ]) {
+      expect(plan.flat()).not.toContain(privateRange);
+    }
     expect(plan.at(-2)).toEqual([
       "-A",
       "OUTPUT",
@@ -194,26 +228,105 @@ describe("firewall planning", () => {
   test("supports an empty allowlist", () => {
     expect(
       buildFirewallPlan({ ...restrictedRequest, allowNetwork: [] }),
-    ).toHaveLength(11);
+    ).toHaveLength(7);
+  });
+});
+
+describe("IPv6 firewall policy", () => {
+  test("allows only scoped proxy DNS and required address configuration", () => {
+    const plan = buildIpv6FirewallPlan(restrictedRequest, "fe80::1234%ens4");
+    expect(plan).toContainEqual([
+      "-A",
+      "OUTPUT",
+      "-p",
+      "udp",
+      "-d",
+      "fe80::1234",
+      "-o",
+      "ens4",
+      "--dport",
+      "53",
+      "-m",
+      "owner",
+      "--uid-owner",
+      "dnsmasq",
+      "-j",
+      "ACCEPT",
+    ]);
+    expect(plan).toContainEqual([
+      "-A",
+      "OUTPUT",
+      "-p",
+      "tcp",
+      "-d",
+      "fe80::1234",
+      "-o",
+      "ens4",
+      "--dport",
+      "53",
+      "-m",
+      "owner",
+      "--uid-owner",
+      "dnsmasq",
+      "-j",
+      "ACCEPT",
+    ]);
+    expect(
+      plan.filter((command) => command.includes("ipv6-icmp")),
+    ).toHaveLength(4);
+    expect(plan.at(-1)).toContain("REJECT");
+    expect(plan.flat()).not.toContain("proxy");
+  });
+
+  test("blocks direct IPv6 in proxy mode without an IPv6 upstream", () => {
+    const plan = buildIpv6FirewallPlan(restrictedRequest, "192.168.64.1");
+    expect(plan.flat()).not.toContain("dnsmasq");
+    expect(plan.flat()).not.toContain("sandbox");
+    expect(plan.at(-1)).toContain("REJECT");
   });
 });
 
 describe("network configuration rendering", () => {
   test("renders restricted DNS with internal exceptions and tracing", () => {
-    const config = renderDnsmasqConfig(restrictedRequest, "1.1.1.1");
+    const config = renderDnsmasqConfig(
+      restrictedRequest,
+      "1.1.1.1",
+      [{ host: "host.docker.internal", address: "192.168.64.1" }],
+      "host.docker.internal",
+    );
     expect(config).toContain("log-queries");
     expect(config).toContain("no-negcache");
     expect(config).not.toContain("neg-ttl");
     expect(config).toContain("address=/#/");
-    expect(config).toContain("server=/host.docker.internal/1.1.1.1");
+    expect(config).toContain("host-record=host.docker.internal,192.168.64.1");
     expect(config).toContain("server=/github.com/1.1.1.1");
     expect(config).toMatchSnapshot();
+  });
+
+  test.each([
+    "host.docker.internal",
+    "host.containers.internal",
+    "host.container.internal",
+  ])("maps %s without adding a firewall exception", (hostAccessName) => {
+    expect(
+      renderDnsmasqConfig(
+        restrictedRequest,
+        "1.1.1.1",
+        [{ host: hostAccessName, address: "192.168.64.1" }],
+        hostAccessName,
+      ),
+    ).toContain(`host-record=${hostAccessName},192.168.64.1`);
+    expect(buildFirewallPlan(restrictedRequest).flat()).not.toContain(
+      hostAccessName,
+    );
   });
 
   test("renders allow-all DNS", () => {
     const config = renderDnsmasqConfig(
       { ...restrictedRequest, fullNetwork: true },
       "1.1.1.1",
+      [{ host: "host.docker.internal", address: "192.168.64.1" }],
+      "host.docker.internal",
     );
     expect(config).toContain("server=/#/1.1.1.1");
     expect(config).not.toContain("address=/#/");
@@ -221,9 +334,9 @@ describe("network configuration rendering", () => {
   });
 
   test("rejects a missing upstream resolver", () => {
-    expect(() => renderDnsmasqConfig(restrictedRequest, "")).toThrow(
-      "No upstream DNS server found",
-    );
+    expect(() =>
+      renderDnsmasqConfig(restrictedRequest, "", [], "host.docker.internal"),
+    ).toThrow("No upstream DNS server found");
   });
 
   test("binds each Squid domain group to its own port ACL for every method", () => {

@@ -28,19 +28,21 @@ beforeAll(async () => {
   await writeProjectFile(
     projectDir,
     "observe-environment.mjs",
-    `import { existsSync, watch, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
+    `import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, watch, writeFileSync } from "node:fs";
 
 const releasePath = "/tmp/session-environment-release";
+const instancePath = "/tmp/session-environment-instance";
 function report(phase) {
   console.log(JSON.stringify({
     phase,
-    containerId: hostname(),
+    instanceMarker: readFileSync(instancePath, "utf8"),
     pane: process.env.HERDR_PANE_ID ?? null,
     imageDefault: process.env.SESSION_IMAGE_DEFAULT,
   }));
 }
 if (process.argv[2] === "hold") {
+  writeFileSync(instancePath, randomUUID());
   const watcher = watch("/tmp", () => {
     if (!existsSync(releasePath)) return;
     watcher.close();
@@ -64,7 +66,7 @@ afterAll(async () => {
 
 interface Observation {
   phase: string;
-  containerId: string;
+  instanceMarker: string;
   pane: string | null;
   imageDefault: string;
 }
@@ -123,7 +125,7 @@ test("concurrent sessions share a container without sharing configured environme
   assertSandboxSuccess(omitted);
   expect(observations(omitted.stdout)[0]).toEqual({
     phase: "session",
-    containerId: secondObservation.containerId,
+    instanceMarker: secondObservation.instanceMarker,
     pane: null,
     imageDefault: "image-default",
   });
@@ -134,16 +136,16 @@ test("concurrent sessions share a container without sharing configured environme
   expect(firstObservations).toEqual([
     {
       phase: "ready",
-      containerId: secondObservation.containerId,
+      instanceMarker: secondObservation.instanceMarker,
       pane: "pane-A",
       imageDefault: "override-A",
     },
     {
       phase: "released",
-      containerId: secondObservation.containerId,
+      instanceMarker: secondObservation.instanceMarker,
       pane: "pane-A",
       imageDefault: "override-A",
     },
   ]);
-  expect(secondObservation.containerId).toMatch(/^[a-f0-9]{12,64}$/);
+  expect(secondObservation.instanceMarker).not.toBe("");
 }, 180_000);

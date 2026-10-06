@@ -9,6 +9,10 @@ export interface DockerStatus {
   readonly runtime: string | null;
   readonly memoryOk: boolean;
   readonly memoryGB: number | null;
+  readonly memoryScope:
+    | "per-instance-default"
+    | "shared-runtime-vm"
+    | "unknown";
 }
 
 /** @lintignore Presentation state tested by the owning component. */
@@ -26,20 +30,21 @@ export interface EnvironmentStatus {
 
 async function checkDockerStatus(): Promise<DockerStatus> {
   try {
-    const service = await getRuntimeProvider().resolve();
-    await service.getVersion();
-    let memoryGB: number | null = null;
-    try {
-      const memory = await service.getMemoryBytes();
-      if (memory !== null) memoryGB = memory / (1024 * 1024 * 1024);
-    } catch {
-      // Memory is optional environment information.
-    }
+    const { runtime } = await getRuntimeProvider().resolve();
+    const hostInfo = await runtime.ensureHostReady();
+    const memoryGB =
+      hostInfo.memory.bytes === null
+        ? null
+        : hostInfo.memory.bytes / (1024 * 1024 * 1024);
     return {
       available: true,
-      runtime: service.runtime,
-      memoryOk: memoryGB !== null && memoryGB >= 3.5,
+      runtime: runtime.runtime,
+      memoryOk:
+        memoryGB !== null &&
+        memoryGB >=
+          (hostInfo.memory.scope === "per-instance-default" ? 1.5 : 3.5),
       memoryGB,
+      memoryScope: hostInfo.memory.scope,
     };
   } catch {
     return {
@@ -47,6 +52,7 @@ async function checkDockerStatus(): Promise<DockerStatus> {
       runtime: null,
       memoryOk: false,
       memoryGB: null,
+      memoryScope: "unknown",
     };
   }
 }
@@ -77,21 +83,19 @@ export function renderEnvironmentStatus(status: EnvironmentStatus): string {
   } else {
     lines.push(
       `  Runtime   ${chalk.red("✗")} Not available`,
-      chalk.dim("            Install Docker or Podman to use sandbox"),
+      chalk.dim(
+        "            Install Docker, Podman, or Apple container to use sandbox",
+      ),
     );
   }
   if (status.docker.available && status.docker.memoryGB !== null) {
     const memory = status.docker.memoryGB.toFixed(1);
-    if (status.docker.memoryOk) {
-      lines.push(
-        `  Memory    ${chalk.green("✓")} ${memory} GB (recommended: 4GB+)`,
-      );
-    } else {
-      lines.push(
-        `  Memory    ${chalk.yellow("⚠")} ${memory} GB (recommended: 4GB+)`,
-        chalk.dim("            Increase memory: colima start --memory 4"),
-      );
-    }
+    const perInstance = status.docker.memoryScope === "per-instance-default";
+    const label = perInstance ? "Per-container memory" : "Memory";
+    const recommended = perInstance ? 2 : 4;
+    lines.push(
+      `  ${label.padEnd(9)} ${status.docker.memoryOk ? chalk.green("✓") : chalk.yellow("⚠")} ${memory} GB (recommended: ${recommended}GB+)`,
+    );
   }
   if (status.x11.available && status.x11.xhostConfigured) {
     lines.push(

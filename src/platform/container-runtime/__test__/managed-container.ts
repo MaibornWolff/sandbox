@@ -1,6 +1,10 @@
-import type { ContainerExecOptions } from "../index.js";
+import type { ContainerMount } from "../container-contract.js";
 
-export type ManagedContainerStatus = "running" | "exited" | "removed";
+export type ManagedContainerStatus =
+  | "created"
+  | "running"
+  | "exited"
+  | "removed";
 
 export interface ManagedExecSession {
   readonly pid: string;
@@ -15,6 +19,8 @@ export interface ManagedContainerValues {
   readonly status: Exclude<ManagedContainerStatus, "removed">;
   readonly logs?: string | Error;
   readonly uptime?: string;
+  readonly startedAt?: Date;
+  readonly mounts?: readonly ContainerMount[];
   readonly readyAfterAttempts?: number;
   readonly sessions?: readonly ManagedExecSession[];
 }
@@ -29,6 +35,7 @@ export interface ManagedContainerSnapshot {
   readonly uptime: string;
   readonly ready: boolean;
   readonly readinessAttempts: number;
+  readonly mounts: readonly ContainerMount[];
   readonly sessions: readonly ManagedExecSession[];
 }
 
@@ -53,10 +60,8 @@ export interface ManagedContainerState extends ManagedContainer {
   status: ManagedContainerStatus;
   logs: string | Error;
   uptime: string;
-  resolveExecResult(
-    command: readonly string[],
-    options?: ContainerExecOptions,
-  ): string;
+  readonly startedAt: Date | null;
+  resolveExecResult(command: readonly string[]): string;
   waitUntilReady(maxAttempts: number): void;
 }
 
@@ -65,7 +70,7 @@ function commandKey(command: readonly string[]): string {
 }
 
 function isReadinessCommand(command: readonly string[]): boolean {
-  return command.join(" ") === "test -f /tmp/.sandbox-ready";
+  return command.some((value) => value.includes("/tmp/.sandbox-ready"));
 }
 
 function isSessionDetailsCommand(command: readonly string[]): boolean {
@@ -120,6 +125,7 @@ export function createManagedContainer(
     status: values.status,
     logs: values.logs ?? "",
     uptime: values.uptime ?? "Up 1 minute",
+    startedAt: values.startedAt ?? null,
     givenExecResult(command, result) {
       execFixtures.set(
         commandKey(command),
@@ -151,6 +157,7 @@ export function createManagedContainer(
       if (fixture) return resolveFixture(fixture);
       if (isReadinessCommand(command)) return resolveReadiness();
       if (isSessionDetailsCommand(command)) return formatSessions(sessions);
+      if (command[0] === "/usr/sbin/iptables") return "";
       if (isIdleCommand(command) && sessions.length === 0) return "";
       if (isIdleCommand(command)) throw new Error("exit code 1");
       throw new Error(
@@ -168,6 +175,7 @@ export function createManagedContainer(
         uptime: this.uptime,
         ready: readinessAttempts > readyAfterAttempts,
         readinessAttempts,
+        mounts: (values.mounts ?? []).map((mount) => ({ ...mount })),
         sessions: sessions.map((session) => ({ ...session })),
       };
     },

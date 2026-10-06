@@ -165,7 +165,10 @@ export function createConfigurationService(): ConfigurationService {
         config,
         projectRoot,
         repositoryRoots,
-        ...(configuredRuntime ? { configuredRuntime } : {}),
+        runtimeResolution: {
+          ...(configuredRuntime ? { configuredRuntime } : {}),
+          options: config.runtimes,
+        },
       };
     },
     updateAllowedNetwork(options) {

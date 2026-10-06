@@ -1,7 +1,7 @@
 import path from "node:path";
 import chalk from "chalk";
 import { getClock } from "#platform/clock/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import {
   getPathModifiedTime,
   getPathType,
@@ -60,17 +60,15 @@ function findCleanupCandidates(
 }
 
 async function findAssignedRuntimeIds(
-  runtime: ContainerRuntime,
+  runtime: SandboxRuntime,
 ): Promise<Set<string>> {
-  const containers = await runtime.listContainers({
+  const containers = await runtime.instances.list({
     all: true,
-    labelFilter: SANDBOX_RUNTIME_LABEL,
-    labelKeys: [SANDBOX_RUNTIME_LABEL],
-    throwOnError: true,
+    labels: { [SANDBOX_RUNTIME_LABEL]: null },
   });
   return new Set(
     containers
-      .map((container) => container.labels?.[SANDBOX_RUNTIME_LABEL])
+      .map((container) => container.labels[SANDBOX_RUNTIME_LABEL])
       .filter((id): id is string => typeof id === "string" && id.length > 0),
   );
 }
@@ -103,7 +101,7 @@ function removeUnassignedCandidates(
 }
 
 export async function cleanupSandboxRuntimeCache(
-  runtime: ContainerRuntime,
+  runtime: SandboxRuntime,
   options: {
     readonly currentRuntimeId: string;
     readonly policy: RuntimeCleanupPolicy;
@@ -133,7 +131,7 @@ export async function cleanupSandboxRuntimeCache(
 }
 
 export function cleanupCurrentSandboxRuntimeCache(
-  runtime: ContainerRuntime,
+  runtime: SandboxRuntime,
 ): Promise<void> {
   return cleanupSandboxRuntimeCache(runtime, {
     currentRuntimeId: getCurrentSandboxRuntimeId(),
@@ -142,7 +140,7 @@ export function cleanupCurrentSandboxRuntimeCache(
 }
 
 export function cleanupSandboxRuntimeAfterSession(
-  runtime: ContainerRuntime,
+  runtime: SandboxRuntime,
   currentRuntimeId: string,
 ): AsyncDisposable {
   return {

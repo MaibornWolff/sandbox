@@ -101,7 +101,7 @@ export function createProgram(): Command {
 
   program
     .name("sandbox")
-    .description("Docker sandbox CLI for coding agents")
+    .description("Container sandbox CLI for coding agents")
     .version(getVersion())
     .allowExcessArguments();
   program.configureHelp({ showGlobalOptions: true });

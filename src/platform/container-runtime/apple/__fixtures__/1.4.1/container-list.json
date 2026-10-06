@@ -1,0 +1,68 @@
+[
+  {
+    "configuration": {
+      "capAdd": ["NET_ADMIN"],
+      "capDrop": [],
+      "creationDate": "2026-09-11T11:59:58Z",
+      "id": "sandbox-alpha",
+      "image": {
+        "descriptor": {
+          "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "mediaType": "application/vnd.oci.image.index.v1+json",
+          "size": 856
+        },
+        "reference": "sandbox-alpha:latest"
+      },
+      "labels": {
+        "sandbox.managed": "true",
+        "sandbox.project": "alpha"
+      },
+      "mounts": [
+        {
+          "destination": "/workspace",
+          "options": ["ro"],
+          "source": "/Users/test/project",
+          "type": { "virtiofs": {} }
+        },
+        {
+          "destination": "/var/cache",
+          "options": [],
+          "source": "/Users/test/data/apple-container-volumes/cache",
+          "type": { "virtiofs": {} }
+        }
+      ],
+      "resources": {
+        "cpus": 4,
+        "memoryInBytes": 2147483648
+      },
+      "useInit": true,
+      "virtualization": false
+    },
+    "id": "sandbox-alpha",
+    "status": {
+      "startedDate": "2026-09-11T12:00:00Z",
+      "state": "running"
+    }
+  },
+  {
+    "configuration": {
+      "id": "sandbox-beta",
+      "image": {
+        "descriptor": {
+          "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "reference": "sandbox-beta:latest"
+      },
+      "labels": {
+        "sandbox.managed": "true",
+        "sandbox.project": "beta"
+      },
+      "mounts": [],
+      "virtualization": false
+    },
+    "id": "sandbox-beta",
+    "status": {
+      "state": "stopped"
+    }
+  }
+]

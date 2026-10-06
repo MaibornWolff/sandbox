@@ -36,7 +36,7 @@ describe("warnIfNoSpaceError", () => {
         const harness = createStatefulContainerRuntimeHarness({
           runtime: runtimeName,
         });
-        const runtime = await harness.provider.resolve(runtimeName);
+        const runtime = (await harness.provider.resolve()).runtime;
         const output = await runInHostTestScope({ root }, () =>
           warnIfNoSpaceError(
             new Error("write failed: no space left on device"),
@@ -56,7 +56,7 @@ describe("warnIfNoSpaceError", () => {
     const root = createTestDir("disk-space-unrelated");
     try {
       const harness = createStatefulContainerRuntimeHarness();
-      const runtime = await harness.provider.resolve();
+      const runtime = (await harness.provider.resolve()).runtime;
       const output = await runInHostTestScope({ root }, () => {
         warnIfNoSpaceError(new Error("permission denied"), runtime);
         warnIfNoSpaceError(null, runtime);

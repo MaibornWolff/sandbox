@@ -127,6 +127,21 @@ export function tryCreateDirectory(directoryPath: string): boolean {
   }
 }
 
+export function tryCreateHardLink(
+  existingPath: string,
+  newPath: string,
+): boolean {
+  try {
+    fs.linkSync(existingPath, newPath);
+    return true;
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
+      return false;
+    }
+    throw error;
+  }
+}
+
 export function getPathModifiedTime(filePath: string): number {
   return fs.statSync(filePath).mtimeMs;
 }
@@ -348,6 +363,27 @@ export async function removeFile(filePath: string): Promise<void> {
 
 export function removeDirectory(directoryPath: string): void {
   fs.rmSync(directoryPath, { recursive: true, force: true });
+}
+
+function makeOwnedTreeWritable(filePath: string): void {
+  const entry = fs.lstatSync(filePath);
+  if (entry.isSymbolicLink()) return;
+  const requiredMode = entry.isDirectory() ? 0o700 : 0o200;
+  if ((entry.mode & requiredMode) !== requiredMode) {
+    fs.chmodSync(filePath, entry.mode | requiredMode);
+  }
+  if (entry.isDirectory()) {
+    for (const child of fs.readdirSync(filePath)) {
+      makeOwnedTreeWritable(path.join(filePath, child));
+    }
+  }
+}
+
+/** Use only for owned, inactive trees. Changes permissions but never follows symbolic links. */
+export function removeOwnedDirectory(directoryPath: string): void {
+  if (getPathType(directoryPath) === null) return;
+  makeOwnedTreeWritable(directoryPath);
+  removeDirectory(directoryPath);
 }
 
 /**

@@ -1,5 +1,8 @@
 import chalk from "chalk";
-import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import {
+  getRuntimeProvider,
+  type RuntimeResolutionRequest,
+} from "#platform/container-runtime/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 
 interface DockerCheckResult {
@@ -8,6 +11,10 @@ interface DockerCheckResult {
   readonly version: string | null;
   readonly memoryGB: number | null;
   readonly memoryOk: boolean;
+  readonly memoryScope:
+    | "per-instance-default"
+    | "shared-runtime-vm"
+    | "unknown";
   readonly errors: readonly string[];
   readonly warnings: readonly string[];
 }
@@ -19,7 +26,7 @@ function parseVersion(output: string): string | null {
 }
 
 export async function checkDocker(
-  configuredRuntime?: string,
+  runtimeResolution?: RuntimeResolutionRequest,
 ): Promise<DockerCheckResult> {
   const result: {
     available: boolean;
@@ -27,6 +34,7 @@ export async function checkDocker(
     version: string | null;
     memoryGB: number | null;
     memoryOk: boolean;
+    memoryScope: "per-instance-default" | "shared-runtime-vm" | "unknown";
     errors: string[];
     warnings: string[];
   } = {
@@ -35,30 +43,38 @@ export async function checkDocker(
     version: null,
     memoryGB: null,
     memoryOk: false,
+    memoryScope: "unknown",
     errors: [],
     warnings: [],
   };
   try {
-    const service = await getRuntimeProvider().resolve(configuredRuntime);
-    result.version = parseVersion(await service.getVersion());
+    const { runtime } = await getRuntimeProvider().resolve(runtimeResolution);
+    const hostInfo = await runtime.ensureHostReady();
+    result.version = parseVersion(hostInfo.version);
     result.available = true;
-    result.runtime = service.runtime;
-    try {
-      const memory = await service.getMemoryBytes();
-      if (memory !== null) {
-        result.memoryGB = memory / (1024 * 1024 * 1024);
-        result.memoryOk = result.memoryGB >= RECOMMENDED_MEMORY_GB - 0.5;
-        if (!result.memoryOk) {
-          result.warnings.push(
-            `Memory ${result.memoryGB.toFixed(1)}GB is below recommended ${RECOMMENDED_MEMORY_GB}GB`,
-          );
-        }
+    result.runtime = runtime.runtime;
+    result.memoryScope = hostInfo.memory.scope;
+    if (hostInfo.memory.bytes !== null) {
+      result.memoryGB = hostInfo.memory.bytes / (1024 * 1024 * 1024);
+      const recommendedMemoryGB =
+        hostInfo.memory.scope === "per-instance-default"
+          ? 2
+          : RECOMMENDED_MEMORY_GB;
+      result.memoryOk = result.memoryGB >= recommendedMemoryGB - 0.5;
+      if (!result.memoryOk) {
+        result.warnings.push(
+          `Memory ${result.memoryGB.toFixed(1)}GB is below recommended ${recommendedMemoryGB}GB`,
+        );
       }
-    } catch {
+    } else {
       result.warnings.push("Could not check runtime memory limit");
     }
-  } catch {
-    result.errors.push("No container runtime found. Install Docker or Podman.");
+  } catch (error) {
+    result.errors.push(
+      error instanceof Error
+        ? error.message
+        : "No container runtime found. Install Docker, Podman, or Apple container.",
+    );
   }
   return result;
 }
@@ -70,21 +86,20 @@ function renderDockerStatus(result: DockerCheckResult): string {
     lines.push(`  ${chalk.green("✓")} ${result.runtime}${version} detected`);
     if (result.memoryGB !== null) {
       const memory = result.memoryGB.toFixed(1);
-      if (result.memoryOk) {
-        lines.push(
-          `  ${chalk.green("✓")} Memory limit: ${memory}GB (recommended: ${RECOMMENDED_MEMORY_GB}GB+)`,
-        );
-      } else {
-        lines.push(
-          `  ${chalk.yellow("⚠")} Memory limit: ${memory}GB (recommended: ${RECOMMENDED_MEMORY_GB}GB+)`,
-          chalk.dim("    → Increase memory: colima start --memory 4"),
-        );
-      }
+      const perInstance = result.memoryScope === "per-instance-default";
+      const recommended = perInstance ? 2 : RECOMMENDED_MEMORY_GB;
+      const label = perInstance ? "Per-container memory" : "Memory limit";
+      lines.push(
+        `  ${result.memoryOk ? chalk.green("✓") : chalk.yellow("⚠")} ${label}: ${memory}GB (recommended: ${recommended}GB+)`,
+      );
     }
   } else {
     lines.push(
       `  ${chalk.red("✗")} Not available`,
-      chalk.dim("    → Install Docker or Podman to use sandbox"),
+      ...result.errors.flatMap((error) =>
+        error.split("\n").map((line) => chalk.dim(`    → ${line}`)),
+      ),
+      chalk.dim("    → Install Docker, Podman, or Apple container"),
     );
   }
   return lines.join("\n");

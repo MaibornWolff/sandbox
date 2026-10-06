@@ -1,7 +1,8 @@
 import { createContainerNetworkSystem } from "#platform/container-system/index.js";
 import type { NetworkBootstrapRequest } from "./bootstrap-request-parsing.js";
 import { renderDnsmasqConfig } from "./dnsmasq-config-rendering.js";
-import { buildFirewallPlan } from "./firewall-plan.js";
+import { buildFirewallPlan, buildIpv6FirewallPlan } from "./firewall-plan.js";
+import type { GuestHostMapping } from "./guest-host-mappings.js";
 import { renderSquidConfig } from "./squid-config-rendering.js";
 
 /** @lintignore Public semantic network lifecycle. */
@@ -13,17 +14,30 @@ const noNetworkFailure = new Promise<Error>(() => undefined);
 
 export async function startContainerNetwork(
   request: NetworkBootstrapRequest,
-  options: { readonly signal?: AbortSignal },
+  options: {
+    readonly signal?: AbortSignal;
+    readonly hostMappings: readonly GuestHostMapping[];
+    readonly hostAccessName: string;
+  },
 ): Promise<ContainerNetworkLifecycle> {
-  if (!request.enabled) return { failure: noNetworkFailure };
   const network = createContainerNetworkSystem({
     ...(options.signal ? { signal: options.signal } : {}),
   });
+  await network.applyHostMappings(options.hostMappings);
+  if (!request.enabled) return { failure: noNetworkFailure };
   await network.applyFirewall(buildFirewallPlan(request));
-  if (!request.noProxy) {
-    const upstreamDns = await network.discoverUpstreamDns();
+  const upstreamDns = request.noProxy
+    ? undefined
+    : await network.discoverUpstreamDns();
+  await network.applyIpv6Firewall(buildIpv6FirewallPlan(request, upstreamDns));
+  if (!request.noProxy && upstreamDns) {
     await network.startDnsmasq({
-      config: renderDnsmasqConfig(request, upstreamDns),
+      config: renderDnsmasqConfig(
+        request,
+        upstreamDns,
+        options.hostMappings,
+        options.hostAccessName,
+      ),
     });
     await network.startSquid(renderSquidConfig(request));
   }

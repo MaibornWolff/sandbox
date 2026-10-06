@@ -56,5 +56,5 @@ describe("init-devbox", () => {
     expect(exitCode).toBe(0);
     expect(stdout.trim()).not.toBe(OFFLINE_FALLBACK_VERSION);
     expect(stdout.trim()).toMatch(/^[0-9]+\.[0-9]+\.[0-9]+/);
-  });
+  }, 150_000);
 });

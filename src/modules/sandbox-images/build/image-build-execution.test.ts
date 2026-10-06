@@ -3,6 +3,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import { readState, writeState } from "#platform/state/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { runInHostTestScope } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
@@ -110,7 +111,7 @@ describe("buildImages", () => {
         { SANDBOX_HOST_UID: "1000", SANDBOX_HOST_GID: "1001" },
       );
 
-      expect(harness.images.builds()[0]?.options.buildArgs).toMatchObject({
+      expect(harness.images.builds()[0]?.options.buildArguments).toMatchObject({
         HOST_UID: "1000",
         HOST_GID: "1001",
       });
@@ -155,10 +156,104 @@ describe("buildImages", () => {
       "sandbox-user:latest",
       getProjectImage(setup.projectRoot),
     ]);
-    expect(ownershipRebuilds[0]?.options.buildArgs).toMatchObject({
+    expect(ownershipRebuilds[0]?.options.buildArguments).toMatchObject({
       HOST_UID: "2000",
       HOST_GID: "2000",
     });
+  });
+
+  test("preserves the recorded image reference and digest for a no-op build", async () => {
+    using cleanup = new DisposableStack();
+    const setup = createLayeredTestSetup();
+    cleanup.defer(() => cleanupTestDir(setup.root));
+    const harness = createStatefulContainerRuntimeHarness({
+      runtime: "apple-container",
+    });
+    const runtime = await harness.provider.resolve();
+    const baseHash = getImageHash(getBaseDockerfilePath());
+    const userHash = combineHash(getImageHash(setup.userDockerfile), baseHash);
+    const projectHash = combineHash(
+      getImageHash(setup.projectDockerfile),
+      userHash,
+    );
+    const finalImage = {
+      reference: `${getProjectImage(setup.projectRoot)}@sha256:abcdef`,
+      digest: "sha256:abcdef",
+    };
+
+    const result = await runLayered(setup, async () => {
+      writeState({
+        sandboxImages: {
+          "apple-container:sandbox-base:latest": {
+            reference: "sandbox-base:latest@sha256:abc001",
+            digest: "sha256:abc001",
+            labels: { "dockerfile.hash": baseHash },
+          },
+          "apple-container:sandbox-user:latest": {
+            reference: "sandbox-user:latest@sha256:abc002",
+            digest: "sha256:abc002",
+            labels: { "dockerfile.hash": userHash },
+          },
+          [`apple-container:${getProjectImage(setup.projectRoot)}`]: {
+            ...finalImage,
+            labels: { "dockerfile.hash": projectHash },
+          },
+        },
+      });
+      return buildImages(runtime, {
+        projectRoot: setup.projectRoot,
+        buildTrigger: "if-needed",
+      });
+    });
+
+    expect(harness.images.builds()).toHaveLength(0);
+    expect(result.image).toEqual(finalImage);
+  });
+
+  test("persists replaced image ownership across cleanup workflow runs", async () => {
+    using cleanup = new DisposableStack();
+    const setup = createLayeredTestSetup();
+    cleanup.defer(() => cleanupTestDir(setup.root));
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.images.create({
+      id: "sha256:replaced-base",
+      references: ["sandbox-base:latest"],
+      labels: { "sandbox.managed": "true" },
+    });
+    harness.instances.create({
+      name: "old-image-consumer",
+      image: "sha256:replaced-base",
+      labels: {},
+      status: "running",
+    });
+    const runtime = await harness.provider.resolve();
+
+    const state = await runLayered(setup, async () => {
+      writeState({
+        sandboxImages: {
+          "docker:sandbox-base:latest": {
+            reference: "sandbox-base:latest",
+            digest: "sha256:replaced-base",
+          },
+        },
+      });
+      await buildImages(runtime, {
+        projectRoot: setup.projectRoot,
+        targetLayer: "base",
+        buildTrigger: "always",
+      });
+      return readState();
+    });
+
+    expect(
+      state.sandboxImages?.["docker:sandbox-base:latest"]?.ownedDigests,
+    ).toContain("sha256:replaced-base");
+    const cleanupEvents = harness
+      .events()
+      .filter((event) => event.type === "image.cleanup");
+    expect(cleanupEvents.at(-1)?.request.candidates).toContain(
+      "sha256:replaced-base",
+    );
   });
 
   test("preserves build failure exit codes without process exit", async () => {
@@ -229,7 +324,9 @@ describe("buildImages", () => {
         ],
       ).toBe(combineHash(projectHash, expectedUserHash));
       expect(
-        harness.images.builds().every((build) => !build.options.noCache),
+        harness.images
+          .builds()
+          .every((build) => build.options.cachePolicy === "use"),
       ).toBe(true);
     } finally {
       cleanupTestDir(setup.root);
@@ -255,7 +352,9 @@ describe("buildImages", () => {
       );
       expect(harness.images.builds()).toHaveLength(3);
       expect(
-        harness.images.builds().every((build) => build.options.noCache),
+        harness.images
+          .builds()
+          .every((build) => build.options.cachePolicy === "bypass"),
       ).toBe(true);
     } finally {
       cleanupTestDir(setup.root);
@@ -273,7 +372,7 @@ describe("buildImages", () => {
     const runtime = await harness.provider.resolve();
     try {
       const plan = await runLayered(setup, () =>
-        planLayerBuilds(runtime, {
+        planLayerBuilds(runtime.runtime, {
           projectRoot: setup.projectRoot,
           targetLayer: "project",
           buildTrigger: "if-needed",

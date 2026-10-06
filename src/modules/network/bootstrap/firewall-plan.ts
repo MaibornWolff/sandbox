@@ -7,6 +7,31 @@ import type { NetworkBootstrapRequest } from "./bootstrap-request-parsing.js";
 /** @testonly */
 export type FirewallCommandPlan = readonly (readonly string[])[];
 
+const IPV6_CONFIGURATION_RULES: FirewallCommandPlan = [
+  ["-F", "OUTPUT"],
+  ["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
+  [
+    "-A",
+    "OUTPUT",
+    "-m",
+    "conntrack",
+    "--ctstate",
+    "ESTABLISHED,RELATED",
+    "-j",
+    "ACCEPT",
+  ],
+  ...[133, 134, 135, 136].map((type) => [
+    "-A",
+    "OUTPUT",
+    "-p",
+    "ipv6-icmp",
+    "--icmpv6-type",
+    String(type),
+    "-j",
+    "ACCEPT",
+  ]),
+];
+
 const BASE_FIREWALL_RULES: FirewallCommandPlan = [
   ["-F", "OUTPUT"],
   ["-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
@@ -20,10 +45,6 @@ const BASE_FIREWALL_RULES: FirewallCommandPlan = [
     "-j",
     "ACCEPT",
   ],
-  ["-A", "OUTPUT", "-d", "127.0.0.0/8", "-j", "ACCEPT"],
-  ["-A", "OUTPUT", "-d", "10.0.0.0/8", "-j", "ACCEPT"],
-  ["-A", "OUTPUT", "-d", "172.16.0.0/12", "-j", "ACCEPT"],
-  ["-A", "OUTPUT", "-d", "192.168.0.0/16", "-j", "ACCEPT"],
 ];
 
 function ownerRule(owner: string): readonly string[] {
@@ -116,6 +137,63 @@ export function buildFirewallPlan(
       "20",
     ],
     ["-A", "OUTPUT", "-j", "REJECT", "--reject-with", "icmp-port-unreachable"],
+  );
+  return commands;
+}
+
+/** @testonly */
+export function buildIpv6FirewallPlan(
+  request: NetworkBootstrapRequest,
+  upstreamDns: string | undefined,
+): FirewallCommandPlan {
+  if (!request.enabled) return [];
+  const commands: Array<readonly string[]> = [...IPV6_CONFIGURATION_RULES];
+  if (request.noProxy) {
+    commands.push(ownerRule("sandbox"));
+  } else if (upstreamDns?.includes(":")) {
+    const [address, interfaceName] = upstreamDns.split("%", 2);
+    if (!address || !interfaceName) {
+      throw new Error(
+        "The upstream IPv6 DNS resolver must include a guest interface scope.",
+      );
+    }
+    for (const protocol of ["udp", "tcp"] as const) {
+      commands.push([
+        "-A",
+        "OUTPUT",
+        "-p",
+        protocol,
+        "-d",
+        address,
+        "-o",
+        interfaceName,
+        "--dport",
+        "53",
+        "-m",
+        "owner",
+        "--uid-owner",
+        "dnsmasq",
+        "-j",
+        "ACCEPT",
+      ]);
+    }
+  }
+  commands.push(
+    [
+      "-A",
+      "OUTPUT",
+      "-j",
+      "NFLOG",
+      "--nflog-group",
+      "100",
+      "-m",
+      "limit",
+      "--limit",
+      "10/min",
+      "--limit-burst",
+      "20",
+    ],
+    ["-A", "OUTPUT", "-j", "REJECT", "--reject-with", "icmp6-port-unreachable"],
   );
   return commands;
 }

@@ -199,6 +199,11 @@ function displayEnvironment(env: string[]): void {
 function displayOptions(config: Config): void {
   writeLine(`\n${chalk.bold("Options:")}`);
   writeLine(`  Readonly: ${config.readonly}`);
+  if (config.runtime === "apple-container") {
+    writeLine(
+      `  Apple container DNS: ${chalk.cyan(config.runtimes["apple-container"].dns)}`,
+    );
+  }
 
   // Network settings
   if (config.fullNetwork) {
@@ -252,11 +257,11 @@ async function displaySettings(
  * Show merged configuration
  */
 export async function showConfig(options: ConfigOverrides): Promise<void> {
-  const { config, projectRoot, configuredRuntime } =
+  const { config, projectRoot, runtimeResolution } =
     await getConfigurationService().load(options);
   config.runtime = (
-    await getRuntimeProvider().resolve(configuredRuntime)
-  ).runtime;
+    await getRuntimeProvider().resolve(runtimeResolution)
+  ).runtime.runtime;
 
   writeLine(chalk.bold("\nSandbox Configuration"));
   writeLine(chalk.bold("=====================\n"));

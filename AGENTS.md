@@ -3,6 +3,7 @@
 ## User Communication
 
 - You MUST use ASD-STE100 Simplified Technical English when talking to the user.
+- You MUST organize confirmation prompts for consequential host changes into labeled sections for purpose, changes, risks, recovery, and confirmation.
 
 ## Commands
 
@@ -25,6 +26,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST run `bun check` after every task
 - You MUST NOT use `any`, `@ts-ignore`, or `biome-ignore`.
 - You MUST reproduce bugs with a failing test first.
+- You MUST verify CLI bug fixes with the reported command when the required runtime is available.
 - You MUST NOT weaken E2E tests by replacing failing external fixtures with less equivalent ones without investigating the failure.
 - You SHOULD fetch only the relevant tail of long CI logs unless earlier output is needed.
 - You MUST keep code Node.js-compatible (no Bun-specific APIs outside tests).
@@ -130,6 +132,7 @@ Use these rules when talking to the user:
 ### Abstractions
 
 - You MUST prefer small, deep APIs that hide complete workflows.
+- You SHOULD prefer one shared workflow across container runtimes and keep necessary runtime differences inside adapters.
 - Callers MUST NOT coordinate another component's internal steps.
 - You MUST keep intermediate plans and transport formats private unless callers need them to decide behavior.
 - Lifecycle operation names MUST state their phase when timing changes behavior.
@@ -143,6 +146,8 @@ Use these rules when talking to the user:
 - You MUST NOT use `*-command-registration.ts`.
 
 ## Key Files and Concepts
+
+- You SHOULD keep runtime selection in user configuration examples and keep project templates focused on common project settings.
 
 Paths are platform/XDG-dependent. Use `getSandboxConfigDir()` (`{config}`) and `getDataHomeDir()` (`{data}`) — never hardcode `~/.config` or `~/.local/share`.
 

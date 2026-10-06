@@ -22,71 +22,98 @@ import {
   HOST_COMMAND_ESCAPE_TOKEN_VARIABLE,
 } from "./protocol.js";
 
+function createClient(connection: WebSocketConnection) {
+  const terminal = createTestTerminal();
+  const processes = createProcessTestHarness();
+  const environment = createHostEnvironment({
+    currentWorkingDirectory: "/workspace",
+    homeDirectory: "/home/sandbox",
+    variables: {
+      [HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE]: "ws://broker/session",
+      [HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE]: HOST_COMMAND_ESCAPE_PROTOCOL,
+      [HOST_COMMAND_ESCAPE_TOKEN_VARIABLE]: "token",
+    },
+    platform: "linux",
+    interactive: true,
+  });
+  return {
+    terminal,
+    run: () =>
+      runWithDependencies(
+        [
+          provideHostEnvironment(environment),
+          provideProcessManager(processes.manager),
+          provideTerminal(terminal.io),
+          provideWebSocketService({
+            startServer: async () => {
+              throw new Error("Unexpected server start.");
+            },
+            connect: async () => connection,
+          }),
+        ],
+        () =>
+          runHostCommandEscape({ operation: "execute", argv: ["sleep", "10"] }),
+      ),
+    async [Symbol.asyncDispose]() {
+      await terminal.dispose();
+      await processes.dispose();
+    },
+  };
+}
+
+function createConnection(
+  options: {
+    readonly exitReady?: Promise<void>;
+    readonly sendBinary?: WebSocketConnection["sendBinary"];
+  } = {},
+): WebSocketConnection {
+  const messages: AsyncIterable<WebSocketMessage> = {
+    async *[Symbol.asyncIterator]() {
+      yield { type: "text", data: encodeControlMessage({ type: "ready" }) };
+      await options.exitReady;
+      yield {
+        type: "text",
+        data: encodeControlMessage({ type: "exit", exitCode: 130 }),
+      };
+    },
+  };
+  return {
+    protocol: HOST_COMMAND_ESCAPE_PROTOCOL,
+    messages,
+    closed: Promise.resolve({ code: 1000, reason: "", wasClean: true }),
+    sendText: async () => undefined,
+    sendBinary: options.sendBinary ?? (async () => undefined),
+    close: async () => ({ code: 1000, reason: "", wasClean: true }),
+    async [Symbol.asyncDispose]() {},
+  };
+}
+
 describe("host command escape client input", () => {
+  test("releases stdin when a command exits without consuming input", async () => {
+    await using client = createClient(createConnection());
+    await expect(client.run()).rejects.toMatchObject({ exitCode: 130 });
+    expect(client.terminal.io.input.isPaused()).toBe(true);
+  });
+
   test("settles when exit stops stdin during a pending send", async () => {
-    const terminal = createTestTerminal();
-    const processes = createProcessTestHarness();
-    await using cleanup = new AsyncDisposableStack();
-    cleanup.defer(() => terminal.dispose());
-    cleanup.defer(() => processes.dispose());
     const exitReady = Promise.withResolvers<void>();
     const binaryStarted = Promise.withResolvers<void>();
     const binaryRelease = Promise.withResolvers<void>();
-    const messages: AsyncIterable<WebSocketMessage> = {
-      async *[Symbol.asyncIterator]() {
-        yield { type: "text", data: encodeControlMessage({ type: "ready" }) };
-        await exitReady.promise;
-        yield {
-          type: "text",
-          data: encodeControlMessage({ type: "exit", exitCode: 130 }),
-        };
-      },
-    };
-    const connection: WebSocketConnection = {
-      protocol: HOST_COMMAND_ESCAPE_PROTOCOL,
-      messages,
-      closed: Promise.resolve({ code: 1000, reason: "", wasClean: true }),
-      sendText: async () => undefined,
-      sendBinary: async () => {
-        binaryStarted.resolve();
-        await binaryRelease.promise;
-      },
-      close: async () => ({ code: 1000, reason: "", wasClean: true }),
-      async [Symbol.asyncDispose]() {},
-    };
-    const environment = createHostEnvironment({
-      currentWorkingDirectory: "/workspace",
-      homeDirectory: "/home/sandbox",
-      variables: {
-        [HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE]: "ws://broker/session",
-        [HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE]: HOST_COMMAND_ESCAPE_PROTOCOL,
-        [HOST_COMMAND_ESCAPE_TOKEN_VARIABLE]: "token",
-      },
-      platform: "linux",
-      interactive: true,
-    });
-    const running = runWithDependencies(
-      [
-        provideHostEnvironment(environment),
-        provideProcessManager(processes.manager),
-        provideTerminal(terminal.io),
-        provideWebSocketService({
-          startServer: async () => {
-            throw new Error("Unexpected server start.");
-          },
-          connect: async () => connection,
-        }),
-      ],
-      () =>
-        runHostCommandEscape({ operation: "execute", argv: ["sleep", "10"] }),
+    await using client = createClient(
+      createConnection({
+        exitReady: exitReady.promise,
+        sendBinary: async () => {
+          binaryStarted.resolve();
+          await binaryRelease.promise;
+        },
+      }),
     );
-
-    await terminal.user.inputChunks("\u0003");
+    const running = client.run();
+    await client.terminal.user.inputChunks("\u0003");
     await binaryStarted.promise;
     exitReady.resolve();
     await Promise.resolve();
     binaryRelease.resolve();
-
     await expect(
       Promise.race([
         running,

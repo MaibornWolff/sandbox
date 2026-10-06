@@ -133,7 +133,10 @@ describe("phased Dockerfile generation", () => {
     });
 
     expect(result.match(/apt-get update/g)).toHaveLength(1);
-    expect(result.match(/RUN mise use -g/g)).toHaveLength(1);
+    expect(result.match(/mise use -g/g)).toHaveLength(1);
+    expect(result).toContain(
+      "RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN mise use -g",
+    );
     expect(result.match(/RUN npm install -g/g)).toHaveLength(1);
     expect(result).toContain("curl git");
     expect(result).toContain("node@lts");
@@ -220,7 +223,7 @@ describe("catalog Dockerfile behavior", () => {
 
     expect(result).toContain("# Languages and tools");
     expect(result).toContain(
-      "# GITHUB_TOKEN is passed via --build-arg to avoid API rate limits",
+      "# GITHUB_TOKEN is available as an optional build secret for API rate limits",
     );
     expect(result).toContain(
       "# https://github.com/settings/tokens (no scopes needed for public repos)",

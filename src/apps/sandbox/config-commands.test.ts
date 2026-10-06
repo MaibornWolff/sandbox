@@ -16,6 +16,20 @@ describe("config commands through the sandbox application", () => {
     expect(defaultResult).toEqual(result);
   });
 
+  test("shows Apple container as a first-class runtime value", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "apple-container" });
+    app.global.writeConfig(
+      'runtime = "apple-container"\n[runtimes.apple-container]\ndns = "host-ipv6"\n',
+    );
+
+    const result = await app.cli.run("config", "show");
+
+    expect(result.exitCode).toBe(0);
+    const output = stripAnsi(result.stdout);
+    expect(output).toContain("Runtime: apple-container");
+    expect(output).toContain("Apple container DNS: host-ipv6");
+  });
+
   test("merges global, trusted project, environment, and CLI values without revealing secrets", async () => {
     await using app = await setupSandboxAppTest({
       variables: { API_TOKEN: "top-secret" },

@@ -35,7 +35,6 @@ describe("sandbox program metadata", () => {
       "escape",
       "build",
       "upgrade",
-      "migrate",
       "status",
       "stop",
       "init",

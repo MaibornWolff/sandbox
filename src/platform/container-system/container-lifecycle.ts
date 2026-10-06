@@ -116,13 +116,16 @@ export interface IdeBridgeLifecycle {
   readonly failure: Promise<Error>;
 }
 
-export function startIdeBridge(port: number): IdeBridgeLifecycle {
+export function startIdeBridge(
+  port: number,
+  hostAccessName: string,
+): IdeBridgeLifecycle {
   const child = getProcessManager().start({
     name: "ide-bridge",
     command: "/usr/bin/socat",
     args: [
       `TCP-LISTEN:${port},bind=127.0.0.1,fork,reuseaddr`,
-      `TCP:host.docker.internal:${port}`,
+      `TCP:${hostAccessName}:${port}`,
     ],
     lifetime: "application",
     interaction: { mode: "non-interactive" },

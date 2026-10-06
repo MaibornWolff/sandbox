@@ -1,110 +1,75 @@
-import { getSandboxImageGlob } from "#modules/sandbox-resources/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import chalk from "chalk";
+import type { SandboxImageBuilder } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { readState, writeState } from "#platform/state/index.js";
 
-/**
- * Represents a dangling Docker image
- */
-interface DanglingImage {
-  id: string;
-  size: number;
-  created: string;
-}
+export const SANDBOX_MANAGED_IMAGE_LABEL = "sandbox.managed";
 
-/**
- * Statistics from image removal operation
- */
 interface RemovalStats {
-  removed: number;
-  freedSpace: string;
+  readonly removed: number;
+  readonly freedSpace: string;
 }
 
-/**
- * Query dangling images (untagged images from sandbox builds)
- * Uses --filter dangling=true to only find untagged images
- * Does NOT affect Docker build cache layers
- */
-async function getDanglingImages(
-  service: ContainerRuntime,
-): Promise<DanglingImage[]> {
-  try {
-    const entries = await service.listDanglingImages(getSandboxImageGlob());
-    return entries.map((e) => ({
-      id: e.id,
-      size: e.size,
-      created: e.created,
-    }));
-  } catch (err) {
-    getLogger().debug(`Failed to query dangling images: ${err}`);
-    return [];
-  }
+interface SandboxImageCleanupServices {
+  readonly imageBuilder: SandboxImageBuilder;
+  readonly imageOwnershipKey: string;
 }
 
-/**
- * Check if any containers are using the specified image
- */
-async function getContainersUsingImage(
-  imageId: string,
-  service: ContainerRuntime,
-): Promise<string[]> {
-  try {
-    return await service.getContainersUsingImage(imageId);
-  } catch (err) {
-    getLogger().debug(
-      `Failed to check containers for image ${imageId}: ${err}`,
-    );
-    return [];
-  }
-}
-
-/**
- * Safely remove dangling images
- * Checks if images are in use before removal
- */
-export async function removeDanglingImages(
-  service: ContainerRuntime,
+export async function removeUnusedManagedImages(
+  services: SandboxImageCleanupServices,
 ): Promise<RemovalStats> {
-  const images = await getDanglingImages(service);
-
-  if (images.length === 0) {
-    return { removed: 0, freedSpace: "0B" };
-  }
-
-  let removed = 0;
-  let totalFreed = 0;
   const logger = getLogger();
-
-  for (const image of images) {
-    // Safety check: ensure no containers are using this image
-    const containers = await getContainersUsingImage(image.id, service);
-    if (containers.length > 0) {
-      logger.debug(
-        `Skipping image ${image.id} - used by ${containers.length} container(s)`,
-      );
-      continue;
-    }
-
-    try {
-      await service.removeImage(image.id);
-      removed++;
-      totalFreed += image.size;
-      logger.debug(`Removed dangling image: ${image.id}`);
-    } catch (err) {
-      logger.debug(`Failed to remove image ${image.id}: ${err}`);
-    }
+  const prefix = `${services.imageOwnershipKey}:`;
+  const state = readState();
+  const sandboxImages = state.sandboxImages ?? {};
+  const candidates = [
+    ...new Set(
+      Object.entries(sandboxImages)
+        .filter(([key]) => key.startsWith(prefix))
+        .flatMap(([, image]) => [image.digest, ...(image.ownedDigests ?? [])]),
+    ),
+  ];
+  logger.debug(`Found ${candidates.length} managed image cleanup candidates`);
+  const result = await services.imageBuilder.removeUnused({
+    candidates,
+    managedLabel: { key: SANDBOX_MANAGED_IMAGE_LABEL, value: "true" },
+  });
+  for (const image of result.removed) {
+    logger.debug(`Removed unused managed image ${chalk.cyan(image.digest)}`);
   }
-
+  for (const image of result.skipped) {
+    logger.debug(`Kept image ${chalk.cyan(image.digest)}: ${image.reason}`);
+  }
+  if (result.removed.length > 0) {
+    const removed = new Set(result.removed.map((image) => image.digest));
+    writeState({
+      sandboxImages: Object.fromEntries(
+        Object.entries(sandboxImages).flatMap(([key, image]) => {
+          if (!key.startsWith(prefix)) return [[key, image]];
+          if (removed.has(image.digest)) return [];
+          const retainedOwnedDigests = (image.ownedDigests ?? []).filter(
+            (digest) => !removed.has(digest),
+          );
+          const updatedImage =
+            retainedOwnedDigests.length > 0
+              ? { ...image, ownedDigests: retainedOwnedDigests }
+              : {
+                  reference: image.reference,
+                  digest: image.digest,
+                  ...(image.labels ? { labels: image.labels } : {}),
+                };
+          return [[key, updatedImage]];
+        }),
+      ),
+    });
+  }
   return {
-    removed,
-    freedSpace: formatImageSize(totalFreed),
+    removed: result.removed.length,
+    freedSpace: formatImageSize(result.estimatedReclaimedBytes),
   };
 }
 
-/**
- * Format bytes to human-readable size
- * Returns formats like "1.2MB", "500KB", "2.5GB"
- * @testonly
- */
+/** @testonly */
 export function formatImageSize(bytes: number): string {
   if (bytes === 0) return "0B";
 
@@ -117,7 +82,6 @@ export function formatImageSize(bytes: number): string {
     unitIndex++;
   }
 
-  // Format to 1 decimal place for values >= 10, otherwise 2 decimal places
   const formatted =
     size >= 10 ? size.toFixed(1) : size.toFixed(2).replace(/\.?0+$/, "");
 

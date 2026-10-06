@@ -124,13 +124,7 @@ export const developerToolsPreset = definePreset(developerTools, [
       duringUserInit: [hasExecutable("just")],
       duringProjectInit: [hasPath("./justfile")],
     },
-    imageSetup: {
-      asContainerUser: [
-        runImageSetupCommands([
-          "curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /home/sandbox/.local/bin",
-        ]),
-      ],
-    },
+    imageSetup: { asContainerUser: [installMiseTools(["just@latest"])] },
     url: "https://just.systems",
   },
 ]);

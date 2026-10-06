@@ -85,9 +85,20 @@ The container environment:
 - manages session lifetime
 - synchronizes new mount-mode settings during a normal stop
 
-### Container runtime
+### Sandbox runtime
 
-Docker or Podman provides process and filesystem isolation. The runtime also creates mounts, networks, images, and volumes.
+The container-runtime component exposes two boundaries:
+
+- `SandboxImageBuilder` builds immutable images and removes selected unused images.
+- `SandboxRuntime` runs instances and owns runtime-local persistent storage.
+
+Docker, Podman, and Apple `container` implement both boundaries. Sandbox modules use opaque instance and storage handles. They do not use runtime image stores, container names, or volume names. Docker and Podman share Docker-compatible code only inside the adapter.
+
+Automatic instance cleanup preserves instances that are still being created. Runtime adapters report name conflicts through one semantic error. Callers can then retry without parsing runtime CLI messages.
+
+The Apple adapter initializes newly allocated logical storage from image contents before instance creation. One helper copies all new volumes into staging directories. A storage lock prevents concurrent copies. Existing storage is retained, and warm starts do not repeat initialization.
+
+A build returns a content identity that the selected runtime can start. Docker and Podman use the local image ID. Apple uses the image descriptor digest. Sandbox records this immutable identity for `--no-build` and reuse decisions.
 
 ## Configuration Model
 
@@ -142,7 +153,11 @@ Outbound network access uses a domain allowlist. The network system has three re
 
 Full-network mode keeps the network path but disables domain filtering.
 
-A normal session can reach its host-command broker through the container runtime host name, such as `host.docker.internal` or `host.containers.internal`. The existing network path permits this host connection. The broker still requires its session token and command allowlist. Sandbox does not add a broader network-policy exception.
+A normal session can reach its host-command broker through the container runtime host name. Docker uses `host.docker.internal`, Podman uses `host.containers.internal`, and Apple uses `host.container.internal`. Apple also provides `host.docker.internal` as a compatibility alias. The Apple aliases use the reachable host gateway. Host services that listen only on localhost are not supported. The broker still requires its session token and command allowlist. Sandbox temporarily permits only the broker host and port for the agent user. It removes this network-policy exception when the session ends.
+
+The Apple adapter owns its runtime-specific network behavior. Configuration selects `default`, `host`, or `host-ipv6` DNS once when it constructs the adapter. Host mode selects a guest-usable server from the current primary macOS DNS configuration. It does not use scoped resolvers or substitute public DNS. Resolver discovery, readiness, and runtime arguments stay private to the adapter. The guest DNS proxy provides exact Apple host aliases, without subdomain mappings. Sandbox does not add a privileged host setup workflow.
+
+In `host` and `host-ipv6` modes, the adapter revalidates shared builder DNS before each image build. Concurrent preparation calls share only the in-progress check. A process-owned filesystem lock serializes builder DNS preparation across Sandbox processes. Only the owner releases its lock. An abandoned lock requires manual recovery because filesystem checks cannot safely delete a lock that another process has replaced.
 
 See [Network Firewall](./NETWORK-FIREWALL.md).
 
@@ -186,10 +201,10 @@ Sandbox can reuse a compatible running container. A configuration, image, or run
 | --- | --- | --- |
 | Project files | Host project | Independent of the container |
 | User settings | Host configuration directory | Shared between projects |
-| Per-project persistent data | Sandbox data directory | One project |
-| Global persistent data | Sandbox data directory | Shared between projects |
+| Per-project persistent data | Sandbox runtime or Sandbox data directory | One project |
+| Global persistent data | Sandbox runtime or Sandbox data directory | Shared between projects |
 | Temporary container data | Container | Until the container is removed |
-| Image layers | Container runtime | Until image cleanup |
+| Image layers | Sandbox image builder | Until scoped image cleanup |
 | Runtime package cache | Sandbox runtime component | Until unused and removed by scheduled cleanup |
 
 ## Security Boundaries

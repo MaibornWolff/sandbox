@@ -1,5 +1,9 @@
 import { z } from "zod/v4";
 import { HostCommandRuleSchema } from "#modules/host-command-escape/index.js";
+import {
+  APPLE_CONTAINER_DNS_MODES,
+  DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+} from "#platform/container-runtime/index.js";
 import { type Config, RUNTIME_IDS, type RuntimeId } from "./config.js";
 
 export type MergeStrategy = "accumulate" | "override";
@@ -49,11 +53,30 @@ export const CONFIG_FIELD_CATALOG = {
   runtime: defineField({
     configKey: "runtime",
     schema: z.enum(RUNTIME_IDS).optional(),
-    type: '"docker" | "podman"',
+    type: '"docker" | "podman" | "apple-container"',
     description: "Container runtime to use.",
     mergeStrategy: "override",
     defaultDecision: "runtime",
     examples: [],
+  }),
+  runtimes: defineField({
+    configKey: "runtimes",
+    schema: z
+      .strictObject({
+        "apple-container": z
+          .strictObject({
+            dns: z.enum(APPLE_CONTAINER_DNS_MODES).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    type: '{ "apple-container" = { dns = "default" | "host" | "host-ipv6" } }',
+    description:
+      "Runtime-specific options. Apple DNS can use the runtime default, primary host DNS, or the host IPv6 bridge proxy.",
+    mergeStrategy: "override",
+    defaultDecision: "value",
+    defaultValue: DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+    examples: ['[runtimes.apple-container]\ndns = "host-ipv6"'],
   }),
   readonly: defineField({
     configKey: "readonly",
@@ -197,6 +220,11 @@ export const CONFIG_FIELD_CATALOG = {
 export function createCatalogDefaults(runtime: RuntimeId): Config {
   return {
     runtime,
+    runtimes: {
+      "apple-container": {
+        dns: DEFAULT_CONTAINER_RUNTIME_OPTIONS["apple-container"].dns,
+      },
+    },
     mounts: [...(CONFIG_FIELD_CATALOG.mounts.defaultValue ?? [])],
     env: [...(CONFIG_FIELD_CATALOG.env.defaultValue ?? [])],
     readonly: CONFIG_FIELD_CATALOG.readonly.defaultValue ?? false,

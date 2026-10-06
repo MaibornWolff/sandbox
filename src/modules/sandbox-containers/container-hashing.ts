@@ -1,66 +1,78 @@
 import * as crypto from "node:crypto";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type {
+  SandboxInstanceSpec,
+  SandboxRuntime,
+} from "#platform/container-runtime/index.js";
 
-/**
- * Label key used to store the container hash for reuse detection
- */
 export const SANDBOX_HASH_LABEL = "sandbox.hash";
 
-/**
- * Compute a deterministic hash from sandbox version, image ID, and container creation args.
- *
- * The hash captures everything that defines the container's structural identity.
- * Container args should NOT include --name or --label sandbox.hash (those are derived from the hash).
- *
- * @param version - Sandbox CLI version
- * @param imageId - Docker image ID (from docker inspect)
- * @param containerArgs - Container creation args (mounts, env, ports, etc.)
- * @returns 12-character hex hash
- */
-export function computeContainerHash(
-  version: string,
-  imageId: string,
-  containerArgs: string[],
-): string {
-  const hash = crypto.createHash("sha256");
-  hash.update(version);
-  hash.update("\0");
-  hash.update(imageId);
-  for (const arg of containerArgs) {
-    hash.update("\0");
-    hash.update(arg);
-  }
-  return hash.digest("hex").substring(0, 12);
+function sortedRecord(
+  value: Readonly<Record<string, string>>,
+  excludedKeys: ReadonlySet<string> = new Set(),
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !excludedKeys.has(key))
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
-/**
- * Get the full image ID for a Docker image.
- *
- * @param service - Container runtime service
- * @param imageName - Image name (e.g., "sandbox-base:latest")
- * @returns Full image ID string (e.g., "sha256:abc123...")
- */
-export async function getImageId(
-  service: ContainerRuntime,
-  imageName: string,
-): Promise<string> {
-  return service.getImageId(imageName);
+export function computeContainerHash(options: {
+  readonly version: string;
+  readonly runtime: SandboxRuntime["runtime"];
+  readonly runtimeCompatibilityIdentity: string;
+  readonly imageIdentity: string;
+  readonly spec: SandboxInstanceSpec;
+}): string {
+  const structuralIdentity = {
+    contract: 1,
+    version: options.version,
+    runtime: options.runtime,
+    runtimeCompatibilityIdentity: options.runtimeCompatibilityIdentity,
+    imageIdentity: options.imageIdentity,
+    labels: sortedRecord(options.spec.labels, new Set([SANDBOX_HASH_LABEL])),
+    environment: sortedRecord(options.spec.environment),
+    mounts: options.spec.mounts,
+    ports: options.spec.ports,
+    init: options.spec.init,
+    removeOnExit: options.spec.removeOnExit,
+    resources: options.spec.resources,
+    security: options.spec.security,
+  };
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(structuralIdentity))
+    .digest("hex")
+    .substring(0, 12);
 }
 
-/**
- * Read the sandbox.hash label from a running container.
- *
- * @param service - Container runtime service
- * @param containerId - Container ID or name
- * @returns Hash string, or null if label not found or container doesn't exist
- */
+export async function computeRuntimeContainerHash(options: {
+  readonly version: string;
+  readonly service: Pick<
+    SandboxRuntime,
+    "runtime" | "getCompatibilityIdentity"
+  >;
+  readonly imageIdentity: string;
+  readonly spec: SandboxInstanceSpec;
+}): Promise<string> {
+  const runtimeCompatibilityIdentity =
+    await options.service.getCompatibilityIdentity();
+  return computeContainerHash({
+    version: options.version,
+    runtime: options.service.runtime,
+    runtimeCompatibilityIdentity,
+    imageIdentity: options.imageIdentity,
+    spec: options.spec,
+  });
+}
+
 export async function getContainerHash(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
 ): Promise<string | null> {
-  try {
-    return await service.getContainerLabel(containerId, SANDBOX_HASH_LABEL);
-  } catch {
-    return null;
-  }
+  return (
+    (await service.instances.inspect(containerId))?.labels[
+      SANDBOX_HASH_LABEL
+    ] ?? null
+  );
 }

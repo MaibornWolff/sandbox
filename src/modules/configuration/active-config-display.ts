@@ -21,6 +21,12 @@ export function showActiveConfig(cfg: Config): void {
     active.push(`${allowedHostCommands} allowed host command rule(s)`);
   }
   if (cfg.shmSize) active.push(`shm_size=${cfg.shmSize}`);
+  if (
+    cfg.runtime === "apple-container" &&
+    cfg.runtimes["apple-container"].dns !== "default"
+  ) {
+    active.push(`apple-container dns=${cfg.runtimes["apple-container"].dns}`);
+  }
 
   if (active.length > 0) {
     getLogger().info(`Active: ${active.join(", ")}`);

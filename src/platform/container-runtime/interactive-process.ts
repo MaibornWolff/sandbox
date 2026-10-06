@@ -1,9 +1,9 @@
 import {
   getProcessManager,
+  type ManagedProcess,
   type ProcessResult,
 } from "#platform/process/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
-import type { ContainerRuntime } from "./types.js";
 
 interface InteractiveContainerRuntimeProcessOptions {
   readonly args: readonly string[];
@@ -12,8 +12,13 @@ interface InteractiveContainerRuntimeProcessOptions {
   readonly forwardSignal?: (signal: NodeJS.Signals) => Promise<boolean>;
 }
 
+interface InteractiveRuntimeProcess {
+  readonly binaryName: string;
+  signalContainer?(id: string, signal: NodeJS.Signals): Promise<void>;
+}
+
 function createContainerSignalForwarder(
-  runtime: Partial<Pick<ContainerRuntime, "signalContainer">>,
+  runtime: InteractiveRuntimeProcess,
   containerName: string | undefined,
 ): ((signal: NodeJS.Signals) => Promise<boolean>) | undefined {
   const signalContainer = runtime.signalContainer?.bind(runtime);
@@ -24,16 +29,10 @@ function createContainerSignalForwarder(
   };
 }
 
-/**
- * Run an interactive container-runtime command through the scoped process
- * boundary. Terminal input/output, cancellation, signal forwarding, and title
- * restoration follow the lifetime of the awaited child.
- */
-export async function runInteractiveContainerRuntimeProcess(
-  runtime: Pick<ContainerRuntime, "binaryName"> &
-    Partial<Pick<ContainerRuntime, "signalContainer">>,
+export function startInteractiveContainerRuntimeProcess(
+  runtime: InteractiveRuntimeProcess,
   options: InteractiveContainerRuntimeProcessOptions,
-): Promise<ProcessResult> {
+): ManagedProcess<ProcessResult> {
   const terminal = getTerminal();
   const forwardSignal =
     options.forwardSignal ??
@@ -50,5 +49,12 @@ export async function runInteractiveContainerRuntimeProcess(
     stdio: "inherit",
     signal: terminal.signal,
     name: "container runtime interactive execution",
-  }).result;
+  });
+}
+
+export async function runInteractiveContainerRuntimeProcess(
+  runtime: InteractiveRuntimeProcess,
+  options: InteractiveContainerRuntimeProcessOptions,
+): Promise<ProcessResult> {
+  return startInteractiveContainerRuntimeProcess(runtime, options).result;
 }

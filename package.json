@@ -1,7 +1,7 @@
 {
   "name": "@maibornwolff/sandbox",
   "version": "0.0.0-development",
-  "description": "Docker sandbox CLI for coding agents",
+  "description": "Container sandbox CLI for coding agents",
   "license": "BSD-3-Clause",
   "homepage": "https://github.com/MaibornWolff/sandbox#readme",
   "bugs": {

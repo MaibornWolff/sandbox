@@ -1,9 +1,12 @@
 import * as path from "node:path";
-import { autoMigrateLegacyResources } from "#modules/sandbox-resources/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type {
+  SandboxImage,
+  SandboxRuntimeSelection,
+} from "#platform/container-runtime/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { listFilesRecursively } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { readState, writeState } from "#platform/state/index.js";
 import { warnIfNoSpaceError } from "../disk-space-diagnostics.js";
 import type {
   BuildImagesOptions,
@@ -11,8 +14,14 @@ import type {
   BuildTrigger,
   CacheStrategy,
 } from "../image-build-contracts.js";
-import { removeDanglingImages } from "../image-cleanup.js";
+import {
+  removeUnusedManagedImages,
+  SANDBOX_MANAGED_IMAGE_LABEL,
+} from "../image-cleanup.js";
 import { getFinalImage } from "./final-image-selection.js";
+
+type SandboxImageServices = SandboxRuntimeSelection;
+
 import { type BuildPlan, planLayerBuilds } from "./image-build-planning.js";
 
 /**
@@ -54,11 +63,11 @@ function createBuildFailure(err: unknown, imageName: string): ImageBuildError {
 async function buildFromDockerfilePath(
   dockerfilePath: string,
   imageName: string,
-  service: ContainerRuntime,
+  service: SandboxImageServices,
   noCache: boolean,
   dockerfileHash: string,
   silent: boolean,
-): Promise<void> {
+): Promise<SandboxImage> {
   const dockerfileDir = path.dirname(dockerfilePath);
 
   const logger = getLogger();
@@ -87,21 +96,45 @@ async function buildFromDockerfilePath(
   }
 
   const githubToken = environment.variables.GITHUB_TOKEN;
-  if (githubToken) {
-    buildArgs.GITHUB_TOKEN = githubToken;
-  }
 
-  await service.buildImage({
+  const image = await service.imageBuilder.build({
     tag: imageName,
     dockerfilePath,
-    contextDir: dockerfileDir,
-    buildArgs,
-    labels: { "dockerfile.hash": dockerfileHash },
-    noCache,
-    silent,
+    contextDirectory: dockerfileDir,
+    buildArguments: buildArgs,
+    labels: {
+      "dockerfile.hash": dockerfileHash,
+      [SANDBOX_MANAGED_IMAGE_LABEL]: "true",
+    },
+    secrets: githubToken
+      ? [{ id: "GITHUB_TOKEN", environmentVariable: "GITHUB_TOKEN" }]
+      : [],
+    cachePolicy: noCache ? "bypass" : "use",
+    output: silent ? "silent" : "interactive",
   });
 
-  logger.debug(`Successfully built ${imageName}`);
+  const state = readState();
+  const stateKey = `${service.imageOwnershipKey}:${imageName}`;
+  const previousImage = state.sandboxImages?.[stateKey];
+  const ownedDigests = new Set(previousImage?.ownedDigests ?? []);
+  if (previousImage && previousImage.digest !== image.digest) {
+    ownedDigests.add(previousImage.digest);
+  }
+  writeState({
+    sandboxImages: {
+      ...state.sandboxImages,
+      [stateKey]: {
+        ...image,
+        labels: {
+          "dockerfile.hash": dockerfileHash,
+          [SANDBOX_MANAGED_IMAGE_LABEL]: "true",
+        },
+        ...(ownedDigests.size > 0 ? { ownedDigests: [...ownedDigests] } : {}),
+      },
+    },
+  });
+  logger.debug(`Successfully resolved immutable image ${image.digest}`);
+  return image;
 }
 
 function getBuildPolicyLog(
@@ -113,11 +146,10 @@ function getBuildPolicyLog(
 
 async function executeBuildPlan(
   plan: BuildPlan,
-  service: ContainerRuntime,
+  service: SandboxImageServices,
   silent: boolean,
-): Promise<boolean> {
-  let builtAny = false;
-  const logger = getLogger();
+): Promise<{ readonly image: SandboxImage; readonly builtAny: boolean }> {
+  let finalImage: SandboxImage | undefined;
 
   for (const entry of plan.layers) {
     const { layer, state } = entry;
@@ -125,9 +157,8 @@ async function executeBuildPlan(
       continue;
     }
 
-    logger.info(`Building ${layer.imageName}...`);
     try {
-      await buildFromDockerfilePath(
+      finalImage = await buildFromDockerfilePath(
         layer.dockerfilePath,
         layer.imageName,
         service,
@@ -135,17 +166,17 @@ async function executeBuildPlan(
         state.expectedHash,
         silent,
       );
-      logger.success(`Built ${layer.imageName}`);
       state.currentLabelHash = state.expectedHash;
       state.imageExists = true;
-      builtAny = true;
     } catch (err) {
-      warnIfNoSpaceError(err, service);
+      warnIfNoSpaceError(err, service.runtime);
       throw createBuildFailure(err, layer.imageName);
     }
   }
 
-  return builtAny;
+  if (finalImage) return { image: finalImage, builtAny: true };
+  if (!plan.finalImage) throw new Error("The image build plan is empty.");
+  return { image: plan.finalImage, builtAny: false };
 }
 
 /**
@@ -153,11 +184,11 @@ async function executeBuildPlan(
  * Non-fatal - logs warning but doesn't block build
  */
 async function cleanupDanglingImagesAfterBuild(
-  service: ContainerRuntime,
+  service: SandboxImageServices,
 ): Promise<void> {
   const logger = getLogger();
   try {
-    const stats = await removeDanglingImages(service);
+    const stats = await removeUnusedManagedImages(service);
     if (stats.removed > 0) {
       logger.info(`Cleaned ${stats.removed} old images (${stats.freedSpace})`);
     }
@@ -167,24 +198,10 @@ async function cleanupDanglingImagesAfterBuild(
 }
 
 /**
- * Fetch the final image ID. Returns empty string on failure.
- */
-async function fetchFinalImageId(
-  service: ContainerRuntime,
-  imageName: string,
-): Promise<string> {
-  try {
-    return await service.getImageId(imageName);
-  } catch {
-    return "";
-  }
-}
-
-/**
  * Build all image layers (base → user → project)
  */
 export async function buildImages(
-  service: ContainerRuntime,
+  service: SandboxImageServices,
   options: BuildImagesOptions,
   silent = false,
 ): Promise<BuildImagesResult> {
@@ -199,40 +216,28 @@ export async function buildImages(
   logger.debug("Starting Docker image build process");
   logger.startTiming("Build images");
 
-  await autoMigrateLegacyResources(service, projectRoot);
-
   logger.debug(
-    `Runtime: ${service.runtime}, Silent: ${silent}, Target: ${targetLayer || "all"}, Policy: ${getBuildPolicyLog(buildTrigger, cacheStrategy)}`,
+    `Runtime: ${service.runtime.runtime}, Silent: ${silent}, Target: ${targetLayer || "all"}, Policy: ${getBuildPolicyLog(buildTrigger, cacheStrategy)}`,
   );
   logger.debug(`Resolved project root: ${projectRoot}`);
 
-  const plan = await planLayerBuilds(service, {
+  const plan = await planLayerBuilds(service.runtime, {
     projectRoot,
     targetLayer,
     buildTrigger,
     cacheStrategy,
   });
-  const builtAny = await executeBuildPlan(plan, service, silent);
+  const execution = await executeBuildPlan(plan, service, silent);
 
-  if (!silent && builtAny) {
-    logger.success(
-      cacheStrategy === "none"
-        ? "All layers rebuilt with fresh packages"
-        : "Build complete",
-    );
+  if (!silent && execution.builtAny && cacheStrategy === "none") {
+    logger.success("All layers rebuilt with fresh packages");
   }
-
-  if (builtAny) {
-    await cleanupDanglingImagesAfterBuild(service);
-  }
+  if (execution.builtAny) await cleanupDanglingImagesAfterBuild(service);
 
   const imageName = getFinalImage(projectRoot);
-  const imageId = builtAny
-    ? await fetchFinalImageId(service, imageName)
-    : plan.finalImageId;
 
   logger.endTiming("Build images");
   logger.debug("Build images completed");
 
-  return { imageName, imageId };
+  return { imageName, image: execution.image };
 }

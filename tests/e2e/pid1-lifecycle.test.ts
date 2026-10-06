@@ -58,19 +58,32 @@ afterAll(async () => {
 
 describe("container PID 1 lifecycle", () => {
   test("tracks concurrent and short sessions until final idle shutdown", async () => {
-    const longSession = sb.run("sh", "-c", "hostname; sleep 4");
-    await Bun.sleep(1_000);
+    const longSession = sb.start([
+      "run",
+      "--",
+      "sh",
+      "-c",
+      "touch /tmp/pid1-session-marker; printf 'session-active\\n'; hostname; sleep 4",
+    ]);
+    await longSession.waitForOutput("session-active");
 
-    const shortSession = await sb.run("hostname");
-    const longResult = await longSession;
+    const shortSession = await sb.run(
+      "sh",
+      "-c",
+      "test -f /tmp/pid1-session-marker && hostname",
+    );
+    const longResult = await longSession.result;
     expect(shortSession.exitCode).toBe(0);
     expect(longResult.exitCode).toBe(0);
     expect(hostname(shortSession.stdout)).toBe(hostname(longResult.stdout));
 
     await waitForNoActiveContainers();
-    const afterIdle = await sb.run("hostname");
+    const afterIdle = await sb.run(
+      "sh",
+      "-c",
+      "test ! -e /tmp/pid1-session-marker",
+    );
     expect(afterIdle.exitCode).toBe(0);
-    expect(hostname(afterIdle.stdout)).not.toBe(hostname(longResult.stdout));
   }, 120_000);
 
   test("reaps an orphaned child after its session exits", async () => {
@@ -103,6 +116,7 @@ describe("container PID 1 lifecycle", () => {
     const sessionResult = await session;
 
     expect(stopped.exitCode).toBe(0);
-    expect(sessionResult.exitCode).not.toBe(0);
+    expect(sessionResult.exitCode).toBe(143);
+    expect(sessionResult.stderr).not.toContain("suppressed during disposal");
   }, 60_000);
 });

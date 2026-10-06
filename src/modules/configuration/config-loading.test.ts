@@ -259,6 +259,48 @@ test_no_match = [["git", "status"]]
     );
   });
 
+  test("loads strict Apple runtime DNS options for active and inactive sections", () => {
+    const root = createTestDir("toml-runtime-options");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const file = path.join(root, "config.toml");
+
+    fs.writeFileSync(
+      file,
+      'runtime = "apple-container"\n[runtimes.apple-container]\ndns = "host"\n',
+    );
+    expect(loadTomlConfig(file)).toEqual({
+      runtime: "apple-container",
+      runtimes: { "apple-container": { dns: "host" } },
+    });
+
+    fs.writeFileSync(
+      file,
+      'runtime = "docker"\n[runtimes.apple-container]\ndns = "host-ipv6"\n',
+    );
+    expect(loadTomlConfig(file)).toEqual({
+      runtime: "docker",
+      runtimes: { "apple-container": { dns: "host-ipv6" } },
+    });
+  });
+
+  test("rejects unknown runtime names, keys, and Apple DNS values", () => {
+    const root = createTestDir("toml-runtime-errors");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const file = path.join(root, "config.toml");
+    const invalidConfigs = [
+      '[runtimes.docker]\ndns = "default"\n',
+      "[runtimes.apple-container]\nunexpected = true\n",
+      '[runtimes.apple-container]\ndns = "public"\n',
+    ];
+
+    for (const content of invalidConfigs) {
+      fs.writeFileSync(file, content);
+      expect(() => loadTomlConfig(file)).toThrow(`Invalid config at ${file}`);
+    }
+  });
+
   test("rejects unknown top-level and nested configuration fields", () => {
     const root = createTestDir("toml-unknown-fields");
     using cleanup = new DisposableStack();

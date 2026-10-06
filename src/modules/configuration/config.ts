@@ -1,7 +1,8 @@
 import type { CommandPattern } from "#modules/host-command-escape/index.js";
+import type { ContainerRuntimeOptions } from "#platform/container-runtime/index.js";
 import type { NetworkPortSelection } from "./network-port-selection.js";
 
-export const RUNTIME_IDS = ["docker", "podman"] as const;
+export const RUNTIME_IDS = ["docker", "podman", "apple-container"] as const;
 export type RuntimeId = (typeof RUNTIME_IDS)[number];
 
 export interface AllowedNetwork {
@@ -42,6 +43,7 @@ export interface SettingsEntry {
 
 export interface Config {
   runtime: RuntimeId;
+  runtimes: ContainerRuntimeOptions;
   mounts: string[];
   env: string[];
   readonly: boolean;

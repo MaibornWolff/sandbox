@@ -5,10 +5,10 @@ import {
   mkdir,
   mkdtemp,
   readdir,
-  rm,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { removeOwnedDirectory } from "#platform/filesystem/index.js";
 import { getRepoRootPath } from "../../../src/platform/git/index.js";
 import { log } from "./log.js";
 import type { SandboxInstance } from "./sandbox.js";
@@ -131,6 +131,6 @@ export async function cleanupProject(
       /* best effort */
     }
   }
-  await rm(dir, { recursive: true, force: true });
+  removeOwnedDirectory(dir);
   log("→ Cleanup complete");
 }

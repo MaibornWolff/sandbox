@@ -20,6 +20,18 @@ describe("sandbox doctor", () => {
     expect(result.stdout).toContain("All checks passed!");
   });
 
+  test("reports Apple container and its per-container memory scope", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "apple-container" });
+    app.runtime.system.givenVersion("container CLI version 1.4.1");
+    app.runtime.system.givenMemoryBytes(2 * 1024 ** 3);
+
+    const result = await app.cli.run("doctor");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("apple-container 1.4.1 detected");
+    expect(result.stdout).toContain("Per-container memory: 2.0GB");
+  });
+
   test("reports missing runtime and unsupported X11 as a summary", async () => {
     await using app = await setupSandboxAppTest();
     app.runtime.system.fail("resolve", new Error("runtime missing"));
@@ -44,7 +56,9 @@ describe("sandbox doctor", () => {
     app.runtime.system.fail("version", new Error("daemon unavailable"));
     const result = await app.cli.run("doctor");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Install Docker or Podman");
+    expect(result.stdout).toContain(
+      "Install Docker, Podman, or Apple container",
+    );
   });
 });
 

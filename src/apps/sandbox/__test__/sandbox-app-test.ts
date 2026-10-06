@@ -77,7 +77,7 @@ interface SandboxAppTestOptions {
   readonly variables?: Readonly<Record<string, string>>;
   readonly interactive?: boolean;
   readonly platform?: NodeJS.Platform;
-  readonly runtime?: "docker" | "podman";
+  readonly runtime?: "apple-container" | "docker" | "podman";
   readonly runtimeBoundary?: "stateful" | "process";
   readonly workspaceAtHome?: boolean;
 }
@@ -90,7 +90,7 @@ export interface SandboxAppTest {
     readonly root: string;
     givenConfig(config: {
       readonly allowNetwork: readonly AllowedNetwork[];
-      readonly runtime?: "docker" | "podman";
+      readonly runtime?: "apple-container" | "docker" | "podman";
     }): Promise<void>;
     writeConfig(
       content: string,
@@ -183,6 +183,15 @@ function configureInitialDiagnosticsState(
     .resolveResult(notFound);
 }
 
+function startedAtFromUptime(uptime: string | undefined): Date {
+  const match = uptime?.match(/^Up (\d+) (minute|minutes|hour|hours)$/u);
+  const amount = Number(match?.[1] ?? 1);
+  const unitMilliseconds = match?.[2]?.startsWith("hour")
+    ? 60 * 60 * 1_000
+    : 60 * 1_000;
+  return new Date(Date.UTC(2026, 0, 1) - amount * unitMilliseconds);
+}
+
 function createProjectFixture(options: {
   readonly projectRoot: string;
   readonly configRoot: string;
@@ -241,7 +250,7 @@ function createProjectFixture(options: {
       const suffix = nextProjectContainer++;
       const projectSlug = generateProjectSlug(projectRoot);
       const baseName = `sandbox-${projectSlug}`;
-      const container = runtime.containers.create({
+      const container = runtime.instances.create({
         name: suffix === 1 ? baseName : `${baseName}-${suffix}`,
         image: `sandbox-${projectSlug}:latest`,
         labels: {
@@ -251,6 +260,7 @@ function createProjectFixture(options: {
             : {}),
         },
         status: containerOptions.state,
+        startedAt: startedAtFromUptime(containerOptions.uptime),
         ...(containerOptions.uptime ? { uptime: containerOptions.uptime } : {}),
       });
       if (containerOptions.sessions) {

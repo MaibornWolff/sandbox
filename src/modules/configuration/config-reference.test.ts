@@ -70,5 +70,7 @@ describe("formatConfigReference", () => {
     expect(output).toContain("[[allow_host_commands]]");
     expect(output).toContain('pattern = ["git", ["status", "diff", "log"]]');
     expect(output).toContain('test_match = [["git", "status"]]');
+    expect(output).toContain("runtimes.apple-container");
+    expect(output).toContain('"dns":"default"');
   });
 });

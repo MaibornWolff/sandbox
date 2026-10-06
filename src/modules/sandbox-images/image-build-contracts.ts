@@ -14,6 +14,7 @@ export type BuildTrigger = "if-needed" | "always";
 export type CacheStrategy = "native" | "none";
 
 import type { ConfigOverrides } from "#modules/configuration/index.js";
+import type { SandboxImage } from "#platform/container-runtime/index.js";
 
 /**
  * Options for the build command CLI
@@ -40,6 +41,6 @@ export interface BuildImagesOptions {
  * don't need to re-fetch them.
  */
 export interface BuildImagesResult {
-  imageName: string;
-  imageId: string;
+  readonly imageName: string;
+  readonly image: SandboxImage;
 }

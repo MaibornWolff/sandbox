@@ -30,6 +30,7 @@ export {
   removePath,
   renamePath,
   resolveRealPath,
+  setPathMode,
   setPathModifiedTime,
   tryCreateDirectory,
   validateSymlinkWithin,

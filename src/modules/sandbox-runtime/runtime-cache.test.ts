@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { runInHostTestScope } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
@@ -34,6 +34,7 @@ test("materializes a versioned runtime cache and reuses immutable contents", asy
       containerPath: "/opt/sandbox-cli",
       mode: "ro",
     });
+    expect(statSync(first.mount.hostPath).mode & 0o777).toBe(0o755);
     expect(
       readFileSync(
         path.join(first.mount.hostPath, "dist/apps/sandbox/main.js"),

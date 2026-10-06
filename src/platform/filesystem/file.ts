@@ -139,6 +139,10 @@ export function setPathModifiedTime(
   fs.utimesSync(filePath, date, date);
 }
 
+export function setPathMode(filePath: string, mode: number): void {
+  fs.chmodSync(filePath, mode);
+}
+
 export function renamePath(sourcePath: string, destinationPath: string): void {
   fs.renameSync(sourcePath, destinationPath);
 }

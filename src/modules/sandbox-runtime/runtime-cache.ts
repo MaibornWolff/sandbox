@@ -9,6 +9,7 @@ import {
   hashDirectoryContents,
   removePath,
   renamePath,
+  setPathMode,
 } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { acquireRuntimeCacheLease } from "./runtime-coordination.js";
@@ -38,6 +39,7 @@ function publishRuntimePackage(
     [Symbol.dispose]: () => removePath(temporaryDirectory),
   };
   copyDirectory(runtimePackage.directory, temporaryDirectory);
+  setPathMode(temporaryDirectory, 0o755);
 
   const copiedHash = hashDirectoryContents(temporaryDirectory);
   if (copiedHash !== expectedHash) {

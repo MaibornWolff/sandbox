@@ -78,12 +78,6 @@ describe("Apple container 1.4.1 arguments", () => {
       "5353:53/udp",
       "--cap-add",
       "NET_ADMIN",
-      "-m",
-      String(2 * 1024 ** 3),
-      "--shm-size",
-      "1G",
-      "--ulimit",
-      "nofile=65536:65536",
       "sandbox-alpha:latest",
     ]);
     expect(args).not.toContain("--virtualization");
@@ -117,7 +111,6 @@ describe("Apple container 1.4.1 arguments", () => {
 
     expect(createArgs.slice(0, 3)).toEqual(["create", "--tty", "--rm"]);
     expect(createArgs).not.toContain("--interactive");
-    expect(createArgs).toContain(String(3 * 1024 ** 3));
     expect(
       buildAppleStartArgs("sandbox-alpha", {
         attachStdin: true,

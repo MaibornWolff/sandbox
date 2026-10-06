@@ -280,10 +280,6 @@ describe("AppleContainerService", () => {
       `${volumePath}:/cache:rw`,
       "--cap-add",
       "NET_ADMIN",
-      "-m",
-      String(2 * 1024 ** 3),
-      "--ulimit",
-      "nofile=65536:65536",
       "sandbox-project:latest",
     ];
     commands.givenOutput(
@@ -521,10 +517,6 @@ describe("AppleContainerService", () => {
         { host: "host.container.internal", address: "192.168.64.1" },
         { host: "host.docker.internal", address: "192.168.64.1" },
       ])}`,
-      "-m",
-      String(2 * 1024 ** 3),
-      "--ulimit",
-      "nofile=65536:65536",
       "sandbox-project:latest",
     ];
     commands.givenOutput(

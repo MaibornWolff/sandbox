@@ -5,8 +5,6 @@ import type {
   TerminalSessionOptions,
 } from "../container-contract.js";
 
-const MINIMUM_APPLICATION_MEMORY_BYTES = 2 * 1024 ** 3;
-
 export interface AppleCreateArgumentOptions {
   readonly allocateTerminal: boolean;
   readonly resolveMountSource: (mount: ContainerMount) => string;
@@ -61,15 +59,7 @@ export function buildAppleCreateArgs(
   if (spec.security.dockerInDocker) {
     args.push("--masked-path", "NONE", "--read-only-path", "NONE");
   }
-  const memoryBytes = Math.max(
-    spec.resources.memoryBytes ?? 0,
-    MINIMUM_APPLICATION_MEMORY_BYTES,
-  );
-  args.push("-m", String(memoryBytes));
-  if (spec.resources.sharedMemorySize) {
-    args.push("--shm-size", spec.resources.sharedMemorySize);
-  }
-  args.push("--ulimit", "nofile=65536:65536", spec.image);
+  args.push(spec.image);
   return args;
 }
 

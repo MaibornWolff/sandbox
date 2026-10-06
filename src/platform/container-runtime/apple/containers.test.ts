@@ -70,10 +70,6 @@ const createArgs = [
   "sandbox-alpha",
   "--network",
   "default",
-  "-m",
-  String(2 * 1024 ** 3),
-  "--ulimit",
-  "nofile=65536:65536",
   "sandbox-alpha:latest",
 ];
 

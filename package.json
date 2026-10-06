@@ -86,6 +86,7 @@
     "@earendil-works/pi-tui": "^0.85.1",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
+    "core-js": "^3.50.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "fast-glob": "^3.3.3",

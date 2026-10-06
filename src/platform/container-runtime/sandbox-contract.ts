@@ -2,6 +2,7 @@ import type { ProcessResult } from "#platform/process/index.js";
 import type { Runtime } from "./runtime-types.js";
 
 export interface SandboxImageBuilder {
+  isAvailable(image: SandboxImage): Promise<boolean>;
   build(request: SandboxImageBuildRequest): Promise<SandboxImage>;
   removeUnused(
     request: SandboxImageCleanupRequest,

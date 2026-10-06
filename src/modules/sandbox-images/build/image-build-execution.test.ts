@@ -162,6 +162,107 @@ describe("buildImages", () => {
     });
   });
 
+  test.each([
+    { runtimeName: "docker", availableAncestors: false, projectChanged: false },
+    { runtimeName: "podman", availableAncestors: false, projectChanged: false },
+    {
+      runtimeName: "apple-container",
+      availableAncestors: false,
+      projectChanged: false,
+    },
+    {
+      runtimeName: "apple-container",
+      availableAncestors: true,
+      projectChanged: false,
+    },
+    {
+      runtimeName: "apple-container",
+      availableAncestors: false,
+      projectChanged: true,
+    },
+  ] as const)(
+    "recovers missing images despite complete cached records: %j",
+    async ({ runtimeName, availableAncestors, projectChanged }) => {
+      using cleanup = new DisposableStack();
+      const setup = createLayeredTestSetup();
+      cleanup.defer(() => cleanupTestDir(setup.root));
+      const harness = createStatefulContainerRuntimeHarness({
+        runtime: runtimeName,
+      });
+      const runtime = await harness.provider.resolve();
+      const baseHash = getImageHash(getBaseDockerfilePath());
+      const userHash = combineHash(
+        getImageHash(setup.userDockerfile),
+        baseHash,
+      );
+      const projectHash = combineHash(
+        getImageHash(setup.projectDockerfile),
+        userHash,
+      );
+
+      if (availableAncestors) {
+        harness.images.create({
+          id: "sha256:abc001",
+          references: ["sandbox-base:latest"],
+          labels: { "dockerfile.hash": baseHash, "sandbox.managed": "true" },
+        });
+        harness.images.create({
+          id: "sha256:abc002",
+          references: ["sandbox-user:latest"],
+          labels: { "dockerfile.hash": userHash, "sandbox.managed": "true" },
+        });
+      }
+      if (projectChanged) {
+        fs.appendFileSync(
+          setup.projectDockerfile,
+          "\nRUN echo changed-project",
+        );
+      }
+
+      const result = await runLayered(setup, async () => {
+        writeState({
+          sandboxImages: {
+            [`${runtimeName}:sandbox-base:latest`]: {
+              reference: "sandbox-base:latest",
+              digest: "sha256:abc001",
+              labels: { "dockerfile.hash": baseHash },
+            },
+            [`${runtimeName}:sandbox-user:latest`]: {
+              reference: "sandbox-user:latest",
+              digest: "sha256:abc002",
+              labels: { "dockerfile.hash": userHash },
+            },
+            [`${runtimeName}:${getProjectImage(setup.projectRoot)}`]: {
+              reference: getProjectImage(setup.projectRoot),
+              digest: "sha256:abc003",
+              labels: { "dockerfile.hash": projectHash },
+            },
+          },
+        });
+        return buildImages(runtime, {
+          projectRoot: setup.projectRoot,
+          buildTrigger: "if-needed",
+        });
+      });
+
+      const expectedBuilds = availableAncestors
+        ? [getProjectImage(setup.projectRoot)]
+        : [
+            "sandbox-base:latest",
+            "sandbox-user:latest",
+            getProjectImage(setup.projectRoot),
+          ];
+      expect(harness.images.builds().map((build) => build.options.tag)).toEqual(
+        expectedBuilds,
+      );
+      expect(
+        harness.images.find(getProjectImage(setup.projectRoot)),
+      ).toMatchObject({
+        id: result.image.digest,
+      });
+    },
+  );
+
   test("preserves the recorded image reference and digest for a no-op build", async () => {
     using cleanup = new DisposableStack();
     const setup = createLayeredTestSetup();
@@ -181,6 +282,11 @@ describe("buildImages", () => {
       digest: "sha256:abcdef",
     };
 
+    harness.images.create({
+      id: finalImage.digest,
+      references: [finalImage.reference],
+      labels: { "dockerfile.hash": projectHash },
+    });
     const result = await runLayered(setup, async () => {
       writeState({
         sandboxImages: {
@@ -208,6 +314,9 @@ describe("buildImages", () => {
 
     expect(harness.images.builds()).toHaveLength(0);
     expect(result.image).toEqual(finalImage);
+    expect(harness.events()).toEqual([
+      { type: "image.inspect", reference: finalImage.reference },
+    ]);
   });
 
   test("persists replaced image ownership across cleanup workflow runs", async () => {

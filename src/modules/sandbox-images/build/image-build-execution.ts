@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import chalk from "chalk";
 import type {
   SandboxImage,
   SandboxRuntimeSelection,
@@ -149,14 +150,24 @@ async function executeBuildPlan(
   service: SandboxImageServices,
   silent: boolean,
 ): Promise<{ readonly image: SandboxImage; readonly builtAny: boolean }> {
-  let finalImage: SandboxImage | undefined;
+  const buildInputsChanged = plan.layers.some(
+    (entry) => entry.state.shouldBuild,
+  );
+  if (!buildInputsChanged && plan.finalImage) {
+    getLogger().debug(
+      `Checking local image ${chalk.cyan(plan.finalImage.reference)}`,
+    );
+    if (await service.imageBuilder.isAvailable(plan.finalImage)) {
+      return { image: plan.finalImage, builtAny: false };
+    }
+    getLogger().warn(
+      `The recorded image ${chalk.cyan(plan.finalImage.reference)} is missing or has changed. Checking all image layers.`,
+    );
+  }
 
+  let finalImage: SandboxImage | undefined;
   for (const entry of plan.layers) {
     const { layer, state } = entry;
-    if (!state.shouldBuild) {
-      continue;
-    }
-
     try {
       finalImage = await buildFromDockerfilePath(
         layer.dockerfilePath,
@@ -174,9 +185,8 @@ async function executeBuildPlan(
     }
   }
 
-  if (finalImage) return { image: finalImage, builtAny: true };
-  if (!plan.finalImage) throw new Error("The image build plan is empty.");
-  return { image: plan.finalImage, builtAny: false };
+  if (!finalImage) throw new Error("The image build plan is empty.");
+  return { image: finalImage, builtAny: true };
 }
 
 /**

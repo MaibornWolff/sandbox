@@ -148,6 +148,9 @@ export class AppleContainerService
     );
   }
 
+  isAvailable: SandboxImageBuilder["isAvailable"] = (image) =>
+    this.imageBuilder.isAvailable(image);
+
   build: SandboxImageBuilder["build"] = (request) =>
     this.imageBuilder.build(request);
 

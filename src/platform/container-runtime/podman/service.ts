@@ -91,6 +91,9 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
     this.host = createPodmanHostOperations(exec);
   }
 
+  isAvailable: SandboxImageBuilder["isAvailable"] = (image) =>
+    this.imageBuilder.isAvailable(image);
+
   build: SandboxImageBuilder["build"] = (request) =>
     this.imageBuilder.build(request);
 

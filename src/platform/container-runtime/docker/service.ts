@@ -53,6 +53,9 @@ export class DockerService implements SandboxRuntime, SandboxImageBuilder {
     this.host = createDockerHostOperations(exec);
   }
 
+  isAvailable: SandboxImageBuilder["isAvailable"] = (image) =>
+    this.imageBuilder.isAvailable(image);
+
   build: SandboxImageBuilder["build"] = (request) =>
     this.imageBuilder.build(request);
 

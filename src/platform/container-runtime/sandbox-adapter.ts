@@ -145,6 +145,10 @@ export function createSandboxImageBuilder(
   resolveImage: ResolveSandboxImage,
 ): SandboxImageBuilder {
   return {
+    async isAvailable(image) {
+      const details = await operations.inspect(image.reference);
+      return details?.id === image.digest;
+    },
     async build(request): Promise<SandboxImage> {
       const existing = await operations.inspect(request.tag);
       if (request.cachePolicy === "use") {

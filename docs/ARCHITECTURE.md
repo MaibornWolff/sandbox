@@ -91,7 +91,7 @@ The container environment:
 
 The container-runtime component exposes two boundaries:
 
-- `SandboxImageBuilder` builds immutable images and removes selected unused images.
+- `SandboxImageBuilder` checks local image availability, builds immutable images, and removes selected unused images.
 - `SandboxRuntime` runs instances and owns runtime-local persistent storage.
 
 Docker, Podman, and Apple `container` implement both boundaries. Sandbox modules use opaque instance and storage handles. They do not use runtime image stores, container names, or volume names. Docker and Podman share Docker-compatible code only inside the adapter.
@@ -101,6 +101,8 @@ Automatic instance cleanup preserves instances that are still being created. Run
 The Apple adapter initializes newly allocated logical storage from image contents before instance creation. One helper copies all new volumes into staging directories. A storage lock prevents concurrent copies. Existing storage is retained, and warm starts do not repeat initialization.
 
 A build returns a content identity that the selected runtime can start. Docker and Podman use the local image ID. Apple uses the image descriptor digest. Sandbox records this immutable identity for `--no-build` and reuse decisions.
+
+An image record is not proof that the image is still in the runtime image store. When build inputs are unchanged, Sandbox checks the final image reference and content identity before it skips the build. This check does not require parent images. If the final image is missing or changed, Sandbox checks all layers through the image builder. The builder reuses matching local layers and builds missing or changed layers.
 
 ## Configuration Model
 

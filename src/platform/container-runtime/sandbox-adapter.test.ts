@@ -3,6 +3,48 @@ import { createStatefulContainerRuntimeHarness } from "./__test__/index.js";
 import { getSandboxStorageNativeName } from "./sandbox-adapter.js";
 
 describe("createSandboxImageBuilder", () => {
+  test.each([
+    { localDigest: null, available: false },
+    { localDigest: "sha256:abc001", available: true },
+    { localDigest: "sha256:abc002", available: false },
+  ])(
+    "checks the stored reference and content identity: %j",
+    async ({ localDigest, available }) => {
+      const harness = createStatefulContainerRuntimeHarness({
+        runtime: "apple-container",
+      });
+      if (localDigest) {
+        harness.images.create({
+          id: localDigest,
+          references: ["sandbox-user:latest"],
+        });
+      }
+      const { imageBuilder } = await harness.provider.resolve();
+
+      expect(
+        await imageBuilder.isAvailable({
+          reference: "sandbox-user:latest",
+          digest: "sha256:abc001",
+        }),
+      ).toBe(available);
+    },
+  );
+
+  test("preserves image lookup failures", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    const failure = new Error("image store unavailable");
+    harness.system.fail("image.inspect", failure);
+    const { imageBuilder } = await harness.provider.resolve();
+
+    await expect(
+      imageBuilder.isAvailable({
+        reference: "sandbox-base:latest",
+        digest: "sha256:abc001",
+      }),
+    ).rejects.toBe(failure);
+    expect(harness.images.builds()).toHaveLength(0);
+  });
+
   test("forwards exactly the supplied cleanup candidates after a build", async () => {
     const harness = createStatefulContainerRuntimeHarness();
     harness.images.create({

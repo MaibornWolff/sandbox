@@ -16,12 +16,3 @@ export {
   type SandboxEnvironment,
 } from "./sandbox-environment.js";
 export { exitProcess, getProcessArguments, setExitCode } from "./system.js";
-export {
-  checkXHostAccess,
-  detectX11,
-  isWindowsXServerInstalled,
-  isXQuartzInstalled,
-  isXQuartzNetworkAccessEnabled,
-  isXQuartzRestartNeeded,
-} from "./x11.js";
-export type { X11Config } from "./x11-config.js";

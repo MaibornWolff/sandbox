@@ -55,7 +55,6 @@ function registerCommands(program: Command): void {
 Examples:
   $ sandbox run claude
   $ sandbox run --no-build claude
-  $ sandbox --clipboard disabled run codex
   $ sandbox run -- sh -c 'echo "$HOME"'
   $ sandbox run -- curl -fsS https://example.com
 

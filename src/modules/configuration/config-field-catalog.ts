@@ -4,7 +4,12 @@ import {
   APPLE_CONTAINER_DNS_MODES,
   DEFAULT_CONTAINER_RUNTIME_OPTIONS,
 } from "#platform/container-runtime/index.js";
-import { type Config, RUNTIME_IDS, type RuntimeId } from "./config.js";
+import {
+  CLIPBOARD_MODES,
+  type Config,
+  RUNTIME_IDS,
+  type RuntimeId,
+} from "./config.js";
 
 export type MergeStrategy = "accumulate" | "override";
 type DefaultDecision = "runtime" | "value" | "optional";
@@ -91,13 +96,18 @@ export const CONFIG_FIELD_CATALOG = {
   }),
   clipboard: defineField({
     configKey: "clipboard",
-    schema: z.enum(["auto", "x11", "disabled"]).optional(),
-    type: '"auto" | "x11" | "disabled"',
-    description: "Clipboard sharing mode between host and container.",
+    schema: z
+      .enum(CLIPBOARD_MODES, {
+        error: 'Use clipboard = "enabled" or clipboard = "disabled".',
+      })
+      .optional(),
+    type: '"enabled" | "disabled"',
+    description:
+      "Host clipboard access for attached sessions. Disabled sessions have no host clipboard reads or writes.",
     mergeStrategy: "override",
     defaultDecision: "value",
-    defaultValue: "auto",
-    examples: [],
+    defaultValue: "enabled",
+    examples: ['"disabled"'],
   }),
   full_network: defineField({
     configKey: "fullNetwork",
@@ -228,8 +238,8 @@ export function createCatalogDefaults(runtime: RuntimeId): Config {
     mounts: [...(CONFIG_FIELD_CATALOG.mounts.defaultValue ?? [])],
     env: [...(CONFIG_FIELD_CATALOG.env.defaultValue ?? [])],
     readonly: CONFIG_FIELD_CATALOG.readonly.defaultValue ?? false,
+    clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "enabled",
     persistPaths: [...(CONFIG_FIELD_CATALOG.persist_paths.defaultValue ?? [])],
-    clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "auto",
     settings: [...(CONFIG_FIELD_CATALOG.settings.defaultValue ?? [])],
     ports: [...(CONFIG_FIELD_CATALOG.ports.defaultValue ?? [])],
     allowNetwork: [...(CONFIG_FIELD_CATALOG.allow_network.defaultValue ?? [])],

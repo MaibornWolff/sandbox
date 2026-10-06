@@ -6,6 +6,7 @@ import type {
   ExecSpec,
   TerminalSessionOptions,
 } from "../container-contract.js";
+import { openContainerExec } from "../exec-stream.js";
 import type {
   ImageBuildSpec,
   ImageCleanupRequest,
@@ -88,6 +89,11 @@ export type ContainerRuntimeEvent =
       readonly containerId: string;
       readonly command: readonly string[];
       readonly options: ContainerExecOptions;
+    }
+  | {
+      readonly type: "container.exec-stream";
+      readonly containerId: string;
+      readonly spec: ExecSpec;
     }
   | {
       readonly type: "container.exec-attached";
@@ -647,6 +653,20 @@ class StatefulRuntimeWorld {
           }
           throw error;
         }
+      },
+      openExec: async (id, spec) => {
+        const container = this.findContainer(id);
+        this.recordedEvents.push({
+          type: "container.exec-stream",
+          containerId: container.id,
+          spec,
+        });
+        return openContainerExec("stateful-container-runtime", [
+          "exec",
+          "-i",
+          id,
+          ...spec.command,
+        ]);
       },
       execAttached: async (id, spec, session) => {
         const container = this.findContainer(id);

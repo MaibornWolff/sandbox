@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     ca-certificates curl wget unzip git openssh-client bash zsh jq less neovim tmux \
     nodejs python3 python-is-python3 python3-pip \
     build-essential pkg-config ripgrep fd-find fzf netcat-openbsd socat rsync \
-    xclip xsel imagemagick x11-utils \
+    xvfb xauth xclip xsel imagemagick x11-utils \
     ffmpeg libavcodec-extra \
     zsh-autosuggestions locales man-db procps iproute2 gosu iptables tcpdump dnsmasq squid dnsutils \
   && ln -sf /usr/bin/fdfind /usr/local/bin/fd \

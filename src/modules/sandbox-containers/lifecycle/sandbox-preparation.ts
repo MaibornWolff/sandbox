@@ -10,7 +10,6 @@ import {
   getFinalImage,
 } from "#modules/sandbox-images/index.js";
 import type { SandboxRuntimeSelection } from "#platform/container-runtime/index.js";
-import { detectX11 } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { readState } from "#platform/state/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
@@ -57,24 +56,6 @@ async function resolveExistingFinalImage(
   return { imageName, image };
 }
 
-export async function warnIfX11Unavailable(
-  silent: boolean,
-  clipboard: string,
-): Promise<void> {
-  if (silent || clipboard === "disabled") return;
-  if ((await detectX11()).available) return;
-
-  writeErrorLine(chalk.yellow("⚠️  X11 clipboard not available"));
-  writeErrorLine(
-    chalk.yellow("   Run `sandbox setup-x11` for setup instructions"),
-  );
-  writeErrorLine(
-    chalk.yellow(
-      "   Terminal text clipboard may work via OSC 52 passthrough\n",
-    ),
-  );
-}
-
 export async function prepareSandboxEnvironment(
   services: SandboxRuntimeSelection,
   ctx: SandboxContext,
@@ -84,13 +65,8 @@ export async function prepareSandboxEnvironment(
 ): Promise<BuildImagesResult> {
   const logger = getLogger();
   displayConfigWarnings(silent);
-  logger.debug("Checking runtime host and X11 availability");
-  const [host, x11] = await Promise.allSettled([
-    services.runtime.ensureHostReady(),
-    detectX11(),
-  ]);
-  if (host.status === "rejected") throw host.reason;
-  if (x11.status === "rejected") throw x11.reason;
+  logger.debug("Checking runtime host availability");
+  await services.runtime.ensureHostReady();
 
   const skipBuild = cliOptions.noBuild || cliOptions.build === false;
   const label = skipBuild ? "Image resolution" : "Image checks and builds";

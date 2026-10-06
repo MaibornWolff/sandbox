@@ -39,7 +39,6 @@ describe("sandbox program metadata", () => {
       "stop",
       "init",
       "clean",
-      "setup-x11",
       "update",
       "doctor",
       "config",

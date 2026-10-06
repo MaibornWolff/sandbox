@@ -84,6 +84,14 @@ The test installs and executes just, fetches the mise signing key through restri
 
 External fixtures are part of the tested boundary. The network tests require their declared public domains and DNS records. The mise and PHP tests require equivalent package sources and generated Dockerfiles. Investigate a fixture failure before you replace the fixture.
 
+## Clipboard Qualification
+
+`clipboard.test.ts` uses a native clipboard fixture that reads and writes files. It does not read or replace the real host clipboard.
+
+The separate host metadata test requires `SANDBOX_APPROVE_HOST_CLIPBOARD=1`. Set this variable only after approval for host clipboard access. This test reads supported-format metadata. It does not publish content or qualify native image conversion.
+
+Do not use the isolated tests as evidence that native clipboard support is qualified.
+
 ## Boundary Inventory
 
 - `container-settings.test.ts`: existing and missing mount-mode and copy-mode settings, ownership, IDE bridge readiness, synchronization, and atomic replacement

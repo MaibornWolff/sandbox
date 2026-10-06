@@ -1,4 +1,5 @@
 import type { ProcessResult } from "#platform/process/index.js";
+import type { SandboxExecProcess } from "./container-contract.js";
 import type { Runtime } from "./runtime-types.js";
 
 export interface SandboxImageBuilder {
@@ -109,6 +110,7 @@ export interface SandboxInstanceOperations {
   stopAndRemove(id: string): Promise<void>;
   remove(id: string, options?: SandboxInstanceRemoveOptions): Promise<void>;
   exec(id: string, spec: SandboxExecSpec): Promise<CommandResult>;
+  openExec(id: string, spec: SandboxExecSpec): Promise<SandboxExecProcess>;
   execAttached(
     id: string,
     spec: SandboxExecSpec,

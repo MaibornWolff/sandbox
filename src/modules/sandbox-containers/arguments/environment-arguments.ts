@@ -7,6 +7,9 @@ function isStartupOwnedEnvironmentName(name: string): boolean {
     name.startsWith("SANDBOX_") ||
     name === "CLAUDE_CODE_SSE_PORT" ||
     name === "DISPLAY" ||
+    name === "XAUTHORITY" ||
+    name === "WAYLAND_DISPLAY" ||
+    name === "WAYLAND_SOCKET" ||
     name === "X11_AVAILABLE"
   );
 }

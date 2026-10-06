@@ -14,6 +14,8 @@ type Owner =
   | "platform/dependency-injection"
   | "platform/environment"
   | "platform/filesystem"
+  | "platform/x11-clipboard"
+  | "platform/websocket"
   | "platform/process"
   | "platform/terminal";
 
@@ -62,6 +64,12 @@ async function rules(
 }
 
 const dependencyContracts: Readonly<Record<string, string>> = {
+  "src/modules/host-bridge/session.ts":
+    'interface HostBridgeService { startSession(): void }\nconst dependency = createDependency<HostBridgeService>("Host bridge service");\nexport function provideHostBridgeService(value: HostBridgeService) { return dependency.provide(value); }\nexport function getHostBridgeService() { return dependency.get(); }\n',
+  "src/modules/clipboard/host-capability.ts":
+    'interface ClipboardCapabilityFactory { create(): void }\nconst dependency = createDependency<ClipboardCapabilityFactory>("clipboard capability factory");\nexport function provideClipboardCapabilityFactory(value: ClipboardCapabilityFactory) { return dependency.provide(value); }\nexport function getClipboardCapabilityFactory() { return dependency.get(); }\n',
+  "src/modules/clipboard/proxy.ts":
+    'interface ClipboardProxyRunner { run(): void }\nconst dependency = createDependency<ClipboardProxyRunner>("clipboard proxy runner");\nexport function provideClipboardProxyRunner(value: ClipboardProxyRunner) { return dependency.provide(value); }\nexport function getClipboardProxyRunner() { return dependency.get(); }\n',
   "src/modules/configuration/configuration-service.ts":
     'interface ConfigurationService { load(): void }\nconst configurationServiceDependency = createDependency<ConfigurationService>("configuration service");\nexport function provideConfigurationService(value: ConfigurationService) { return configurationServiceDependency.provide(value); }\nexport function getConfigurationService() { return configurationServiceDependency.get(); }\n',
   "src/platform/clock/clock.ts":
@@ -71,7 +79,7 @@ const dependencyContracts: Readonly<Record<string, string>> = {
   "src/platform/container-system/tcp-service.ts":
     'interface TcpService { connect(): void }\nconst tcpServiceDependency = createDependency<TcpService>("TCP service");\nexport function provideTcpService(value: TcpService) { return tcpServiceDependency.provide(value); }\nexport function getTcpService() { return tcpServiceDependency.get(); }\n',
   "src/platform/environment/host-environment.ts":
-    'interface HostEnvironmentExecution { read(): void }\nconst hostEnvironmentDependency = createDependency<HostEnvironmentExecution>("host environment");\nexport function provideHostEnvironment(value: HostEnvironmentExecution) { return hostEnvironmentDependency.provide(value); }\nexport function getHostEnvironment() { return hostEnvironmentDependency.get(); }\n',
+    'interface HostEnvironment { readonly platform: string }\nconst hostEnvironmentDependency = createDependency<HostEnvironment>("host environment");\nexport function provideHostEnvironment(value: HostEnvironment) { return hostEnvironmentDependency.provide(value); }\nexport function getHostEnvironment() { return hostEnvironmentDependency.get(); }\n',
   "src/platform/environment/sandbox-environment.ts":
     'interface SandboxEnvironment { readonly home: string }\nconst sandboxEnvironmentDependency = createDependency<SandboxEnvironment>("sandbox environment");\nexport function provideSandboxEnvironment(value: SandboxEnvironment) { return sandboxEnvironmentDependency.provide(value); }\nexport function getSandboxEnvironment() { return sandboxEnvironmentDependency.get(); }\n',
   "src/platform/logging/logger.ts":
@@ -130,6 +138,28 @@ afterEach(async () => {
 });
 
 describe("scanSideEffects", () => {
+  test("limits clipboard filesystem and network access to concrete adapters", async () => {
+    const filesystem = 'import { mkdtemp } from "node:fs/promises";\n';
+    expect(
+      await rules("platform/x11-clipboard", filesystem, "display.ts"),
+    ).toEqual([]);
+    expect(
+      await rules("platform/x11-clipboard", filesystem, "service.ts"),
+    ).toContain("direct-filesystem-import");
+    const network = 'import { connect } from "node:net";\n';
+    expect(
+      await rules("platform/x11-clipboard", network, "protocol.ts"),
+    ).toEqual([]);
+    expect(
+      await rules("platform/x11-clipboard", network, "service.ts"),
+    ).toContain("direct-network-I/O-import");
+    const tls = 'import { createServer } from "node:https";\n';
+    expect(await rules("platform/websocket", tls, "tls.ts")).toEqual([]);
+    expect(await rules("platform/websocket", tls, "service.ts")).toContain(
+      "direct-network-I/O-import",
+    );
+  });
+
   test("rejects direct filesystem, process, fetch, and console effects", async () => {
     expect(
       await rules(
@@ -397,7 +427,7 @@ describe("scanSideEffects", () => {
     ).toEqual([]);
   });
 
-  test("enforces the exact ten-token dependency manifest", async () => {
+  test("enforces the exact owner dependency manifest", async () => {
     const clockFile = "src/platform/clock/clock.ts";
     const validClock = dependencyContracts[clockFile] ?? "";
     const scenarios = [
@@ -435,7 +465,7 @@ describe("scanSideEffects", () => {
     }
   });
 
-  test("rejects moved and eleventh dependency contracts", async () => {
+  test("rejects moved and additional dependency contracts", async () => {
     const clockFile = "src/platform/clock/clock.ts";
     const processFile = "src/platform/process/process-manager.ts";
     const { architecture, root } = await dependencyManifestFixture({

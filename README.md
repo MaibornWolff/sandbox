@@ -52,7 +52,7 @@ Review `~/.config/sandbox/config.toml`. Add required API keys.
 sandbox doctor
 ```
 
-This command checks the container runtime and configuration files. It also checks the optional X Window System (X11) clipboard setup.
+This command checks the container runtime and configuration files.
 
 ### 3. Run an agent in your project
 
@@ -492,7 +492,6 @@ Common global flags (available for `sandbox` and subcommands like `sandbox run`)
 - `-n, --allow-network <host>` Allow outbound host/domain through firewall
 - `-N, --full-network` Disable network firewall (allow all outbound)
 - `-r, --readonly` Mount project read-only
-- `-c, --clipboard <mode>` Clipboard mode (`auto`, `x11`, `disabled`)
 - `-v, --verbose` Show detailed timing output
 - `-t, --trust` Trust project config without prompting
 - `-u, --no-container-reuse` Force a fresh container
@@ -506,7 +505,7 @@ Examples:
 ```bash
 sandbox --mount /data:rw --env DEBUG=1 run claude
 sandbox --port 3000 --allow-network api.example.com run claude
-sandbox --readonly --clipboard disabled run claude
+sandbox --readonly run claude
 ```
 
 ## Customizing the Docker Image
@@ -571,7 +570,6 @@ sandbox build --project   # Build the project layer
 | `sandbox doctor`         | Check configuration and environment           |
 | `sandbox network logs`   | Show firewall activity (blocked/allowed)      |
 | `sandbox network allow`  | Interactively add domains from logs to config |
-| `sandbox setup-x11`      | Configure X11 clipboard support               |
 
 ## Troubleshooting
 
@@ -745,15 +743,17 @@ We evaluated existing tools and none offered the combination we needed: cross-pl
 
 Sandbox is designed to be **agent-agnostic** (Claude, Codex, OpenCode, or any command), **cross-platform** (Docker, Podman, Colima, Rancher Desktop), and **fully customizable** (layered images for user and project needs, config cascade from defaults to CLI flags, granular persistence and network control).
 
-## X11 Clipboard (Optional)
+## Clipboard access
 
-Image paste is disabled by default. Configure an X11 server on the host to enable it:
+Clipboard access is enabled by default for attached host sessions. Sandbox uses a private X11 display in the container and CrossCopy on the host. No XQuartz or Windows X server is required.
 
-```bash
-sandbox setup-x11
+To disable all Sandbox clipboard reads and writes, set this in your user `config.toml`:
+
+```toml
+clipboard = "disabled"
 ```
 
-See the full guide: [docs/X11-SETUP](./docs/X11-SETUP.md).
+Processes in an attached session can read or replace the host clipboard while it is enabled. See [host requirements, limits, and access risks](./docs/CLIPBOARD.md).
 
 ## Windows Notes
 

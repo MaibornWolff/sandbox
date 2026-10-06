@@ -21,7 +21,7 @@ function sessionFirewallRules(output: string): string[] {
     .split("\n")
     .filter(
       (line) =>
-        line.startsWith("-A OUTPUT ") && line.includes("sandbox-host-command-"),
+        line.startsWith("-A OUTPUT ") && line.includes("sandbox-host-bridge-"),
     );
 }
 

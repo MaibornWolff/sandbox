@@ -1,4 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import {
+  HOST_BRIDGE_ENDPOINT_VARIABLE,
+  openHostBridgeConnection,
+} from "#modules/host-bridge/index.js";
+import { runWithDependencies } from "#platform/dependency-injection/index.js";
+import {
+  createNodeWebSocketService,
+  provideWebSocketService,
+} from "#platform/websocket/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
@@ -25,73 +34,149 @@ function givenSuccessfulInteractiveProcess(
 }
 
 describe("sandbox shell and run", () => {
-  test("overlaps X11 detection with host validation and waits on host failure", async () => {
+  test("fails host validation without checking a host display", async () => {
     await using app = await setupSandboxAppTest({
       platform: "darwin",
       runtimeBoundary: "process",
     });
     app.global.writeConfig('runtime = "docker"\n');
-    const host = app.processes.expectStart({
-      match: { command: "docker", args: ["--version"] },
-    });
-    const x11 = app.processes.expectStart({ match: { command: "pgrep" } });
-    let completed = false;
-    const execution = app.cli
-      .run("--no-build", "run", "true")
-      .then((result) => {
-        completed = true;
-        return result;
-      });
-    await host.waitForStart();
-    const detectionStarted = app.processes.requests.some(
-      (request) => request.command === "pgrep",
-    );
-    host.resolveResult({ exitCode: 1, stdout: "", stderr: "offline" });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    const completedBeforeDetection = completed;
-    x11.resolveResult({ exitCode: 0, stdout: "123", stderr: "" });
-    const result = await execution;
-    expect(detectionStarted).toBe(true);
-    expect(completedBeforeDetection).toBe(false);
+    app.processes
+      .expectStart({ match: { command: "docker", args: ["--version"] } })
+      .resolveResult({ exitCode: 1, stdout: "", stderr: "offline" });
+    const result = await app.cli.run("--no-build", "run", "true");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Docker daemon is not running");
-    expect(result.stderr).not.toContain("X11 clipboard not available");
+    expect(
+      app.processes.requests.some((request) => request.command === "pgrep"),
+    ).toBe(false);
   });
 
-  test.each([
-    { silent: false, available: false, clipboard: "auto" },
-    { silent: true, available: false, clipboard: "auto" },
-    { silent: false, available: true, clipboard: "auto" },
-    { silent: false, available: false, clipboard: "disabled" },
-  ])(
-    "detects X11 once and preserves warning behavior: %j",
-    async ({ silent, available, clipboard }) => {
-      await using app = await setupSandboxAppTest({ platform: "darwin" });
-      app.global.writeConfig(`clipboard = "${clipboard}"\n`);
-      app.processes.expectStart({ match: { command: "pgrep" } }).resolveResult({
-        exitCode: available ? 0 : 1,
-        stdout: available ? "123" : "",
-        stderr: "",
-      });
-      givenSuccessfulInteractiveProcess(app);
-      const result = await app.cli.run(
-        "run",
-        ...(silent ? ["--silent"] : []),
-        "true",
-      );
-      expect(result.exitCode).toBe(0);
-      expect(result.stderr.includes("X11 clipboard not available")).toBe(
-        !silent && !available && clipboard !== "disabled",
-      );
-      expect(
-        app.processes.requests.filter((request) => request.command === "pgrep"),
-      ).toHaveLength(1);
-      expect(
-        app.runtime.events().find((event) => event.type === "container.create")
-          ?.options.environment.X11_AVAILABLE,
-      ).toBe(String(available));
+  test.each(["--clipboard", "-c"])(
+    "rejects removed option %s",
+    async (flag) => {
+      await using app = await setupSandboxAppTest();
+      const result = await app.cli.run(flag, "disabled", "run", "true");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("unknown option");
+      expect(attachedExecution(app)).toBeUndefined();
     },
   );
+  test.each(["global", "project"] as const)(
+    "disables host clipboard access from %s settings without disabling host commands",
+    async (source) => {
+      await using app = await setupSandboxAppTest({
+        variables: { DISPLAY: "host:0", WAYLAND_DISPLAY: "wayland-0" },
+      });
+      if (source === "global") {
+        app.global.writeConfig('clipboard = "disabled"\n');
+      } else {
+        app.global.writeConfig('clipboard = "enabled"\n');
+        app.project.writeConfig('clipboard = "disabled"\n', { trusted: true });
+      }
+      const user = app.processes.expectStart({ match: { stdio: "inherit" } });
+      const execution = app.cli.run("--verbose", "run", "true");
+      await Promise.race([
+        user.waitForStart(),
+        execution.then((result) => expect(result.exitCode).toBe(0)),
+      ]);
+      const environment = attachedExecution(app)?.spec.environment ?? {};
+      expect(environment).not.toHaveProperty("DISPLAY");
+      expect(environment).not.toHaveProperty("XAUTHORITY");
+      expect(environment).not.toHaveProperty("WAYLAND_DISPLAY");
+      expect(app.clipboardSession.sessions).toHaveLength(0);
+      const endpoint = new URL(
+        environment[HOST_BRIDGE_ENDPOINT_VARIABLE] ?? "",
+      );
+      endpoint.hostname = "127.0.0.1";
+      const bridgeEnvironment = {
+        ...environment,
+        [HOST_BRIDGE_ENDPOINT_VARIABLE]: endpoint.href,
+      };
+      await runWithDependencies(
+        [provideWebSocketService(createNodeWebSocketService())],
+        async () => {
+          for (const capability of ["clipboard-read", "clipboard-write"]) {
+            await expect(
+              openHostBridgeConnection({
+                capability,
+                environment: bridgeEnvironment,
+              }),
+            ).rejects.toThrow("404");
+          }
+          await using commands = await openHostBridgeConnection({
+            capability: "host-command",
+            environment: bridgeEnvironment,
+          });
+          await commands.sendText(JSON.stringify({ type: "list" }));
+          for await (const message of commands.messages) {
+            expect(message).toMatchObject({
+              type: "text",
+              data: JSON.stringify({ type: "allowed-commands", patterns: [] }),
+            });
+            break;
+          }
+        },
+      );
+      user.resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+      const result = await execution;
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("Clipboard access is disabled");
+      expect(app.clipboard.publications).toHaveLength(0);
+    },
+  );
+
+  test("waits for private display readiness and reports an unexpected proxy exit", async () => {
+    await using app = await setupSandboxAppTest({
+      variables: { DISPLAY: "host:0", WAYLAND_DISPLAY: "wayland-0" },
+    });
+    app.clipboardSession.holdReadiness();
+    const user = app.processes.expectStart({ match: { stdio: "inherit" } });
+    const execution = app.cli.run("run", "true");
+    const proxy = await app.clipboardSession.waitForStart();
+    expect(attachedExecution(app)).toBeUndefined();
+    proxy.emitStdout(
+      '{"type":"clipboard-ready","display":":456","authority":"/tmp/private/auth"}\n',
+    );
+    await user.waitForStart();
+    expect(attachedExecution(app)?.spec.environment).toMatchObject({
+      DISPLAY: ":456",
+      XAUTHORITY: "/tmp/private/auth",
+      WAYLAND_DISPLAY: "",
+    });
+    expect(app.clipboard.publications).toHaveLength(0);
+    proxy.emitStdout(
+      '{"type":"clipboard-operation-failed","code":"transfer-timeout"}\n',
+    );
+    app.clipboardSession.exitUnexpectedly();
+    user.resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+    const result = await execution;
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Private clipboard proxy stopped");
+    expect(result.stderr).toContain(
+      "Clipboard transfer failed: transfer-timeout",
+    );
+  });
+
+  test("keeps the command usable after private clipboard startup failure", async () => {
+    await using app = await setupSandboxAppTest({
+      variables: { DISPLAY: "host:0" },
+    });
+    app.clipboardSession.failStartup();
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "Clipboard is unavailable: display: display-executable-unavailable",
+    );
+    expect(result.stderr).not.toContain("private raw failure");
+    expect(attachedExecution(app)?.spec.environment).not.toHaveProperty(
+      "DISPLAY",
+    );
+    expect(attachedExecution(app)?.spec.environment).not.toHaveProperty(
+      "XAUTHORITY",
+    );
+  });
+
   test("uses a versioned runtime cache and schedules cleanup after the session", async () => {
     await using app = await setupSandboxAppTest();
     givenSuccessfulInteractiveProcess(app);
@@ -143,7 +228,7 @@ describe("sandbox shell and run", () => {
 
     expect(result.exitCode).toBe(37);
     expect(result.stderr).not.toContain("Error:");
-    expect(result.stderr).toContain("Stopped host command escape session");
+    expect(result.stderr).toContain("Stopped host bridge session");
   });
 
   test("attaches non-terminal stdin to the root shell without allocating a TTY", async () => {
@@ -261,17 +346,17 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     const result = await app.cli.run("--verbose");
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Load config completed");
-    expect(result.stderr).toContain("Started host command escape session");
+    expect(result.stderr).toContain("Started encrypted host bridge");
     expect(result.stderr.indexOf("Total startup completed")).toBeGreaterThan(
-      result.stderr.indexOf("Started host command escape session"),
+      result.stderr.indexOf("Started encrypted host bridge"),
     );
-    expect(result.stderr).toContain("Stopped host command escape session");
+    expect(result.stderr).toContain("Stopped host bridge session");
     expect(result.stderr).toContain("Exec mode:");
     const executionEnvironment = attachedExecution(app)?.spec.environment;
-    const token = executionEnvironment?.SANDBOX_HOST_COMMAND_ESCAPE_TOKEN;
+    const token = executionEnvironment?.SANDBOX_HOST_BRIDGE_TOKEN;
     expect(token).toBeDefined();
     expect(executionEnvironment).toMatchObject({
-      SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL: "sandbox-host-command-escape.v1",
+      SANDBOX_HOST_BRIDGE_ENDPOINT: expect.stringMatching(/^wss:\/\//u),
     });
     expect(result.stderr).not.toContain(token ?? "");
     expect(
@@ -458,6 +543,9 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     "SANDBOX_CUSTOM",
     "CLAUDE_CODE_SSE_PORT",
     "DISPLAY",
+    "XAUTHORITY",
+    "WAYLAND_DISPLAY",
+    "WAYLAND_SOCKET",
     "X11_AVAILABLE",
   ])(
     "rejects reserved name %s before image preparation without exposing its value",
@@ -535,13 +623,21 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     const tokens = app.runtime
       .events()
       .filter((event) => event.type === "container.exec-attached")
-      .map(
-        (event) => event.spec.environment?.SANDBOX_HOST_COMMAND_ESCAPE_TOKEN,
-      );
+      .map((event) => event.spec.environment?.SANDBOX_HOST_BRIDGE_TOKEN);
     expect(tokens).toHaveLength(2);
     expect(tokens[0]).toBeDefined();
     expect(tokens[1]).toBeDefined();
     expect(tokens[0]).not.toBe(tokens[1]);
+    const displays = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached")
+      .map((event) => event.spec.environment?.DISPLAY);
+    expect(displays[0]).toMatch(/^:[0-9]+$/u);
+    expect(displays[0]).not.toBe(displays[1]);
+    expect(app.clipboardSession.sessions).toHaveLength(2);
+    for (const proxy of app.clipboardSession.sessions)
+      await proxy.waitForInputEnd();
+    expect(app.clipboard.publications).toHaveLength(0);
   });
 
   test.each([
@@ -558,9 +654,8 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
 
       expect(
-        attachedExecution(app)?.spec.environment
-          ?.SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT,
-      ).toStartWith(`ws://${hostAccessName}:`);
+        attachedExecution(app)?.spec.environment?.SANDBOX_HOST_BRIDGE_ENDPOINT,
+      ).toStartWith(`wss://${hostAccessName}:`);
     },
   );
 

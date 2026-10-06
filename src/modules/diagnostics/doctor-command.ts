@@ -11,7 +11,6 @@ import {
   displaySettingsDiagnostics,
 } from "./doctor-display.js";
 import { checkSettingsDiagnostics } from "./settings-diagnostics.js";
-import { checkX11, displayX11Status } from "./x11-check.js";
 
 export async function doctorCommand(): Promise<void> {
   getConfigurationService();
@@ -24,9 +23,9 @@ export async function doctorCommand(): Promise<void> {
   summary.errors += dockerResult.errors.length;
   summary.warnings += dockerResult.warnings.length;
 
-  const x11Result = await checkX11();
-  displayX11Status(x11Result);
-  summary.warnings += x11Result.warnings.length;
+  getTerminal().stdout.write(
+    "Clipboard access is automatic for attached sessions. Host clipboard access is not checked.\n\n",
+  );
 
   const configurationResult = checkConfigurationDiagnostics();
   displayConfigurationDiagnostics(configurationResult);

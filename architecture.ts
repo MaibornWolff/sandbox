@@ -10,6 +10,9 @@ export const architecture = defineArchitecture({
         "sandbox-resources",
         "sandbox-containers",
         "host-command-escape",
+        "host-bridge",
+        "clipboard",
+        "native-clipboard",
         "network",
         "network-diagnostics",
         "sandbox-settings",
@@ -33,6 +36,9 @@ export const architecture = defineArchitecture({
     },
     "sandbox-container-tools": {
       dependencies: [
+        "clipboard",
+        "websocket",
+        "x11-clipboard",
         "network",
         "sandbox-settings",
         "container-system",
@@ -60,8 +66,25 @@ export const architecture = defineArchitecture({
         "text",
       ],
     },
+    "host-bridge": {
+      dependencies: ["websocket", "dependency-injection", "logging"],
+      testDependencies: ["clock"],
+    },
+    clipboard: {
+      dependencies: [
+        "host-bridge",
+        "native-clipboard",
+        "x11-clipboard",
+        "websocket",
+        "clock",
+        "dependency-injection",
+        "logging",
+      ],
+    },
     "host-command-escape": {
       dependencies: [
+        "host-bridge",
+        "clock",
         "websocket",
         "process",
         "environment",
@@ -102,6 +125,8 @@ export const architecture = defineArchitecture({
         "sandbox-images",
         "sandbox-resources",
         "host-command-escape",
+        "host-bridge",
+        "clipboard",
         "network",
         "sandbox-settings",
         "storage",
@@ -192,9 +217,9 @@ export const architecture = defineArchitecture({
         "container-runtime",
         "clock",
         "filesystem",
-        "environment",
         "terminal",
       ],
+      testDependencies: ["dependency-injection"],
     },
     "self-update": {
       dependencies: [
@@ -228,11 +253,16 @@ export const architecture = defineArchitecture({
     process: {
       dependencies: ["clock", "dependency-injection", "logging", "text"],
     },
+    "native-clipboard": { dependencies: [] },
+    "x11-clipboard": {
+      dependencies: ["process", "clock", "environment", "logging"],
+      testDependencies: ["dependency-injection"],
+    },
     websocket: { dependencies: ["dependency-injection"] },
     clock: { dependencies: ["dependency-injection"] },
     filesystem: { dependencies: ["environment"] },
     environment: {
-      dependencies: ["process", "logging", "dependency-injection"],
+      dependencies: ["logging", "dependency-injection"],
     },
     git: { dependencies: ["process", "filesystem", "text"] },
     logging: { dependencies: ["clock", "dependency-injection"] },
@@ -262,9 +292,12 @@ export const architecture = defineArchitecture({
   testApis: [
     "apps/sandbox-container-tools",
     "modules/configuration",
+    "modules/clipboard",
+    "modules/host-bridge",
     "modules/network-diagnostics",
     "modules/self-update",
     "platform/clock",
+    "platform/native-clipboard",
     "platform/container-runtime",
     "platform/container-system",
     "platform/environment",

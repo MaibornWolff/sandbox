@@ -35,5 +35,3 @@ export {
   type TcpEndpoint,
   type TcpService,
 } from "./tcp-service.js";
-/** @lintignore Public container-system X11 contract. */
-export { diagnoseContainerX11 } from "./x11.js";

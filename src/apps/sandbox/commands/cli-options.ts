@@ -92,10 +92,6 @@ export function configureGlobalOptions(program: Command): void {
     )
     .option("-P, --no-proxy", "Disable proxy (requires --full-network)")
     .option("-r, --readonly", "Mount project read-only")
-    .option(
-      "-c, --clipboard <mode>",
-      "Clipboard mode: auto (default), x11, or disabled",
-    )
     .option("-v, --verbose", "Show detailed timing information")
     .option("-u, --no-container-reuse", "Force fresh container (disable reuse)")
     .option("-t, --trust", "Trust project config without prompting");

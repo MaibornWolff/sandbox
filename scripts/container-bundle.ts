@@ -2,7 +2,9 @@ import path from "node:path";
 
 const ALLOWED_SOURCE_ROOTS = [
   "src/apps/sandbox-container-tools/",
+  "src/modules/clipboard/",
   "src/modules/configuration/",
+  "src/modules/host-bridge/",
   "src/modules/network/",
   "src/modules/sandbox-settings/",
   "src/modules/storage/",
@@ -15,6 +17,9 @@ const ALLOWED_SOURCE_ROOTS = [
   "src/platform/logging/",
   "src/platform/process/",
   "src/platform/terminal/",
+  "src/platform/native-clipboard/",
+  "src/platform/websocket/",
+  "src/platform/x11-clipboard/",
   "src/shared/",
 ] as const;
 

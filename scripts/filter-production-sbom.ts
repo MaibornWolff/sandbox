@@ -7,6 +7,7 @@ interface SbomComponent {
   readonly name: string;
   readonly version: string;
   readonly "bom-ref": string;
+  readonly purl?: string;
 }
 
 interface SbomDependency {
@@ -21,6 +22,14 @@ export interface CycloneDxSbom {
   };
   readonly components: readonly SbomComponent[];
   readonly dependencies: readonly SbomDependency[];
+}
+
+function getPackageIdentity(component: SbomComponent): string {
+  const packageName = component.purl?.match(
+    /^pkg:npm\/(.+)@[^?#]+(?:[?#].*)?$/u,
+  )?.[1];
+  const name = packageName ? decodeURIComponent(packageName) : component.name;
+  return `${name}@${component.version}`;
 }
 
 export function filterProductionSbom(
@@ -44,11 +53,9 @@ export function filterProductionSbom(
   const root = sbom.metadata.component["bom-ref"];
   production.delete(root);
   const components = sbom.components.filter((component) =>
-    production.has(`${component.name}@${component.version}`),
+    production.has(getPackageIdentity(component)),
   );
-  const found = new Set(
-    components.map(({ name, version }) => `${name}@${version}`),
-  );
+  const found = new Set(components.map(getPackageIdentity));
   const missing = [...production].filter((packageId) => !found.has(packageId));
   if (missing.length > 0) {
     throw new Error(

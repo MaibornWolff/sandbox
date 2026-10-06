@@ -23,6 +23,15 @@ describe("assist-hint", () => {
     expect(shouldShowErrorAssistHint(["--verbose", "assist"])).toBe(false);
   });
 
+  test.each(["-c", "--clipboard"])(
+    "does not consume a value for removed option %s",
+    (flag) => {
+      expect(shouldShowErrorAssistHint([flag, "disabled", "assist"])).toBe(
+        true,
+      );
+    },
+  );
+
   test("shows the error hint for non-assist commands", () => {
     expect(shouldShowErrorAssistHint(["doctor"])).toBe(true);
   });

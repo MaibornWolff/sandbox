@@ -247,7 +247,7 @@ describe("host command escape", () => {
     const saved = await sb.run(
       "sh",
       "-c",
-      `printf "export SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT='%s'\\nexport SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL='%s'\\nexport SANDBOX_HOST_COMMAND_ESCAPE_TOKEN='%s'\\n" "$SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT" "$SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL" "$SANDBOX_HOST_COMMAND_ESCAPE_TOKEN" > .stale-escape-session`,
+      `printf "export SANDBOX_HOST_BRIDGE_ENDPOINT='%s'\\nexport SANDBOX_HOST_BRIDGE_TOKEN='%s'\\nexport SANDBOX_HOST_BRIDGE_CERTIFICATE='%s'\\n" "$SANDBOX_HOST_BRIDGE_ENDPOINT" "$SANDBOX_HOST_BRIDGE_TOKEN" "$SANDBOX_HOST_BRIDGE_CERTIFICATE" > .stale-escape-session`,
     );
     expect(saved.exitCode).toBe(0);
 

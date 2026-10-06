@@ -92,6 +92,21 @@ describe("buildSandboxInstanceSpec", () => {
     expect(spec.environment.CLAUDE_CODE_SSE_PORT).toBe("23456");
   });
 
+  test.each(["docker", "podman", "apple-container"] as const)(
+    "%s keeps host display and sockets out of persistent containers",
+    async (runtime) => {
+      const spec = await buildSpec(createTestConfig(), {
+        runtime,
+        variables: { DISPLAY: ":2", X11_AVAILABLE: "true" },
+      });
+      expect(spec.environment).not.toHaveProperty("DISPLAY");
+      expect(spec.environment).not.toHaveProperty("X11_AVAILABLE");
+      expect(
+        spec.mounts.some((mount) => mount.targetPath === "/tmp/.X11-unix"),
+      ).toBe(false);
+    },
+  );
+
   test("preserves native Windows sources and Linux targets", async () => {
     const spec = await buildSpec(
       {

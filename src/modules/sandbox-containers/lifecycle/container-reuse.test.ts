@@ -10,7 +10,7 @@ import {
   createFreshContainer,
   findOrCreateContainer,
 } from "./container-reuse.js";
-import { prepareContainerSession } from "./host-command-network-access.js";
+import { prepareContainerSession } from "./container-session.js";
 
 function createSpec(): SandboxInstanceSpec {
   return {

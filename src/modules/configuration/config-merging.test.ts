@@ -26,7 +26,6 @@ describe("CONFIG_MERGE_RULES", () => {
     expect(CONFIG_MERGE_RULES.env.strategy).toBe("accumulate");
     expect(CONFIG_MERGE_RULES.readonly.strategy).toBe("override");
     expect(CONFIG_MERGE_RULES.persistPaths.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.clipboard.strategy).toBe("override");
     expect(CONFIG_MERGE_RULES.settings.strategy).toBe("accumulate");
     expect(CONFIG_MERGE_RULES.ports.strategy).toBe("accumulate");
     expect(CONFIG_MERGE_RULES.allowNetwork.strategy).toBe("accumulate");
@@ -62,6 +61,24 @@ describe("applyTomlConfig - override strategy", () => {
     expect(baseConfig.runtime).toBe("podman");
   });
 
+  test("project clipboard mode overrides global mode", async () => {
+    await applyTomlConfig(
+      baseConfig,
+      { clipboard: "enabled" },
+      "global",
+      projectDir,
+      {},
+    );
+    await applyTomlConfig(
+      baseConfig,
+      { clipboard: "disabled" },
+      "project",
+      projectDir,
+      {},
+    );
+    expect(baseConfig.clipboard).toBe("disabled");
+  });
+
   test("readonly overrides previous value", async () => {
     baseConfig.readonly = false;
 
@@ -72,18 +89,6 @@ describe("applyTomlConfig - override strategy", () => {
     await applyTomlConfig(baseConfig, toml, "project", projectDir, {});
 
     expect(baseConfig.readonly).toBe(true);
-  });
-
-  test("clipboard overrides previous value", async () => {
-    baseConfig.clipboard = "auto";
-
-    const toml: TomlConfig = {
-      clipboard: "disabled",
-    };
-
-    await applyTomlConfig(baseConfig, toml, "global", projectDir, {});
-
-    expect(baseConfig.clipboard as Config["clipboard"]).toBe("disabled");
   });
 
   test("shm_size overrides previous value", async () => {
@@ -406,7 +411,6 @@ describe("applyTomlConfig - full merge scenarios", () => {
       env: ["TEST_VAR"],
       readonly: true,
       persist_paths: [{ path: ".cache" }, { path: ".local" }],
-      clipboard: "x11",
       settings: [".claude/*.json"],
       allow_host_commands: [{ pattern: ["open", { regex: ".+" }] }],
     };
@@ -423,7 +427,6 @@ describe("applyTomlConfig - full merge scenarios", () => {
       createPersistPath(".cache"),
       createPersistPath(".local"),
     ]);
-    expect(baseConfig.clipboard).toBe("x11");
     expect(baseConfig.settings).toEqual([
       { path: ".claude/*.json", mode: "mount" },
     ]);
@@ -440,7 +443,6 @@ describe("applyTomlConfig - full merge scenarios", () => {
         env: ["PROJECT_VAR"],
         readonly: false,
         persist_paths: [{ path: ".gradle" }],
-        clipboard: "disabled",
         settings: [".project/*.json"],
       };
 
@@ -452,7 +454,6 @@ describe("applyTomlConfig - full merge scenarios", () => {
       expect(baseConfig.env).toEqual(["PROJECT_VAR=value"]);
       expect(baseConfig.readonly).toBe(false);
       expect(baseConfig.persistPaths).toEqual([createPersistPath(".gradle")]); // Added from project
-      expect(baseConfig.clipboard).toBe("disabled");
       expect(baseConfig.settings).toEqual([
         { path: ".project/*.json", mode: "mount" },
       ]);

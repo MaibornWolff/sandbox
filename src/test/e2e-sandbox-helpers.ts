@@ -47,12 +47,7 @@ export function createE2eGlobalConfig(options: {
   writeFileSync(options.configPath, stringify(config), "utf8");
 }
 
-const IGNORED_SANDBOX_OUTPUT = [
-  "X11 clipboard not available",
-  "Run `sandbox setup-x11` for setup instructions",
-  "Terminal text clipboard may work via OSC 52 passthrough",
-  "Creating sandbox container...",
-];
+const IGNORED_SANDBOX_OUTPUT = ["Creating sandbox container..."];
 
 export interface SandboxResult {
   readonly command: readonly string[];

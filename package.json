@@ -83,6 +83,7 @@
     "prepack": "bun scripts/prepare-npm-package.ts"
   },
   "dependencies": {
+    "@crosscopy/clipboard": "0.3.6",
     "@earendil-works/pi-tui": "^0.85.1",
     "chalk": "^6.0.0",
     "commander": "^15.0.0",
@@ -90,9 +91,10 @@
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "fast-glob": "^3.3.3",
+    "node-ws": "npm:ws@^8.21.3",
     "re2-wasm": "^1.0.2",
+    "selfsigned": "^5.5.0",
     "smol-toml": "^1.8.0",
-    "ws": "^8.21.3",
     "zod": "^4.5.4"
   },
   "devDependencies": {
@@ -101,7 +103,7 @@
     "@types/cross-spawn": "^6.0.6",
     "@types/diff": "^8.0.0",
     "@types/node": "^26.4.1",
-    "@types/ws": "^8.18.1",
+    "@types/node-ws": "npm:@types/ws@^8.18.1",
     "@xterm/headless": "^6.0.0",
     "bun-types": "^1.4.2",
     "dependency-cruiser": "18.2.0",

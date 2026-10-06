@@ -9,6 +9,10 @@
 # [runtimes.apple-container]
 # dns = "host"
 
+# Host clipboard: "enabled" (default) or "disabled".
+# Uncomment to disable all Sandbox clipboard reads and writes.
+# clipboard = "disabled"
+
 # Session environment: applies to each shell or command, not startup services.
 # Changes to these values do not prevent container reuse.
 # "VAR" passes through from host, "VAR=value" sets explicitly. Last assignment wins.

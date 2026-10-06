@@ -14,6 +14,7 @@ import type {
   ContainerSpec,
   TerminalSessionOptions,
 } from "../container-contract.js";
+import { openContainerExec } from "../exec-stream.js";
 import { executeRuntimeCommand } from "../execution.js";
 import type { RuntimeExecutor } from "../executor.js";
 import {
@@ -387,6 +388,15 @@ export function createAppleContainerOperations(options: {
         exec,
         BINARY_NAME,
         buildAppleExecArgs(id, spec),
+      );
+    },
+    async openExec(id, spec) {
+      return openContainerExec(
+        BINARY_NAME,
+        buildAppleExecArgs(id, spec, {
+          attachStdin: true,
+          allocateTerminal: false,
+        }),
       );
     },
     execAttached(id, spec, session) {

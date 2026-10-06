@@ -31,6 +31,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST NOT weaken E2E tests by replacing failing external fixtures with less equivalent ones without investigating the failure.
 - You SHOULD fetch only the relevant tail of long CI logs unless earlier output is needed.
 - You MUST keep code Node.js-compatible (no Bun-specific APIs outside tests).
+- You MUST load synchronous and asynchronous disposal polyfills in each Node.js entrypoint before application code runs.
 - You MUST ensure solutions work on Windows (no reliance on Unix-only system commands like `diff`, `which`, etc.).
 - You MUST co-locate tests: `foo.ts` → `foo.test.ts`.
 - You MUST use `getRepoRootPath(process.cwd())` for project-relative paths, not `process.cwd()` directly.
@@ -44,6 +45,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST calculate terminal mouse hit regions from rendered physical rows, including wrapped lines.
 - You MUST use semantic input actions instead of translating keys into raw terminal escape sequences outside terminal adapters and tests.
 - You MUST create repository worktrees under `.agents/worktrees/`.
+- You SHOULD use the fewest subagents needed and keep each work package complete and focused.
 
 ## Response Style
 
@@ -61,7 +63,9 @@ Use these rules when talking to the user:
 - You MUST use specific error messages and preserve exit codes from child processes.
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
+- You SHOULD use extensible enum values for feature modes and reuse existing configuration merge strategies.
 - You SHOULD keep functions under 150 lines and cognitive complexity under 15.
+- You MUST include code size, readability, and shared-helper opportunities in code reviews.
 - You SHOULD use explicit branches and named phases for lifecycle logic instead of nested ternaries or compressed expressions.
 - You SHOULD reuse shared timeout and cancellation helpers instead of repeating timer races and cleanup.
 - You SHOULD extract compound validation conditions into named functions when this makes the rule easier to read.

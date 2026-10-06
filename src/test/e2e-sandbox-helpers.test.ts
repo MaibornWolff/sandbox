@@ -73,19 +73,10 @@ describe("sandbox result assertions", () => {
 });
 
 describe("sandbox output sanitization", () => {
-  test("removes ignored warning blocks without leaving blank stderr", () => {
-    expect(
-      sanitizeSandboxOutput(
-        [
-          "⚠️  X11 clipboard not available",
-          "   Run `sandbox setup-x11` for setup instructions",
-          "   Terminal text clipboard may work via OSC 52 passthrough",
-          "",
-          "",
-          "",
-        ].join("\n"),
-      ),
-    ).toBe("");
+  test("removes container creation progress and normalizes line endings", () => {
+    expect(sanitizeSandboxOutput("Creating sandbox container...\r\n\r\n")).toBe(
+      "",
+    );
     expect(sanitizeSandboxOutput("HTTP 403 Blocked\r\n\r\n403\r\n")).toBe(
       "HTTP 403 Blocked\n\n403\n",
     );

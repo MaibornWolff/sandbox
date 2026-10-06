@@ -1,3 +1,7 @@
+import {
+  createClipboardProxyRunner,
+  provideClipboardProxyRunner,
+} from "#modules/clipboard/index.js";
 import { createSystemClock, provideClock } from "#platform/clock/index.js";
 import {
   createNodeTcpService,
@@ -23,6 +27,11 @@ import {
   type ProcessTerminalStreams,
   provideTerminal,
 } from "#platform/terminal/index.js";
+import {
+  createNodeWebSocketService,
+  provideWebSocketService,
+} from "#platform/websocket/index.js";
+import { createX11ClipboardService } from "#platform/x11-clipboard/index.js";
 import { runContainerToolsApplication } from "./application.js";
 
 export async function runProductionContainerToolsApplication(
@@ -52,6 +61,10 @@ export async function runProductionContainerToolsApplication(
     logger,
   });
   const tcp = createNodeTcpService();
+  const webSockets = createNodeWebSocketService();
+  const clipboard = createClipboardProxyRunner(
+    createX11ClipboardService({ processes: processManager, clock }),
+  );
 
   try {
     return await runWithDependencies(
@@ -62,6 +75,8 @@ export async function runProductionContainerToolsApplication(
         provideProcessManager(processManager),
         provideLogger(logger),
         provideTcpService(tcp),
+        provideWebSocketService(webSockets),
+        provideClipboardProxyRunner(clipboard),
       ],
       () =>
         runWithProcessManager(processManager, () =>

@@ -2,7 +2,6 @@ import type { Command } from "commander";
 import {
   displayEnvironmentCheck,
   doctorCommand,
-  setupX11Command,
 } from "#modules/diagnostics/index.js";
 import {
   cleanCommand,
@@ -92,14 +91,6 @@ export function registerLifecycleCommands(program: Command): void {
       const merged = { ...globalOpts, ...options };
 
       await cleanCommand(merged);
-    });
-
-  program
-    .command("setup-x11")
-    .description("Set up and validate X11 clipboard support")
-    .action(async () => {
-      requireHost("setup-x11");
-      await setupX11Command();
     });
 
   program

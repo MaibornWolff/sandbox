@@ -43,6 +43,44 @@ test("keeps all production components and dependency edges without dev-only pack
   ]);
 });
 
+test("keeps npm aliases and their dependency edges by canonical package identity", () => {
+  const aliases = [
+    {
+      name: "node-ws",
+      version: "8.21.3",
+      "bom-ref": "node-ws@8.21.3",
+      purl: "pkg:npm/ws@8.21.3",
+    },
+    {
+      name: "native-alias",
+      version: "1.0.0",
+      "bom-ref": "native-alias@1.0.0",
+      purl: "pkg:npm/%40example/native@1.0.0",
+    },
+  ];
+  const dependencies = [
+    {
+      ref: "sandbox@1.0.0",
+      dependsOn: aliases.map((component) => component["bom-ref"]),
+    },
+    ...aliases.map((component) => ({
+      ref: component["bom-ref"],
+      dependsOn: [],
+    })),
+  ];
+  const result = filterProductionSbom(
+    { ...sbom, components: aliases, dependencies },
+    {
+      root: production.root,
+      ws: { name: "ws", version: "8.21.3" },
+      native: { name: "@example/native", version: "1.0.0" },
+    },
+    "sandbox",
+  );
+  expect(result.components).toEqual(aliases);
+  expect(result.dependencies).toEqual(dependencies);
+});
+
 test("rejects an incomplete SBOM instead of shipping it", () => {
   expect(() =>
     filterProductionSbom(

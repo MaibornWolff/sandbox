@@ -1,9 +1,11 @@
-import * as http from "node:http";
+import type * as http from "node:http";
 import type { Duplex } from "node:stream";
+// `node-ws` aliases the npm `ws` package: under Bun the bare `ws` import resolves to a built-in shim that ignores the `ca` and `servername` pinning options.
 import WebSocket, {
   WebSocketServer as NodeWebSocketServer,
   type RawData,
-} from "ws";
+} from "node-ws";
+import { createListener } from "./tls.js";
 import type {
   ConnectWebSocketOptions,
   StartWebSocketServerOptions,
@@ -15,24 +17,32 @@ import type {
   WebSocketUpgradeDecision,
 } from "./websocket-service.js";
 
+const DEFAULT_MAX_CONNECTIONS = 64;
+const SOCKET_TIMEOUT_MS = 5000;
+const MAX_PENDING_SENDS = 64;
+const QUEUE_LIMIT_MESSAGES = 4;
+const MIN_MESSAGE_WEIGHT = 256;
+// The ws option exists at runtime but is missing from the type definitions.
+const closeTimeoutOption = { closeTimeout: SOCKET_TIMEOUT_MS };
+
+function pinnedTlsOptions(certificate: string) {
+  return { ca: certificate, servername: "localhost", rejectUnauthorized: true };
+}
+
+function byteSize(data: string | Uint8Array): number {
+  return typeof data === "string" ? Buffer.byteLength(data) : data.byteLength;
+}
+
 class AsyncQueue<T> implements AsyncIterable<T> {
   readonly #values: T[] = [];
   readonly #waiters: Array<(result: IteratorResult<T>) => void> = [];
   #ended = false;
 
-  constructor(
-    private readonly pause: () => void,
-    private readonly resume: () => void,
-  ) {}
-
   push(value: T): void {
     if (this.#ended) return;
     const waiter = this.#waiters.shift();
     if (waiter) waiter({ done: false, value });
-    else {
-      this.#values.push(value);
-      this.pause();
-    }
+    else if (this.enqueue(value)) this.#values.push(value);
   }
 
   end(): void {
@@ -43,12 +53,19 @@ class AsyncQueue<T> implements AsyncIterable<T> {
     }
   }
 
+  /** Returns false when the value must be dropped. */
+  protected enqueue(_value: T): boolean {
+    return true;
+  }
+
+  protected dequeued(_value: T, _remaining: number): void {}
+
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {
         const value = this.#values.shift();
         if (value !== undefined) {
-          if (this.#values.length === 0) this.resume();
+          this.dequeued(value, this.#values.length);
           return Promise.resolve({ done: false, value });
         }
         if (this.#ended) {
@@ -57,6 +74,43 @@ class AsyncQueue<T> implements AsyncIterable<T> {
         return new Promise((resolve) => this.#waiters.push(resolve));
       },
     };
+  }
+}
+
+/** Pauses the socket while messages wait and terminates it on overflow. */
+class MessageQueue extends AsyncQueue<WebSocketMessage> {
+  readonly #limit: number;
+  #size = 0;
+
+  constructor(
+    private readonly socket: WebSocket,
+    maxMessageBytes: number,
+  ) {
+    super();
+    this.#limit = maxMessageBytes * QUEUE_LIMIT_MESSAGES;
+  }
+
+  static weight(message: WebSocketMessage): number {
+    return Math.max(MIN_MESSAGE_WEIGHT, byteSize(message.data));
+  }
+
+  protected override enqueue(message: WebSocketMessage): boolean {
+    const weight = MessageQueue.weight(message);
+    if (this.#size + weight > this.#limit) {
+      this.socket.terminate();
+      return false;
+    }
+    this.#size += weight;
+    this.socket.pause();
+    return true;
+  }
+
+  protected override dequeued(
+    message: WebSocketMessage,
+    remaining: number,
+  ): void {
+    this.#size -= MessageQueue.weight(message);
+    if (remaining === 0) this.socket.resume();
   }
 }
 
@@ -102,7 +156,10 @@ async function waitForSend(
       if (error) reject(error);
       else resolve();
     };
-    const onAbort = () => finish(abortError());
+    const onAbort = () => {
+      socket.terminate();
+      finish(abortError());
+    };
     signal?.addEventListener("abort", onAbort, { once: true });
     socket.send(data, { binary, compress: false }, (error) => finish(error));
   });
@@ -111,26 +168,16 @@ async function waitForSend(
 function wrapConnection(
   socket: WebSocket,
   maxMessageBytes: number,
+  path?: string,
 ): WebSocketConnection {
-  const messages = new AsyncQueue<WebSocketMessage>(
-    () => {
-      if (typeof socket.pause === "function") socket.pause();
-    },
-    () => {
-      if (typeof socket.resume === "function") socket.resume();
-    },
-  );
+  const messages = new MessageQueue(socket, maxMessageBytes);
   let resolveClosed: (details: WebSocketCloseDetails) => void = () => {};
   const closed = new Promise<WebSocketCloseDetails>((resolve) => {
     resolveClosed = resolve;
   });
   socket.on("message", (data, isBinary) => {
     const message = decodeMessage(data, isBinary);
-    const size =
-      message.type === "text"
-        ? Buffer.byteLength(message.data)
-        : message.data.byteLength;
-    if (size > maxMessageBytes) {
+    if (byteSize(message.data) > maxMessageBytes) {
       socket.close(1009, "Message exceeds maximum size");
       return;
     }
@@ -146,15 +193,41 @@ function wrapConnection(
   });
   socket.on("error", () => {});
 
+  let pendingBytes = 0;
+  let pendingMessages = 0;
+  const send = async (
+    data: string | Uint8Array,
+    binary: boolean,
+    signal?: AbortSignal,
+  ) => {
+    const size = byteSize(data);
+    if (size > maxMessageBytes)
+      throw new Error("WebSocket message exceeds maximum size.");
+    if (
+      pendingBytes + size > maxMessageBytes * QUEUE_LIMIT_MESSAGES ||
+      pendingMessages >= MAX_PENDING_SENDS
+    )
+      throw new Error("WebSocket send queue is full.");
+    pendingBytes += size;
+    pendingMessages += 1;
+    using _reservation = {
+      [Symbol.dispose]: () => {
+        pendingBytes -= size;
+        pendingMessages -= 1;
+      },
+    };
+    await waitForSend(socket, data, binary, signal);
+  };
   const connection: WebSocketConnection = {
     protocol: socket.protocol,
+    ...(path === undefined ? {} : { path }),
     messages,
     closed,
     sendText(message, options) {
-      return waitForSend(socket, message, false, options?.signal);
+      return send(message, false, options?.signal);
     },
     sendBinary(message, options) {
-      return waitForSend(socket, message, true, options?.signal);
+      return send(message, true, options?.signal);
     },
     async close(code = 1000, reason = "") {
       if (socket.readyState === WebSocket.OPEN) socket.close(code, reason);
@@ -216,13 +289,25 @@ async function authorizeAndUpgrade(options: {
     });
     return;
   }
-  const decision = await options.configuration.authorizeUpgrade({
-    path: options.request.url ?? "/",
-    headers: options.request.headers,
-    ...(options.request.socket.remoteAddress
-      ? { remoteAddress: options.request.socket.remoteAddress }
-      : {}),
+  using cleanup = new DisposableStack();
+  const closed = new Promise<WebSocketUpgradeDecision>((resolve) => {
+    const onClose = () =>
+      resolve({
+        accepted: false,
+        statusCode: 408,
+        reason: "Upgrade interrupted",
+      });
+    options.socket.once("close", onClose);
+    cleanup.defer(() => options.socket.removeListener("close", onClose));
   });
+  const decision = await Promise.race([
+    closed,
+    options.configuration.authorizeUpgrade({
+      path: options.request.url ?? "/",
+      headers: options.request.headers,
+    }),
+  ]);
+  if (options.socket.destroyed) return;
   if (!decision.accepted) {
     rejectUpgrade(options.socket, decision);
     return;
@@ -258,30 +343,43 @@ async function listen(
 async function startServer(
   options: StartWebSocketServerOptions,
 ): Promise<WebSocketServer> {
-  throwIfAborted(options.signal);
-  const httpServer = http.createServer((_request, response) => {
-    response.writeHead(426).end();
+  const { server: httpServer, certificate } = await createListener();
+  const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
+  httpServer.headersTimeout = SOCKET_TIMEOUT_MS;
+  httpServer.requestTimeout = SOCKET_TIMEOUT_MS;
+  httpServer.maxConnections = maxConnections;
+  const sockets = new Set<Duplex>();
+  httpServer.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.once("close", () => sockets.delete(socket));
+    socket.setTimeout(SOCKET_TIMEOUT_MS, () => socket.destroy());
   });
   const nodeServer = new NodeWebSocketServer({
     noServer: true,
-    maxPayload: Math.min(options.maxMessageBytes + 1, Number.MAX_SAFE_INTEGER),
+    ...closeTimeoutOption,
+    maxPayload: options.maxMessageBytes + 1,
     perMessageDeflate: false,
     handleProtocols: (protocols) =>
       protocols.has(options.protocol) ? options.protocol : false,
   });
-  const connections = new AsyncQueue<WebSocketConnection>(
-    () => undefined,
-    () => undefined,
-  );
+  const connections = new AsyncQueue<WebSocketConnection>();
   const activeConnections = new Set<WebSocketConnection>();
   let disposed = false;
-  let startupAborted = false;
-  const onStartupAbort = () => {
-    startupAborted = true;
-  };
-  options.signal?.addEventListener("abort", onStartupAbort, { once: true });
 
+  let pendingUpgrades = 0;
   httpServer.on("upgrade", (request, socket, head) => {
+    if (
+      disposed ||
+      pendingUpgrades + activeConnections.size >= maxConnections
+    ) {
+      rejectUpgrade(socket, {
+        accepted: false,
+        statusCode: 503,
+        reason: "Connection limit reached",
+      });
+      return;
+    }
+    pendingUpgrades += 1;
     void authorizeAndUpgrade({
       request,
       socket,
@@ -293,35 +391,29 @@ async function startServer(
           webSocket.terminate();
           return;
         }
-        const connection = wrapConnection(webSocket, options.maxMessageBytes);
+        request.socket.setTimeout(0);
+        const connection = wrapConnection(
+          webSocket,
+          options.maxMessageBytes,
+          request.url,
+        );
         activeConnections.add(connection);
         void connection.closed.then(() => activeConnections.delete(connection));
         connections.push(connection);
       },
-    }).catch(() =>
-      rejectUpgrade(socket, {
-        accepted: false,
-        statusCode: 500,
-        reason: "WebSocket upgrade authorization failed",
-      }),
-    );
+    })
+      .catch(() =>
+        rejectUpgrade(socket, {
+          accepted: false,
+          statusCode: 500,
+          reason: "WebSocket upgrade authorization failed",
+        }),
+      )
+      .finally(() => {
+        pendingUpgrades -= 1;
+      });
   });
-  try {
-    await listen(httpServer, options.host, options.port);
-  } catch (error) {
-    nodeServer.close();
-    if (startupAborted) throw abortError();
-    throw error;
-  } finally {
-    options.signal?.removeEventListener("abort", onStartupAbort);
-  }
-  if (startupAborted) {
-    nodeServer.close();
-    await new Promise<void>((resolve, reject) =>
-      httpServer.close((error) => (error ? reject(error) : resolve())),
-    );
-    throw abortError();
-  }
+  await listen(httpServer, options.host, options.port);
   const address = httpServer.address();
   if (!address || typeof address === "string") {
     httpServer.close();
@@ -330,12 +422,13 @@ async function startServer(
 
   const server: WebSocketServer = {
     endpoint: { host: options.host, port: address.port },
+    certificate,
     connections,
     async [Symbol.asyncDispose]() {
       if (disposed) return;
       disposed = true;
-      options.signal?.removeEventListener("abort", onAbort);
       connections.end();
+      for (const socket of sockets) socket.destroy();
       await Promise.all(
         [...activeConnections].map((connection) =>
           connection[Symbol.asyncDispose](),
@@ -349,8 +442,6 @@ async function startServer(
       );
     },
   };
-  const onAbort = () => void server[Symbol.asyncDispose]();
-  options.signal?.addEventListener("abort", onAbort, { once: true });
   return server;
 }
 
@@ -363,6 +454,9 @@ async function connect(
       headers: options.headers,
       maxPayload: options.maxMessageBytes,
       perMessageDeflate: false,
+      handshakeTimeout: SOCKET_TIMEOUT_MS,
+      ...closeTimeoutOption,
+      ...pinnedTlsOptions(options.pinnedCertificate),
     });
     let settled = false;
     const finishError = (error: Error) => {
@@ -378,8 +472,11 @@ async function connect(
     socket.once("open", () => {
       if (settled) return;
       settled = true;
-      options.signal?.removeEventListener("abort", onAbort);
-      resolve(wrapConnection(socket, options.maxMessageBytes));
+      const connection = wrapConnection(socket, options.maxMessageBytes);
+      void connection.closed.then(() =>
+        options.signal?.removeEventListener("abort", onAbort),
+      );
+      resolve(connection);
     });
     socket.on("error", (error: unknown) =>
       finishError(

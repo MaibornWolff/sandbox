@@ -38,13 +38,15 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
   filesystem: [
     /^src\/platform\/filesystem\//u,
     /^src\/platform\/process\/node-process-adapter\.ts$/u,
+    /^src\/platform\/x11-clipboard\/display\.ts$/u,
     /^src\/platform\/container-system\/(?:container-lifecycle|diagnostics|network-bootstrap|network-files)\.ts$/u,
   ],
   process: [/^src\/platform\/process\/node-process-adapter\.ts$/u],
   "network I/O": [
     /^src\/platform\/container-runtime\/apple\/(?:host-access|networking)\.ts$/u,
     /^src\/platform\/container-system\/(?:dns|tcp-service)\.ts$/u,
-    /^src\/platform\/websocket\/node-websocket-service\.ts$/u,
+    /^src\/platform\/websocket\/(?:node-websocket-service|tls)\.ts$/u,
+    /^src\/platform\/x11-clipboard\/protocol\.ts$/u,
   ],
 };
 
@@ -107,6 +109,30 @@ interface DependencyContractManifestEntry {
 const DEPENDENCY_CONTRACT_MANIFEST: readonly DependencyContractManifestEntry[] =
   [
     {
+      file: "src/modules/host-bridge/session.ts",
+      variable: "dependency",
+      type: "HostBridgeService",
+      token: "Host bridge service",
+      provider: "provideHostBridgeService",
+      getter: "getHostBridgeService",
+    },
+    {
+      file: "src/modules/clipboard/host-capability.ts",
+      variable: "dependency",
+      type: "ClipboardCapabilityFactory",
+      token: "clipboard capability factory",
+      provider: "provideClipboardCapabilityFactory",
+      getter: "getClipboardCapabilityFactory",
+    },
+    {
+      file: "src/modules/clipboard/proxy.ts",
+      variable: "dependency",
+      type: "ClipboardProxyRunner",
+      token: "clipboard proxy runner",
+      provider: "provideClipboardProxyRunner",
+      getter: "getClipboardProxyRunner",
+    },
+    {
       file: "src/modules/configuration/configuration-service.ts",
       variable: "configurationServiceDependency",
       type: "ConfigurationService",
@@ -141,7 +167,7 @@ const DEPENDENCY_CONTRACT_MANIFEST: readonly DependencyContractManifestEntry[] =
     {
       file: "src/platform/environment/host-environment.ts",
       variable: "hostEnvironmentDependency",
-      type: "HostEnvironmentExecution",
+      type: "HostEnvironment",
       token: "host environment",
       provider: "provideHostEnvironment",
       getter: "getHostEnvironment",
@@ -209,7 +235,7 @@ const APPROVED_COLLABORATOR_CONTRACTS = new Map<string, ReadonlySet<string>>([
   ["src/platform/container-system/tcp-service.ts", new Set(["TcpService"])],
   [
     "src/platform/environment/host-environment.ts",
-    new Set(["HostEnvironmentExecution"]),
+    new Set(["HostEnvironment"]),
   ],
   ["src/platform/logging/logger.ts", new Set(["Logger"])],
   ["src/platform/process/process-manager.ts", new Set(["ProcessManager"])],
@@ -619,7 +645,7 @@ class ProductionFileScanner {
         this.add(
           node,
           "unauthorized-dependency-contract",
-          "Scoped dependency contracts are limited to the exact ten-token manifest",
+          "Scoped dependency contracts are limited to the declared owner manifest",
         );
       }
     }
@@ -1274,7 +1300,7 @@ function inspectDependencyManifest(
         line: declaration.line,
         rule: "unauthorized-dependency-contract",
         detail:
-          "Dependency declaration does not match the exact ten-token manifest",
+          "Dependency declaration does not match the declared owner manifest",
       });
     }
   }

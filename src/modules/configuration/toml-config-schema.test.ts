@@ -15,7 +15,6 @@ describe("tomlConfigSchema", () => {
       readonly: true,
       persist_paths: [{ path: "~/.local/state" }],
       runtime: "podman",
-      clipboard: "x11",
       settings: [".claude/*.json"],
       ports: ["8080:8080"],
       allow_network: ["api.example.com"],
@@ -99,14 +98,25 @@ describe("tomlConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("rejects invalid clipboard value", () => {
-    const config = {
-      clipboard: "invalid",
-    };
-
-    const result = tomlConfigSchema.safeParse(config);
-    expect(result.success).toBe(false);
+  test.each(["enabled", "disabled"])("accepts clipboard = %s", (clipboard) => {
+    expect(tomlConfigSchema.parse({ clipboard })).toEqual({ clipboard });
   });
+
+  test.each(["auto", "x11", "invalid"])(
+    "rejects invalid clipboard mode %s",
+    (clipboard) => {
+      const result = tomlConfigSchema.safeParse({ clipboard });
+      expect(result.success).toBe(false);
+      if (result.success) throw new Error("Invalid clipboard mode accepted");
+      expect(result.error.issues).toContainEqual(
+        expect.objectContaining({
+          code: "invalid_value",
+          path: ["clipboard"],
+          message: 'Use clipboard = "enabled" or clipboard = "disabled".',
+        }),
+      );
+    },
+  );
 
   test("rejects invalid persist_path object", () => {
     const config = {

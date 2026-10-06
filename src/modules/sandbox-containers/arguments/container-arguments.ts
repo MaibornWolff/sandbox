@@ -17,7 +17,6 @@ import type {
   SandboxMount,
   SandboxStorageOperations,
 } from "#platform/container-runtime/index.js";
-import { detectX11 } from "#platform/environment/index.js";
 import {
   getExternalWorktreePath,
   type RepositoryRoots,
@@ -28,7 +27,6 @@ import {
   splitColonString,
   windowsPathToDocker,
 } from "#shared/text/index.js";
-import { getContainerDisplay } from "../container-display.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 import {
   validateMountPath,
@@ -106,37 +104,6 @@ function parsePublishedPorts(value: string): PublishedPort[] {
   }));
 }
 
-async function addX11(
-  runtime: SandboxInstanceSpecRuntime,
-  environment: Record<string, string>,
-  mounts: SandboxMount[],
-): Promise<void> {
-  const logger = getLogger();
-  const x11Config = await detectX11();
-  if (!x11Config.available) {
-    environment.X11_AVAILABLE = "false";
-    logger.debug("X11 not available");
-    return;
-  }
-  const display = getContainerDisplay(runtime.hostAccessName, x11Config);
-  if (!display) {
-    environment.X11_AVAILABLE = "false";
-    logger.debug("X11 detected but container display unavailable");
-    return;
-  }
-  environment.DISPLAY = display;
-  environment.X11_AVAILABLE = "true";
-  logger.debug("Startup X11 forwarding enabled");
-  if (x11Config.platform === "linux" && x11Config.socketPath) {
-    mounts.push({
-      type: "workspace",
-      sourcePath: x11Config.socketPath,
-      targetPath: "/tmp/.X11-unix",
-      readOnly: true,
-    });
-  }
-}
-
 export async function buildSandboxInstanceSpec(
   runtime: SandboxInstanceSpecRuntime,
   options: BuildSandboxInstanceSpecOptions,
@@ -184,7 +151,6 @@ export async function buildSandboxInstanceSpec(
   };
   const idePort = addIdeBridgePortEnvironment([]);
   if (idePort) environment.CLAUDE_CODE_SSE_PORT = idePort;
-  await addX11(runtime, environment, mounts);
 
   const networkPolicy = {
     enabled: true,

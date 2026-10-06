@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import "core-js/stable/disposable-stack/index.js";
+import "core-js/stable/async-disposable-stack/index.js";
 import {
   exitProcess,
   getProcessArguments,

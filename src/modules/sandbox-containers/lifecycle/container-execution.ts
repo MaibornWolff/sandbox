@@ -1,13 +1,12 @@
 import { normalize } from "node:path";
 import chalk from "chalk";
+import { getClipboardCapabilityFactory } from "#modules/clipboard/index.js";
 import {
   type Config,
   getConfigurationService,
 } from "#modules/configuration/index.js";
-import {
-  HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE,
-  startHostCommandEscapeSession,
-} from "#modules/host-command-escape/index.js";
+import { getHostBridgeService } from "#modules/host-bridge/index.js";
+import { createHostCommandCapability } from "#modules/host-command-escape/index.js";
 import type { BuildImagesResult } from "#modules/sandbox-images/index.js";
 import {
   cleanupSandboxRuntimeAfterSession,
@@ -33,20 +32,18 @@ import { buildSandboxExecSpec } from "../arguments/session-arguments.js";
 import { computeRuntimeContainerHash } from "../container-hashing.js";
 import type { SandboxContext } from "../sandbox-context.js";
 import type { SandboxOptions } from "../sandbox-options.js";
+import { prepareClipboardSession } from "./clipboard-session.js";
 import {
   createFreshContainer,
   findOrCreateContainer,
   pickFreshContainerName,
 } from "./container-reuse.js";
-import { resolveHostAgentTitle } from "./host-agent-title.js";
 import {
   ContainerReadinessError,
   prepareContainerSession,
-} from "./host-command-network-access.js";
-import {
-  prepareSandboxEnvironment,
-  warnIfX11Unavailable,
-} from "./sandbox-preparation.js";
+} from "./container-session.js";
+import { resolveHostAgentTitle } from "./host-agent-title.js";
+import { prepareSandboxEnvironment } from "./sandbox-preparation.js";
 import { captureStartupLogs } from "./startup-logs.js";
 
 interface ExecutorOptions {
@@ -282,19 +279,22 @@ async function execute(
     return;
   }
 
-  await using hostCommandEscapeSession = await startHostCommandEscapeSession({
+  await using commandCapability = await createHostCommandCapability({
     commandRules: config.allowHostCommands,
     hostProjectRoot: projectRoot,
     containerProjectRoot: windowsPathToDocker(projectRoot),
-    containerHostName: hostInfo.hostAccessName,
   });
-  const brokerEndpoint =
-    hostCommandEscapeSession.clientEnvironment[
-      HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE
-    ];
-  if (!brokerEndpoint) {
-    throw new Error("The host-command broker did not provide an endpoint.");
-  }
+  await using clipboardCapabilities =
+    config.clipboard === "enabled"
+      ? getClipboardCapabilityFactory().create()
+      : undefined;
+  await using bridgeSession = await getHostBridgeService().startSession({
+    containerHostName: hostInfo.hostAccessName,
+    capabilities: [
+      commandCapability,
+      ...(clipboardCapabilities?.capabilities ?? []),
+    ],
+  });
   await using sessionResources = new AsyncDisposableStack();
   const containerName = await service.withInstanceStartup(async () => {
     const resolved = await resolveExecutionContainer(service, {
@@ -302,11 +302,24 @@ async function execute(
       imageIdentity: buildResult.image.digest,
       projectSlug,
       skipReuse,
-      endpoint: config.noProxy ? undefined : brokerEndpoint,
+      endpoint: config.noProxy ? undefined : bridgeSession.endpoint,
     });
     sessionResources.use(resolved.access);
     return resolved.containerName;
   });
+  const sessionEnvironment = { ...bridgeSession.clientEnvironment };
+  if (clipboardCapabilities) {
+    const clipboard = sessionResources.use(
+      await prepareClipboardSession({
+        containers: service.instances,
+        containerId: containerName,
+        bridgeEnvironment: bridgeSession.clientEnvironment,
+      }),
+    );
+    Object.assign(sessionEnvironment, clipboard.environment);
+  } else {
+    logger.debug("Clipboard access is disabled by configuration.");
+  }
   logger.endTiming("Container setup");
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
@@ -318,7 +331,7 @@ async function execute(
     tty,
     environment: config.env,
     proxyEnabled: !config.noProxy,
-    hostCommandEscapeEnvironment: hostCommandEscapeSession.clientEnvironment,
+    sessionEnvironment,
     verbose,
   });
 
@@ -330,7 +343,7 @@ async function execute(
     {
       ...execution.session,
       ...(title ? { title } : {}),
-      forwardSignal: (signal) => hostCommandEscapeSession.forwardSignal(signal),
+      forwardSignal: (signal) => commandCapability.forwardSignal(signal),
     },
   );
   throwForChildExit(result.exitCode);
@@ -396,9 +409,6 @@ export async function executeInSandbox(
   }
 
   beforeSpawn?.(config);
-  if (!executorOptions.foreground) {
-    await warnIfX11Unavailable(silent, config.clipboard);
-  }
   await execute(
     runtime,
     ctx,

@@ -83,7 +83,6 @@ export async function applyTomlConfig(
     getLogger().debug(`  Readonly mode: ${toml.readonly}`);
   }
 
-  // Clipboard (override)
   if (toml.clipboard !== undefined) {
     config.clipboard = toml.clipboard;
     getLogger().debug(`  Clipboard: ${toml.clipboard}`);

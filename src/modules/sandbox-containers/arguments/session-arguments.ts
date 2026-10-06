@@ -17,7 +17,7 @@ interface BuildSandboxExecSpecOptions {
   readonly tty: boolean;
   readonly environment: readonly string[];
   readonly proxyEnabled: boolean;
-  readonly hostCommandEscapeEnvironment?: Readonly<Record<string, string>>;
+  readonly sessionEnvironment?: Readonly<Record<string, string>>;
   readonly verbose?: boolean;
 }
 
@@ -42,7 +42,7 @@ export function buildSandboxExecSpec(options: BuildSandboxExecSpecOptions): {
   Object.assign(
     environment,
     getNetworkSessionEnvironment(options.proxyEnabled),
-    options.hostCommandEscapeEnvironment ?? {},
+    options.sessionEnvironment ?? {},
   );
   if (options.verbose) environment.SANDBOX_DEBUG = "1";
   logEnvironmentVariables(

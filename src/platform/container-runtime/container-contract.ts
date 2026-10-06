@@ -1,4 +1,13 @@
-import type { ProcessResult } from "#platform/process/index.js";
+import type {
+  ProcessResult,
+  StreamingProcessResult,
+} from "#platform/process/index.js";
+
+export interface SandboxExecProcess extends AsyncDisposable {
+  readonly stdout: AsyncIterable<Uint8Array>;
+  readonly stderr: AsyncIterable<Uint8Array>;
+  readonly completion: Promise<StreamingProcessResult>;
+}
 
 export type ContainerState =
   | "created"
@@ -119,6 +128,7 @@ export interface ContainerOperations {
   stopAndRemove(id: string): Promise<void>;
   remove(id: string, options?: RemoveOptions): Promise<void>;
   exec(id: string, spec: ExecSpec): Promise<CommandResult>;
+  openExec(id: string, spec: ExecSpec): Promise<SandboxExecProcess>;
   execAttached(
     id: string,
     spec: ExecSpec,

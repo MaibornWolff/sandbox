@@ -1,11 +1,18 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+/** Native addons stay in node_modules, so the CLI can load the binary for the host platform. */
+const NATIVE_PACKAGES = ["@crosscopy/clipboard"];
+
 function assertNoUnresolvedExternalImports(metafile: Bun.BuildMetafile): void {
   const externalImports = Object.entries(metafile.outputs).flatMap(
     ([outputPath, output]) =>
       output.imports
-        .filter((dependency) => !dependency.path.startsWith("node:"))
+        .filter(
+          (dependency) =>
+            !dependency.path.startsWith("node:") &&
+            !NATIVE_PACKAGES.includes(dependency.path),
+        )
         .map((dependency) => `${outputPath}: ${dependency.path}`),
   );
   if (externalImports.length === 0) return;
@@ -57,6 +64,7 @@ export async function buildPublicCliBundle(options: {
     target: "node",
     format: "esm",
     packages: "bundle",
+    external: NATIVE_PACKAGES,
     sourcemap: "none",
     metafile: true,
     plugins: [await createRe2WasmPlugin(options.repoRoot)],

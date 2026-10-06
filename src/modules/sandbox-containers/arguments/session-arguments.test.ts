@@ -146,28 +146,49 @@ describe("buildSandboxExecSpec", () => {
     ).toEqual({ HTTP_PROXY: "http://user" });
   });
 
-  test("injects managed host escape and debug values at the highest priority", () => {
+  test("injects the ready private display without host display or Wayland values", () => {
+    const host = {
+      DISPLAY: "host:0",
+      XAUTHORITY: "/host/auth",
+      WAYLAND_DISPLAY: "wayland-0",
+      WAYLAND_SOCKET: "7",
+    };
+    expect(environment(execSpec({}, host))).toEqual({});
+    expect(
+      environment(
+        execSpec(
+          {
+            sessionEnvironment: {
+              DISPLAY: ":123",
+              XAUTHORITY: "/tmp/private/auth",
+              WAYLAND_DISPLAY: "",
+            },
+          },
+          host,
+        ),
+      ),
+    ).toEqual({
+      DISPLAY: ":123",
+      XAUTHORITY: "/tmp/private/auth",
+      WAYLAND_DISPLAY: "",
+    });
+  });
+
+  test("injects managed host bridge and debug values at the highest priority", () => {
     const env = environment(
       execSpec({
-        environment: [
-          "SANDBOX_HOST_COMMAND_ESCAPE_TOKEN=old",
-          "SANDBOX_DEBUG=0",
-        ],
+        environment: ["SANDBOX_HOST_BRIDGE_TOKEN=old", "SANDBOX_DEBUG=0"],
         verbose: true,
-        hostCommandEscapeEnvironment: {
-          SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT:
-            "ws://host.docker.internal:4321/session",
-          SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL:
-            "sandbox-host-command-escape.v1",
-          SANDBOX_HOST_COMMAND_ESCAPE_TOKEN: "secret-token",
+        sessionEnvironment: {
+          SANDBOX_HOST_BRIDGE_ENDPOINT:
+            "wss://host.docker.internal:4321/session",
+          SANDBOX_HOST_BRIDGE_TOKEN: "secret-token",
         },
       }),
     );
     expect(env).toEqual({
-      SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT:
-        "ws://host.docker.internal:4321/session",
-      SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL: "sandbox-host-command-escape.v1",
-      SANDBOX_HOST_COMMAND_ESCAPE_TOKEN: "secret-token",
+      SANDBOX_HOST_BRIDGE_ENDPOINT: "wss://host.docker.internal:4321/session",
+      SANDBOX_HOST_BRIDGE_TOKEN: "secret-token",
       SANDBOX_DEBUG: "1",
     });
     expect(environment(execSpec()).SANDBOX_DEBUG).toBeUndefined();

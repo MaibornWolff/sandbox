@@ -36,6 +36,7 @@ export interface ManagedContainerSnapshot {
   readonly readinessAttempts: number;
   readonly mounts: readonly ContainerMount[];
   readonly sessions: readonly ManagedExecSession[];
+  readonly controls: readonly string[];
 }
 
 export interface ManagedContainer {
@@ -44,6 +45,8 @@ export interface ManagedContainer {
   givenLogs(logs: string | Error): void;
   givenStopsOnReadinessAttempt(attempt: number): void;
   givenSessions(sessions: readonly ManagedExecSession[]): void;
+  givenControls(pids: readonly string[]): void;
+  givenStatus(status: Exclude<ManagedContainerStatus, "removed">): void;
   snapshot(): ManagedContainerSnapshot;
 }
 
@@ -79,7 +82,7 @@ function isSessionDetailsCommand(command: readonly string[]): boolean {
 function isIdleCommand(command: readonly string[]): boolean {
   return (
     command.some((part) => part.includes("sandbox-sessions")) &&
-    command.some((part) => part.includes('[ -z "$(ls'))
+    command.some((part) => part.includes("&& exit 1"))
   );
 }
 
@@ -103,6 +106,7 @@ export function createManagedContainer(
   let readinessAttempts = 0;
   let stopOnReadinessAttempt: number | undefined;
   let sessions = [...(values.sessions ?? [])];
+  let controls: string[] = [];
 
   function resolveReadiness(): string {
     readinessAttempts++;
@@ -152,6 +156,12 @@ export function createManagedContainer(
     givenSessions(nextSessions) {
       sessions = [...nextSessions];
     },
+    givenControls(pids) {
+      controls = [...pids];
+    },
+    givenStatus(status) {
+      this.status = status;
+    },
     waitUntilReady(maxAttempts) {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
@@ -171,7 +181,12 @@ export function createManagedContainer(
       if (command[0] === "/usr/sbin/iptables") return "";
       if (command.some((part) => part.includes("/usr/sbin/iptables-save")))
         return "";
-      if (isIdleCommand(command) && sessions.length === 0) return "";
+      if (
+        isIdleCommand(command) &&
+        sessions.length === 0 &&
+        controls.length === 0
+      )
+        return "";
       if (isIdleCommand(command)) throw new Error("exit code 1");
       throw new Error(
         `No exec result configured for container "${values.id}" and command ${JSON.stringify(command)}.`,
@@ -190,6 +205,7 @@ export function createManagedContainer(
         readinessAttempts,
         mounts: (values.mounts ?? []).map((mount) => ({ ...mount })),
         sessions: sessions.map((session) => ({ ...session })),
+        controls: [...controls],
       };
     },
   };

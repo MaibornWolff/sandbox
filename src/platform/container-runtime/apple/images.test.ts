@@ -102,6 +102,29 @@ async function runWithCapturedLogger<T>(callback: () => Promise<T>): Promise<{
 }
 
 describe("Apple container 1.4.1 image operations", () => {
+  test.each(["", "sha256:"])(
+    "inspects a complete content identity with prefix %s through the inventory",
+    async (prefix) => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      const digest = `sha256:${"1".repeat(64)}`;
+      const reference = `${prefix}${"1".repeat(64)}`;
+      commands.givenOutput(
+        { command: "container", args: ["image", "list", "--format", "json"] },
+        readFixture(),
+      );
+      const images = createImages(commands.executor);
+      expect(await images.inspect(reference)).toMatchObject({
+        id: digest,
+      });
+      const cleanup = await images.removeUnused({
+        candidates: [reference],
+        managedLabel: { key: "sandbox.managed", value: "true" },
+      });
+      expect(cleanup.removed).toHaveLength(0);
+      expect(cleanup.skipped).toEqual([{ id: reference, reason: "tagged" }]);
+    },
+  );
+
   test("parses opaque index identity and Linux ARM64 labels from realistic data", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenOutput(

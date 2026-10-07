@@ -13,6 +13,7 @@ import {
   getMountOwnershipTargets,
   inspectSessionActivity,
   parseIdeBridgePort,
+  prepareContainerState,
   renderSshProxyConfiguration,
   repairMountOwnership,
   runSettingsApplyAsSandbox,
@@ -24,16 +25,21 @@ import {
 function writeSessionProcess(
   root: string,
   pid: number,
-  state: "S" | "Z" = "S",
+  options: { control?: boolean } = {},
 ): void {
-  const sessions = path.join(root, "tmp", "sandbox-sessions");
+  const sessions = path.join(
+    root,
+    "tmp",
+    "sandbox-sessions",
+    ...(options.control ? [".controls"] : []),
+  );
   const processDirectory = path.join(root, "proc", String(pid));
   fs.mkdirSync(sessions, { recursive: true });
   fs.mkdirSync(processDirectory, { recursive: true });
   fs.writeFileSync(path.join(sessions, String(pid)), "");
   fs.writeFileSync(
     path.join(processDirectory, "stat"),
-    `${pid} (sandbox command) ${state} 1 ${pid} ${pid} 0 -1 0`,
+    `${pid} (sandbox command) S 1 ${pid} ${pid} 0 -1 0`,
   );
 }
 
@@ -49,6 +55,33 @@ function sessionEnvironment(root: string) {
 }
 
 describe("container lifecycle mechanics", () => {
+  test("keeps a connecting session active without a user session marker", () => {
+    const root = createTestDir("container-lifecycle-connecting");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    writeSessionProcess(root, 41, { control: true });
+    expect(sessionEnvironment(root).run(inspectSessionActivity)).toEqual({
+      markerSeen: true,
+      active: true,
+    });
+  });
+
+  test("preserves a connecting control process when the entrypoint initializes state", () => {
+    const root = createTestDir("container-lifecycle-starting");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    writeSessionProcess(root, 41, { control: true });
+    writeSessionProcess(root, 42);
+    const sessions = path.join(root, "tmp", "sandbox-sessions");
+    const environment = sessionEnvironment(root);
+    environment.run(prepareContainerState);
+    expect(environment.run(inspectSessionActivity)).toEqual({
+      markerSeen: true,
+      active: true,
+    });
+    expect(fs.existsSync(path.join(sessions, "42"))).toBe(false);
+  });
+
   test("selects mount roots and intermediate directories under owned roots", () => {
     const mounts = [
       "host /home/sandbox/.claude/skills bind rw 0 0",

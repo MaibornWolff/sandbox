@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { parse } from "node:path";
 import { createHostBridgeService } from "#modules/host-bridge/index.js";
@@ -89,10 +90,10 @@ describe("sandbox escape", () => {
       "NAME=value",
     );
     const request = await child.waitForStart();
-    expect(request.args).toEqual(["--flag", "two words", "NAME=value"]);
-    expect(request.cwd).toBe(app.project.root);
     child.exit({ exitCode: 23 });
     const result = await execution;
+    expect(request.args).toEqual(["--flag", "two words", "NAME=value"]);
+    expect(request.cwd).toBe(realpathSync(app.project.root));
     expect(result.exitCode).toBe(23);
     expect(result.stderr).toBe("");
   });

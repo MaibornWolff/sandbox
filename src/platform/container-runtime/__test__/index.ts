@@ -1,3 +1,4 @@
+export { createRuntimeExecProcess } from "./exec-process.js";
 export type {
   ManagedContainer,
   ManagedContainerSnapshot,

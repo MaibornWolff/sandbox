@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { getClock } from "#platform/clock/index.js";
-import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import {
+  createRuntimeExecProcess,
+  createStatefulContainerRuntimeHarness,
+} from "#platform/container-runtime/__test__/index.js";
+import type { SandboxInstanceOperations } from "#platform/container-runtime/index.js";
 import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import { createLogger, provideLogger } from "#platform/logging/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
@@ -9,6 +13,27 @@ import {
   ContainerReadinessError,
   prepareContainerSession,
 } from "./container-session.js";
+
+function withSessionControl(
+  containers: SandboxInstanceOperations,
+): SandboxInstanceOperations {
+  return {
+    ...containers,
+    async openExec(id, spec) {
+      const result = await containers.exec(id, spec);
+      return createRuntimeExecProcess({
+        result: {
+          ...result,
+          stdout:
+            result.exitCode === 0
+              ? `${result.stdout}sandbox-session-control-ready\n`
+              : result.stdout,
+        },
+        keepOpen: result.exitCode === 0,
+      });
+    },
+  };
+}
 
 function installedRuleComment(command: readonly string[] | undefined): string {
   const commentIndex = command?.indexOf("--comment") ?? -1;
@@ -19,6 +44,29 @@ function installedRuleComment(command: readonly string[] | undefined): string {
 }
 
 describe("host bridge network access", () => {
+  test("keeps the container active during connection and releases its session on disposal", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    const container = harness.instances.create({
+      name: "sandbox-project",
+      image: "image",
+      labels: {},
+      status: "running",
+    });
+    const runtime = (await harness.provider.resolve()).runtime;
+    await runWithTestLogger(async () => {
+      const handle = await prepareContainerSession({
+        containers: runtime.instances,
+        containerId: "sandbox-project",
+      });
+      await using resources = new AsyncDisposableStack();
+      resources.use(handle);
+      expect(container.snapshot().controls).toHaveLength(1);
+      expect(container.snapshot().sessions).toHaveLength(0);
+      await resources.disposeAsync();
+      expect(container.snapshot().controls).toHaveLength(0);
+    });
+  });
+
   test.each([true, false])(
     "waits for delayed readiness in one exec with proxy=%s",
     async (proxy) => {
@@ -45,7 +93,7 @@ describe("host bridge network access", () => {
           .filter((event) => event.type === "container.exec");
         expect(calls).toHaveLength(1);
         expect(calls[0]?.command.includes("/usr/sbin/iptables")).toBe(proxy);
-        expect(calls[0]?.options.user).toBe(proxy ? "root" : undefined);
+        expect(calls[0]?.options.user).toBe("root");
       });
       expect(
         harness.events().filter((event) => event.type === "container.exec"),
@@ -71,13 +119,13 @@ describe("host bridge network access", () => {
       await runWithTestLogger(async () => {
         const calls: (readonly string[])[] = [];
         const preparation = prepareContainerSession({
-          containers: {
+          containers: withSessionControl({
             ...runtime.instances,
             exec: async (_id, spec) => {
               calls.push(spec.command);
               return { exitCode: 124, stdout, stderr: "failed" };
             },
-          },
+          }),
           containerId: "sandbox-project",
           endpoint: "ws://host.container.internal:43123/session",
           timeoutMs: 50,
@@ -120,7 +168,7 @@ describe("host bridge network access", () => {
     await runWithTestLogger(async () => {
       await expect(
         prepareContainerSession({
-          containers: {
+          containers: withSessionControl({
             ...runtime.instances,
             exec: async (_id, spec) => {
               calls.push(spec.command);
@@ -128,7 +176,7 @@ describe("host bridge network access", () => {
                 ? { exitCode: 23, stdout: "", stderr: "exec response lost" }
                 : { exitCode: 0, stdout: "", stderr: "" };
             },
-          },
+          }),
           containerId: "sandbox-project",
           endpoint: "ws://host.container.internal:43123/session",
         }),
@@ -146,6 +194,7 @@ describe("host bridge network access", () => {
 
   test.each([
     "running",
+    "stopping",
     "exited",
     "dead",
     "missing",
@@ -170,7 +219,7 @@ describe("host bridge network access", () => {
       const calls: (readonly string[])[] = [];
       await runWithTestLogger(async () => {
         const preparation = prepareContainerSession({
-          containers: {
+          containers: withSessionControl({
             ...runtime.instances,
             inspect: async (id) => {
               if (state === "inspection-failed")
@@ -186,7 +235,7 @@ describe("host bridge network access", () => {
                 stderr: "cleanup unavailable",
               };
             },
-          },
+          }),
           containerId: "sandbox-project",
           endpoint: "ws://host.container.internal:43123/session",
         });
@@ -201,7 +250,13 @@ describe("host bridge network access", () => {
         expect(calls[1]?.at(-1)).toBe(installedRuleComment(calls[0]));
         expect(
           harness.events().filter((event) => event.type === "container.logs"),
-        ).toHaveLength(state === "exited" || state === "dead" ? 1 : 0);
+        ).toHaveLength(
+          state === "running" ||
+            state === "inspection-failed" ||
+            state === "missing"
+            ? 0
+            : 1,
+        );
       });
     },
   );
@@ -229,7 +284,7 @@ describe("host bridge network access", () => {
         await runWithDependencies([provideLogger(logger)], async () => {
           await expect(
             prepareContainerSession({
-              containers: {
+              containers: withSessionControl({
                 ...runtime.instances,
                 exec: async (_id, spec) => {
                   calls.push(spec.command);
@@ -238,7 +293,7 @@ describe("host bridge network access", () => {
                     throw new Error("cleanup response lost");
                   return { exitCode: 0, stdout: "", stderr: "" };
                 },
-              },
+              }),
               containerId: "sandbox-project",
               endpoint:
                 scenario === "no-proxy"
@@ -314,7 +369,7 @@ describe("host bridge network access", () => {
     expect(calls[0]?.command[2]).not.toContain("host.container.internal");
   });
 
-  test.each(["running", "exited", "missing"] as const)(
+  test.each(["running", "stopping", "exited", "missing"] as const)(
     "handles cleanup failure while the instance is %s",
     async (state) => {
       const harness = createStatefulContainerRuntimeHarness();
@@ -328,6 +383,12 @@ describe("host bridge network access", () => {
       let calls = 0;
       const instances = {
         ...runtime.instances,
+        inspect: async (id: string) => {
+          const instance = await runtime.instances.inspect(id);
+          return state === "stopping" && instance
+            ? { ...instance, state: "stopping" as const }
+            : instance;
+        },
         exec: async () => ({
           exitCode: ++calls === 1 ? 0 : 19,
           stdout: "",
@@ -336,7 +397,7 @@ describe("host bridge network access", () => {
       };
       await runWithTestLogger(async () => {
         const handle = await prepareContainerSession({
-          containers: instances,
+          containers: withSessionControl(instances),
           containerId: "sandbox-project",
           endpoint: "ws://host.container.internal:43123/session",
         });

@@ -18,6 +18,7 @@ export {
 export type {
   CommandResult,
   PublishedPort,
+  SandboxExecProcess,
   SandboxExecSpec,
   SandboxImage,
   SandboxImageBuilder,

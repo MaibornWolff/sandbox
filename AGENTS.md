@@ -78,6 +78,8 @@ Use these rules when talking to the user:
 
 ## Testing
 
+- You SHOULD keep regression tests concise and put repeated boundary setup in small owner-local fixtures.
+- You MUST use separate tests for different outcomes and avoid copying production polling loops into tests.
 - You MUST NOT use `mock.module()` because it causes flaky tests due to parallel execution.
 - You MUST NOT use `try`/`finally` for test cleanup and MUST use `DisposableStack`, `Disposable`, or `AsyncDisposable` instead.
 - You MUST use real temporary filesystems for filesystem behavior and deterministic scoped clocks for time behavior.

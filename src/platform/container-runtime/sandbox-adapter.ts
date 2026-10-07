@@ -78,7 +78,7 @@ type ResolveSandboxImage = (details: {
 
 export const resolveContentAddressedImage: ResolveSandboxImage = ({ id }) => ({
   reference: id,
-  digest: id,
+  digest: /^[a-f0-9]{64}$/u.test(id) ? `sha256:${id}` : id,
 });
 
 function toSandboxDetails(
@@ -148,7 +148,11 @@ export function createSandboxImageBuilder(
   return {
     async isAvailable(image) {
       const details = await operations.inspect(image.reference);
-      return details?.id === image.digest;
+      return (
+        details !== null &&
+        resolveImage({ id: details.id, reference: image.reference }).digest ===
+          image.digest
+      );
     },
     async build(request): Promise<SandboxImage> {
       const existing = await operations.inspect(request.tag);

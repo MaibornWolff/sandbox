@@ -200,15 +200,15 @@ flowchart LR
 3. Prepare the runtime cache and mounts. Stop startup if runtime preparation fails.
 4. Start the session bridge, then find a compatible container or create one.
 5. For a new container, install both firewall policies before starting services and applying copy-mode settings. Apply settings as the non-root user while services become ready. Cancel and settle pending startup work if either operation fails.
-6. Wait for container readiness and install the bounded session bridge exception in one guest operation. If clipboard access is enabled, prepare the private clipboard display and wait for proxy readiness. `modules/sandbox-containers` owns this session preparation and its cleanup.
+6. Open a session-control process that keeps a live idle marker through connection setup and cleanup. The same guest operation waits for container readiness and installs the bounded session bridge exception. If clipboard access is enabled, prepare the private clipboard display and wait for proxy readiness. `modules/sandbox-containers` owns this session preparation and its cleanup.
 7. Run the requested command as the non-root user. Inject only the ready proxy's display environment. A clipboard startup failure gives a warning but does not stop the command.
-8. Remove the session bridge exception. Stop the proxy, bridge, and active host children when execution ends.
+8. Stop the clipboard proxy and remove the session bridge exception before closing session control. Stop the bridge and active host children when execution ends. A stopping container ends its network exception with its network namespace.
 9. Keep the container available while sessions remain active.
 10. Synchronize new mount-mode settings during a normal stop.
 11. Stop or remove the container according to the command and configuration.
 12. After the session ends, remove old runtime caches when scheduled and no container references them.
 
-Sandbox can reuse a compatible running container. A configuration, image, or runtime-content change requires a different container.
+Sandbox can reuse a compatible running container. Concurrent callers wait for the creating caller to start an instance before they open a session. Connection markers are separate from user session markers. They prevent idle shutdown and obsolete-container removal during setup, but do not appear as user sessions. A configuration, image, or runtime-content change requires a different container.
 
 ## Clipboard Ownership and Packaging
 

@@ -1,5 +1,6 @@
 /** @lintignore Public container lifecycle contract. */
 export {
+  getSessionControlMarkerDirectory,
   type IdeBridgeLifecycle,
   inspectSessionActivity,
   markContainerReady,

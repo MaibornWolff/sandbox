@@ -127,9 +127,14 @@ describe("network diagnostics", () => {
     const sockets = await sb.run("ss", "-lntup");
 
     expect(routes.exitCode).toBe(0);
-    expect(routes.stdout).toContain("dev eth0");
+    const routeInterface = routes.stdout.match(/^default .*\bdev (\S+)/mu)?.[1];
+    expect(routeInterface, routes.stdout).toBeDefined();
+    expect(routeInterface).not.toBe("lo");
     expect(addresses.exitCode).toBe(0);
     expect(addresses.stdout).toContain("lo");
+    expect(addresses.stdout).toContain(
+      routeInterface ?? "missing default route",
+    );
     expect(sockets.exitCode).toBe(0);
     expect(sockets.stdout).toContain("127.0.0.1:8888");
   }, 60_000);

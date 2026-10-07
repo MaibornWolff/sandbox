@@ -3,6 +3,40 @@ import { createStatefulContainerRuntimeHarness } from "./__test__/index.js";
 import { getSandboxStorageNativeName } from "./sandbox-adapter.js";
 
 describe("createSandboxImageBuilder", () => {
+  test.each(["docker", "podman"] as const)(
+    "resolves and verifies a complete %s image identity",
+    async (runtime) => {
+      const id = "a".repeat(64);
+      const nativeId = runtime === "podman" ? id : `sha256:${id}`;
+      const harness = createStatefulContainerRuntimeHarness({ runtime });
+      harness.images.create({
+        id: nativeId,
+        references: ["sandbox-base:latest"],
+        labels: { "sandbox.managed": "true" },
+      });
+      const { imageBuilder } = await harness.provider.resolve();
+      const image = await imageBuilder.build({
+        tag: "sandbox-base:latest",
+        dockerfilePath: "/build/Dockerfile",
+        contextDirectory: "/build",
+        buildArguments: {},
+        labels: { "sandbox.managed": "true" },
+        secrets: [],
+        cachePolicy: "use",
+        output: "silent",
+      });
+
+      expect(image.digest).toBe(`sha256:${id}`);
+      expect(await imageBuilder.isAvailable(image)).toBe(true);
+      expect(
+        await imageBuilder.isAvailable({
+          ...image,
+          digest: `sha256:${"b".repeat(64)}`,
+        }),
+      ).toBe(false);
+    },
+  );
+
   test.each([
     { localDigest: null, available: false },
     { localDigest: "sha256:abc001", available: true },

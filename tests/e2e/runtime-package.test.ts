@@ -138,7 +138,7 @@ test("concurrent starts use complete runtime contents", async () => {
     );
   const results = await Promise.all([inspect(), inspect()]);
   for (const result of results) {
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout.trim())).toMatchObject({
       readOnly: true,
       release: "concurrent",

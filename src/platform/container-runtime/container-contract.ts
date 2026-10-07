@@ -14,6 +14,7 @@ export type ContainerState =
   | "running"
   | "paused"
   | "restarting"
+  | "stopping"
   | "exited"
   | "dead"
   | "unknown";

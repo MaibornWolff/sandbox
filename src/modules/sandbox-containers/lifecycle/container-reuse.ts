@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { getClock } from "#platform/clock/index.js";
 import type {
   SandboxInstanceSpec,
@@ -162,6 +163,27 @@ export async function createFreshContainer(
   return containerName;
 }
 
+async function waitForContainerStart(
+  service: SandboxRuntime,
+  id: string,
+): Promise<boolean> {
+  const clock = getClock();
+  const timeoutMs = 30_000;
+  const deadline = clock.now() + timeoutMs;
+  getLogger().debug(`Waiting for container ${chalk.cyan(id)} to start`);
+  while (clock.now() < deadline) {
+    const instance = await service.instances.inspect(id);
+    if (instance?.state === "running") return true;
+    if (instance?.state !== "created") return false;
+    const remaining = deadline - clock.now();
+    if (remaining <= 0) break;
+    await clock.sleep(Math.min(50, remaining));
+  }
+  throw new Error(
+    `Container ${id} did not finish starting within ${timeoutMs}ms.`,
+  );
+}
+
 export async function findOrCreateContainer(
   service: SandboxRuntime,
   slug: string,
@@ -184,6 +206,11 @@ export async function findOrCreateContainer(
         (container.state === "running" || container.state === "created"),
     );
     if (matching) {
+      if (
+        matching.state === "created" &&
+        !(await waitForContainerStart(service, matching.id))
+      )
+        continue;
       logger.debug(
         `Reusing existing container: ${matching.name} (hash=${hash})`,
       );

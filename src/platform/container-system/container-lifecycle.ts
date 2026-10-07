@@ -12,6 +12,11 @@ import {
 
 const CONTAINER_MOUNTS_FILE = "/proc/mounts";
 const SETTINGS_DIRECTORY = "/etc/sandbox/settings";
+const SESSION_CONTROL_DIRECTORY_NAME = ".controls";
+
+export function getSessionControlMarkerDirectory(): string {
+  return `${CONTAINER_SESSIONS_DIRECTORY}/${SESSION_CONTROL_DIRECTORY_NAME}`;
+}
 
 function containerPath(absolutePath: string): string {
   return path.join(
@@ -22,13 +27,16 @@ function containerPath(absolutePath: string): string {
 
 export function prepareContainerState(): void {
   fs.rmSync(containerPath(CONTAINER_READY_FILE), { force: true });
-  fs.rmSync(containerPath(CONTAINER_SESSIONS_DIRECTORY), {
-    recursive: true,
-    force: true,
-  });
-  fs.mkdirSync(containerPath(CONTAINER_SESSIONS_DIRECTORY), {
-    recursive: true,
-  });
+  const sessionsDirectory = containerPath(CONTAINER_SESSIONS_DIRECTORY);
+  fs.mkdirSync(sessionsDirectory, { recursive: true });
+  // A host connection can create its control marker before this initialization.
+  for (const marker of fs.readdirSync(sessionsDirectory)) {
+    if (marker === SESSION_CONTROL_DIRECTORY_NAME) continue;
+    fs.rmSync(path.join(sessionsDirectory, marker), {
+      recursive: true,
+      force: true,
+    });
+  }
 }
 
 function decodeMountPath(value: string): string {
@@ -156,7 +164,10 @@ export interface SessionActivity {
 
 interface SessionProcesses {
   readonly markerSeen: boolean;
-  readonly activePids: readonly number[];
+  readonly activeSessions: readonly {
+    readonly pid: number;
+    readonly markerPath: string;
+  }[];
 }
 
 function sessionProcessState(pid: number): "active" | "missing" | "zombie" {
@@ -172,36 +183,47 @@ function sessionProcessState(pid: number): "active" | "missing" | "zombie" {
   }
 }
 
-function inspectSessionProcesses(): SessionProcesses {
-  const sessionsDirectory = containerPath(CONTAINER_SESSIONS_DIRECTORY);
+function readSessionMarker(markerPath: string): fs.Stats | null {
+  try {
+    return fs.statSync(markerPath);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+function inspectSessionProcesses(
+  directory = containerPath(CONTAINER_SESSIONS_DIRECTORY),
+): SessionProcesses {
   let markerSeen = false;
-  const activePids: number[] = [];
-  for (const marker of fs.readdirSync(sessionsDirectory)) {
-    const markerPath = path.join(sessionsDirectory, marker);
-    try {
-      if (!fs.statSync(markerPath).isFile()) continue;
-    } catch (error) {
-      if (isFileNotFoundError(error)) {
-        continue;
-      }
-      throw error;
+  const activeSessions: Array<{ pid: number; markerPath: string }> = [];
+  for (const marker of fs.readdirSync(directory)) {
+    const markerPath = path.join(directory, marker);
+    const info = readSessionMarker(markerPath);
+    if (!info) continue;
+    if (info.isDirectory() && marker === SESSION_CONTROL_DIRECTORY_NAME) {
+      const controls = inspectSessionProcesses(markerPath);
+      markerSeen ||= controls.markerSeen;
+      activeSessions.push(...controls.activeSessions);
+      continue;
     }
+    if (!info.isFile()) continue;
     markerSeen = true;
     const pid = Number(marker);
     if (Number.isInteger(pid) && sessionProcessState(pid) === "active") {
-      activePids.push(pid);
+      activeSessions.push({ pid, markerPath });
     } else {
       fs.rmSync(markerPath, { force: true });
     }
   }
-  return { markerSeen, activePids };
+  return { markerSeen, activeSessions };
 }
 
 export function inspectSessionActivity(): SessionActivity {
   const sessions = inspectSessionProcesses();
   return {
     markerSeen: sessions.markerSeen,
-    active: sessions.activePids.length > 0,
+    active: sessions.activeSessions.length > 0,
   };
 }
 
@@ -214,15 +236,12 @@ export async function terminateContainerSessions(
     readonly captured: NonNullable<ReturnType<typeof manager.capture>>;
   }> = [];
   const failures: Error[] = [];
-  for (const pid of inspectSessionProcesses().activePids) {
+  for (const { pid, markerPath } of inspectSessionProcesses().activeSessions) {
     try {
       const captured = manager.capture({ name: `session ${pid}`, pid });
       if (captured) sessions.push({ pid, captured });
       else {
-        fs.rmSync(
-          path.join(containerPath(CONTAINER_SESSIONS_DIRECTORY), String(pid)),
-          { force: true },
-        );
+        fs.rmSync(markerPath, { force: true });
       }
     } catch (error) {
       failures.push(

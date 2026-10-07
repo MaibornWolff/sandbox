@@ -210,7 +210,12 @@ async function resolveExecutionContainer(
     if (result.created || !(error instanceof ContainerReadinessError))
       throw error;
     const instance = await service.instances.inspect(result.containerName);
-    if (instance && instance.state !== "exited" && instance.state !== "dead")
+    if (
+      instance &&
+      instance.state !== "stopping" &&
+      instance.state !== "exited" &&
+      instance.state !== "dead"
+    )
       throw error;
     logger.debug(
       `Reused container ${chalk.cyan(result.containerName)} stopped, creating new one`,

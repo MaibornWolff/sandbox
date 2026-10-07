@@ -2,6 +2,7 @@ import * as crypto from "node:crypto";
 import chalk from "chalk";
 import type { SandboxInstanceOperations } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { openSessionControl } from "./session-control.js";
 
 const IPTABLES = "/usr/sbin/iptables";
 
@@ -127,6 +128,7 @@ async function reportReadinessFailure(options: {
   if (
     failure &&
     inspection &&
+    inspection.state !== "stopping" &&
     inspection.state !== "exited" &&
     inspection.state !== "dead"
   ) {
@@ -185,11 +187,7 @@ export async function prepareContainerSession(options: {
   const logger = getLogger();
   const attempts = Math.max(1, Math.ceil(timeoutMs / 50));
   const ready = "sandbox-session-ready";
-  const script =
-    `i=0; while [ ! -f /tmp/.sandbox-ready ]; do ` +
-    `i=$((i + 1)); [ "$i" -ge ${attempts} ] && exit 124; sleep 0.05; done; ` +
-    `printf '%s\\n' '${ready}'; ` +
-    'if [ "$#" -gt 0 ]; then exec /usr/bin/timeout --signal=KILL 5 "$@"; fi';
+  await using resources = new AsyncDisposableStack();
   logger.debug(`Preparing container session for ${chalk.cyan(containerId)}`);
   const failSession = async (failure?: {
     readonly error: unknown;
@@ -202,12 +200,15 @@ export async function prepareContainerSession(options: {
       failure,
     });
   };
-  const result = await containers
-    .exec(containerId, {
-      command: ["sh", "-c", script, "sandbox-session", ...(plan?.add ?? [])],
-      ...(plan ? { user: "root" } : {}),
-    })
-    .catch((error: unknown) => failSession({ error }));
+  const prepared = await openSessionControl({
+    containers,
+    containerId,
+    attempts,
+    timeoutMs,
+    command: plan?.add ?? [],
+  }).catch((error: unknown) => failSession({ error }));
+  resources.use(prepared.control);
+  const { result } = prepared;
   if (result.exitCode !== 0) {
     if (result.stdout.split("\n").includes(ready)) {
       await cleanFailedSession(containers, containerId, plan);
@@ -226,32 +227,36 @@ export async function prepareContainerSession(options: {
       ),
     });
   }
-  if (!plan) return { async [Symbol.asyncDispose]() {} };
-  return {
-    async [Symbol.asyncDispose]() {
+  if (!plan) return resources.move();
+  // Keep the idle marker active until the network exception is removed.
+  resources.defer(async () => {
+    logger.debug(
+      `Removing host bridge network access for ${chalk.cyan(containerId)}`,
+    );
+    try {
+      await removeFirewallRule({
+        containers,
+        containerId,
+        command: plan.remove,
+      });
+    } catch (error) {
       logger.debug(
-        `Removing host bridge network access for ${chalk.cyan(containerId)}`,
+        `Session firewall cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-      try {
-        await removeFirewallRule({
-          containers,
-          containerId,
-          command: plan.remove,
-        });
-      } catch (error) {
-        logger.debug(
-          `Session firewall cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        const instance = await containers.inspect(containerId);
-        const namespaceEnded =
-          instance === null ||
-          instance.state === "exited" ||
-          instance.state === "dead";
-        if (!namespaceEnded) throw error;
-        logger.debug(
-          `Host bridge network access ended with container ${chalk.cyan(containerId)}`,
-        );
-      }
-    },
-  };
+      const instance = await containers.inspect(containerId);
+      logger.debug(
+        `Container state after session firewall cleanup failure: ${instance?.state ?? "missing"}`,
+      );
+      const namespaceEnding =
+        instance === null ||
+        instance.state === "stopping" ||
+        instance.state === "exited" ||
+        instance.state === "dead";
+      if (!namespaceEnding) throw error;
+      logger.debug(
+        `Host bridge network access ended with container ${chalk.cyan(containerId)}`,
+      );
+    }
+  });
+  return resources.move();
 }

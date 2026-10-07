@@ -204,6 +204,20 @@ describe("Docker container operations", () => {
     });
   });
 
+  test("preserves Podman stopping state during concurrent session cleanup", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    commands.givenOutput(
+      { command: "podman", args: ["inspect", "container-1"] },
+      inspection.replace('"Status":"running"', '"Status":"stopping"'),
+    );
+    const operations = createDockerContainerOperations({
+      binaryName: "podman",
+      runtime: "podman",
+      exec: commands.executor,
+    });
+    expect((await operations.inspect("container-1"))?.state).toBe("stopping");
+  });
+
   test("returns null for absence and throws for malformed output", async () => {
     const missing = createStatefulRuntimeCommandExecutor();
     missing.givenFailure(

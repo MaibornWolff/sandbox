@@ -52,6 +52,7 @@ function normalizeState(value: string | undefined): ContainerState {
     case "running":
     case "paused":
     case "restarting":
+    case "stopping":
     case "exited":
     case "dead":
       return value;

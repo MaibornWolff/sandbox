@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { createTestClock } from "#platform/clock/__test__/index.js";
 import type { Clock } from "#platform/clock/index.js";
+import { provideClock } from "#platform/clock/index.js";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
 import {
   SandboxInstanceNameConflictError,
   type SandboxInstanceSpec,
 } from "#platform/container-runtime/index.js";
+import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import {
   createFreshContainer,
@@ -24,6 +27,32 @@ function createSpec(): SandboxInstanceSpec {
     removeOnExit: true,
     resources: {},
     security: { capabilities: ["NET_ADMIN"], nestedContainerRuntime: false },
+  };
+}
+
+async function startingContainerFixture() {
+  const harness = createStatefulContainerRuntimeHarness();
+  const container = harness.instances.create({
+    name: "sandbox-project",
+    image: "sandbox-project:latest",
+    labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
+    status: "created",
+  });
+  const { runtime } = await harness.provider.resolve();
+  const clock = createTestClock();
+  return {
+    harness,
+    container,
+    clock,
+    reuse: () =>
+      findOrCreateContainer(runtime, "project", "expected", createSpec()),
+    async run(test: () => Promise<void>) {
+      await using resources = new AsyncDisposableStack();
+      resources.defer(() => clock.dispose());
+      await runWithTestLogger(() =>
+        runWithDependencies([provideClock(clock.clock)], test),
+      );
+    },
   };
 }
 
@@ -113,20 +142,58 @@ describe("container reuse", () => {
     expect(harness.instances.all()).toHaveLength(1);
   });
 
-  test("shares a matching instance while another caller starts it", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    harness.instances.create({
-      name: "sandbox-project",
-      image: "sandbox-project:latest",
-      labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
-      status: "created",
+  test("waits for another caller to start the matching container", async () => {
+    const fixture = await startingContainerFixture();
+    await fixture.run(async () => {
+      const preparation = fixture.reuse();
+      expect(
+        await Promise.race([
+          preparation.then(() => "completed"),
+          fixture.clock.waitForSleep().then(() => "waiting"),
+        ]),
+      ).toBe("waiting");
+      fixture.container.givenStatus("running");
+      await fixture.clock.advanceBy(50);
+      expect(await preparation).toEqual({
+        containerName: "sandbox-project",
+        created: true,
+      });
+      expect(fixture.harness.instances.all()).toHaveLength(1);
     });
-    const runtime = (await harness.provider.resolve()).runtime;
-    const result = await runWithTestLogger(() =>
-      findOrCreateContainer(runtime, "project", "expected", createSpec()),
-    );
-    expect(result).toEqual({ containerName: "sandbox-project", created: true });
-    expect(harness.instances.all()).toHaveLength(1);
+  });
+
+  test("replaces a container that fails during startup", async () => {
+    const fixture = await startingContainerFixture();
+    await fixture.run(async () => {
+      const preparation = fixture.reuse();
+      await fixture.clock.waitForSleep();
+      fixture.container.givenStatus("exited");
+      await fixture.clock.advanceBy(50);
+      expect(await preparation).toEqual({
+        containerName: "sandbox-project",
+        created: true,
+      });
+      expect(fixture.container.snapshot().status).toBe("removed");
+      expect(
+        fixture.harness.instances
+          .all()
+          .filter((instance) => instance.status !== "removed"),
+      ).toHaveLength(1);
+    });
+  });
+
+  test("times out without removing another caller's starting container", async () => {
+    const fixture = await startingContainerFixture();
+    await fixture.run(async () => {
+      const failure = fixture.reuse().catch((error: unknown) => error);
+      await fixture.clock.waitForSleep();
+      await fixture.clock.advanceBy(30_000);
+      expect(await failure).toMatchObject({
+        message: expect.stringContaining("did not finish starting"),
+      });
+      expect(fixture.container.snapshot().status).toBe("created");
+      expect(fixture.harness.instances.all()).toHaveLength(1);
+    });
   });
 
   test("removes an idle obsolete container before replacement", async () => {

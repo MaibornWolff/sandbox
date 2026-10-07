@@ -1,5 +1,8 @@
 import type { ProcessResult } from "#platform/process/index.js";
 import type { SandboxExecProcess } from "./container-contract.js";
+
+export type { SandboxExecProcess } from "./container-contract.js";
+
 import type { Runtime } from "./runtime-types.js";
 
 export interface SandboxImageBuilder {
@@ -151,6 +154,7 @@ export type SandboxInstanceState =
   | "running"
   | "paused"
   | "restarting"
+  | "stopping"
   | "exited"
   | "dead"
   | "unknown";

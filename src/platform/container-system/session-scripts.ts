@@ -1,9 +1,12 @@
 import { CONTAINER_SESSIONS_DIRECTORY } from "./container-paths.js";
 
-const removeStaleSessionMarkers = [
-  `for f in ${CONTAINER_SESSIONS_DIRECTORY}/*; do`,
+const SESSION_CONTROL_MARKERS_DIRECTORY = `${CONTAINER_SESSIONS_DIRECTORY}/.controls`;
+
+const detectActiveSession = [
+  `for f in ${CONTAINER_SESSIONS_DIRECTORY}/* ${SESSION_CONTROL_MARKERS_DIRECTORY}/*; do`,
   '[ -f "$f" ] || continue;',
-  'kill -0 "$(basename "$f")" 2>/dev/null || rm -f "$f";',
+  'kill -0 "$(basename "$f")" 2>/dev/null && exit 1;',
+  'rm -f "$f";',
   "done",
 ].join(" ");
 
@@ -12,11 +15,7 @@ const removeStaleSessionMarkers = [
  * container has no active sessions, or with 1 when sessions remain.
  */
 export function buildSessionIdleCommand(): string[] {
-  return [
-    "sh",
-    "-c",
-    `${removeStaleSessionMarkers}; [ -z "$(ls ${CONTAINER_SESSIONS_DIRECTORY}/ 2>/dev/null)" ]`,
-  ];
+  return ["sh", "-c", detectActiveSession];
 }
 
 /**

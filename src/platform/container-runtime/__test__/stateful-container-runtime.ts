@@ -25,6 +25,7 @@ import type {
   SandboxRuntimeSelection,
 } from "../sandbox-contract.js";
 import type { VolumeOperations } from "../volume-contract.js";
+import { createRuntimeExecProcess } from "./exec-process.js";
 
 interface ListContainersOptions {
   readonly all?: boolean;
@@ -656,6 +657,27 @@ class StatefulRuntimeWorld {
       },
       openExec: async (id, spec) => {
         const container = this.findContainer(id);
+        if (spec.command.some((part) => part.includes("/tmp/.sandbox-ready"))) {
+          const stdout = await legacy.execInContainer(id, [...spec.command], {
+            user: spec.user,
+          });
+          const pid = String(10_000 + container.snapshot().readinessAttempts);
+          container.givenControls([...container.snapshot().controls, pid]);
+          return createRuntimeExecProcess({
+            result: {
+              exitCode: 0,
+              stdout: `${stdout}sandbox-session-control-ready\n`,
+              stderr: "",
+            },
+            keepOpen: true,
+            onDispose: () =>
+              container.givenControls(
+                container
+                  .snapshot()
+                  .controls.filter((control) => control !== pid),
+              ),
+          });
+        }
         this.recordedEvents.push({
           type: "container.exec-stream",
           containerId: container.id,

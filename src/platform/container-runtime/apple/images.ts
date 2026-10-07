@@ -146,20 +146,32 @@ export function createAppleImageOperations(
   exec: RuntimeExecutor,
   networking: AppleNetworkOperations,
 ): ImageOperations {
-  const exists = async (reference: string): Promise<boolean> => {
-    const images = parseImageArray(
+  const readInventory = async (): Promise<AppleImageJson[]> =>
+    parseImageArray(
       await exec(BINARY_NAME, ["image", "list", "--format", "json"]),
       "image list",
     );
-    const identities = images.map(listedImageIdentity);
+  const exists = async (reference: string): Promise<boolean> => {
+    const identities = (await readInventory()).map(listedImageIdentity);
     return identities.some((image) => matchesImageReference(reference, image));
   };
-  const inspect = (reference: string): Promise<ImageDetails | null> =>
-    inspectImage({
+  const inspect = async (reference: string): Promise<ImageDetails | null> => {
+    // Apple accepts named references for inspection, not bare content identities.
+    if (/^(?:sha256:)?[a-f0-9]{64}$/u.test(reference)) {
+      const images = await readInventory();
+      const identities = images.map(listedImageIdentity);
+      const index = identities.findIndex((image) =>
+        matchesImageReference(reference, image),
+      );
+      const image = images[index];
+      return image ? parseAppleImage(image, reference) : null;
+    }
+    return inspectImage({
       read: () => exec(BINARY_NAME, ["image", "inspect", reference]),
       exists: () => exists(reference),
       parse: (output) => parseSingleImage(output, reference),
     });
+  };
 
   const containersUsing = async (image: ImageDetails): Promise<string[]> => {
     const containers = parseAppleContainerArray(

@@ -107,23 +107,41 @@ describe("container PID 1 lifecycle", () => {
   }, 120_000);
 
   test("reaps an orphaned child after its session exits", async () => {
-    const spawned = await sb.run(
+    const parent = sb.start([
+      "run",
+      "--",
       "sh",
       "-c",
-      'sleep 0.2 & echo $! > "$1"',
-      "sandbox-orphan-test",
-      "/tmp/sandbox-orphan.pid",
-    );
-    expect(spawned.exitCode).toBe(0);
-
-    const reaped = await sb.run(
+      `set -eu
+      (while [ ! -f orphan-child-release ]; do sleep 0.05; done) </dev/null >/dev/null 2>&1 &
+      echo $! > /tmp/sandbox-orphan.pid
+      printf 'parent-active\\n'
+      while [ ! -f orphan-parent-release ]; do sleep 0.05; done`,
+    ]);
+    await parent.waitForOutput("parent-active");
+    const observer = sb.start([
+      "run",
+      "--",
       "sh",
       "-c",
-      'sleep 1; pid="$(cat "$1")"; test ! -e "/proc/$pid"',
-      "sandbox-orphan-test",
-      "/tmp/sandbox-orphan.pid",
-    );
-    expect(reaped.exitCode).toBe(0);
+      `set -eu
+      printf 'observer-active\\n'
+      while [ ! -f orphan-parent-complete ]; do sleep 0.05; done
+      pid="$(cat /tmp/sandbox-orphan.pid)"
+      test -e "/proc/$pid"
+      touch orphan-child-release
+      i=0
+      while [ -e "/proc/$pid" ]; do i=$((i + 1)); test "$i" -lt 200; sleep 0.05; done
+      printf 'orphan-reaped\\n'`,
+    ]);
+    await observer.waitForOutput("observer-active");
+    await writeProjectFile(projectDir, "orphan-parent-release", "ready");
+    const parentResult = await parent.result;
+    expect(parentResult.exitCode, parentResult.stderr).toBe(0);
+    await writeProjectFile(projectDir, "orphan-parent-complete", "ready");
+    const reaped = await observer.result;
+    expect(reaped.exitCode, reaped.stderr).toBe(0);
+    expect(reaped.stdout).toContain("orphan-reaped");
   });
 
   test("forwards sandbox stop to an active container session", async () => {
@@ -139,7 +157,7 @@ describe("container PID 1 lifecycle", () => {
     const sessionResult = await session.result;
 
     expect(stopped.exitCode).toBe(0);
-    expect(sessionResult.exitCode).toBe(143);
+    expect(sessionResult.exitCode, sessionResult.stderr).toBe(143);
     expect(sessionResult.stderr).not.toContain("suppressed during disposal");
   }, 60_000);
 });

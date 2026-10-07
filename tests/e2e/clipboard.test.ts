@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { createClipboardTestImage } from "#modules/clipboard/__test__/index.js";
 import { getRepoRootPath } from "#platform/git/index.js";
 import {
+  assignConfiguredHostOwnership,
   cleanupProject,
   createTempProject,
   writeProjectFile,
@@ -19,6 +20,7 @@ beforeAll(async () => {
   project = await createTempProject("clipboard");
   clipboard = join(project, "clipboard-fixture");
   await mkdir(clipboard);
+  await assignConfiguredHostOwnership(clipboard);
   await writeProjectFile(
     project,
     ".sandbox/config.toml",

@@ -1,4 +1,4 @@
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 
@@ -31,13 +31,13 @@ function getErrorSearchText(err: Error): string {
  */
 export function warnIfNoSpaceError(
   err: unknown,
-  service: ContainerRuntime,
+  service: SandboxRuntime,
 ): void {
   if (!isNoSpaceError(err)) return;
 
   getLogger().warn("No space left on device - build cache is likely full.");
 
-  const hint = service.getPruneHint();
+  const hint = service.getDiskSpaceAdvice();
   getTerminal().stderr.write(
     `\n  To free space, run one of the following:\n\n  ${hint}\n\n`,
   );

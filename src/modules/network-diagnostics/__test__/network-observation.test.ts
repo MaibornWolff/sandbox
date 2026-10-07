@@ -6,7 +6,7 @@ import { createNetworkObservationFixture } from "./index.js";
 describe("network observation fixture", () => {
   test("translates blocked domains into production diagnostic logs", async () => {
     const harness = createStatefulContainerRuntimeHarness();
-    const container = harness.containers.create({
+    const container = harness.instances.create({
       name: "sandbox-project",
       image: "sandbox-project:latest",
       labels: {},
@@ -15,7 +15,7 @@ describe("network observation fixture", () => {
     const observations = createNetworkObservationFixture(container);
     observations.block("api.example.com", 443);
     observations.block("dns.example.com", 0);
-    const runtime = await harness.provider.resolve();
+    const runtime = (await harness.provider.resolve()).runtime;
 
     const entries = await collectContainerEntries(
       runtime,

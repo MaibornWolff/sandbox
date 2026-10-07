@@ -1,13 +1,22 @@
+import * as path from "node:path";
 import chalk from "chalk";
 import { getClock } from "#platform/clock/index.js";
+import { getHostEnvironment } from "#platform/environment/index.js";
+import { getPackageRootPath } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { fetchLatestVersion } from "#platform/npm/index.js";
-import { readState, writeState } from "#platform/state/index.js";
+import { getProcessManager } from "#platform/process/index.js";
+import {
+  claimUpdateRefresh,
+  finishUpdateRefresh,
+  readUpdateCache,
+  startUpdateRefresh,
+} from "#platform/state/index.js";
 import { writeStandardError } from "#platform/terminal/index.js";
 import { getVersion, isNewerVersion } from "./package-version.js";
 
 const PACKAGE_NAME = "@maibornwolff/sandbox";
-const UPDATE_CHECK_CACHE_MILLISECONDS = 24 * 60 * 60 * 1_000;
+export const UPDATE_CHECK_WORKER_ARGUMENT = "--internal-update-check";
 
 /** @testonly */
 export function formatAvailableUpdateWarning(
@@ -24,36 +33,93 @@ export function formatAvailableUpdateWarning(
   return `${chalk.yellow("↑ Sandbox update available:")} ${chalk.dim(currentVersion)} → ${chalk.cyan.bold(latestVersion)}  (run ${chalk.cyan.bold("sandbox update")})\n`;
 }
 
-/**
- * Warn from the cached registry result and refresh an expired cache.
- * The returned promise is the complete refresh lifecycle and never rejects.
- */
-export async function warnIfUpdateAvailable(): Promise<void> {
-  const currentVersion = getVersion();
-  const state = readState();
-  const latestVersion =
-    typeof state.latestVersion === "string" ? state.latestVersion : null;
+function reportFailure(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const summary = message
+    .split("\n")
+    .slice(0, 2)
+    .map((line) => line.trim())
+    .join(": ")
+    .slice(0, 500);
+  getLogger().debug(`Sandbox update check failed: ${summary}`);
+  return summary;
+}
 
-  const warning = formatAvailableUpdateWarning(currentVersion, latestVersion);
-  if (warning) writeStandardError(warning);
-
-  const now = getClock().now();
-  const checkedAt =
-    typeof state.latestVersionCheckedAt === "number"
-      ? state.latestVersionCheckedAt
-      : null;
-  if (checkedAt !== null && now - checkedAt < UPDATE_CHECK_CACHE_MILLISECONDS) {
-    getLogger().debug("Using cached Sandbox update check");
-    return;
-  }
-
+/** Only a later invocation can show the worker's result. */
+export function warnIfUpdateAvailable(): void {
   try {
-    const version = await fetchLatestVersion(PACKAGE_NAME);
-    writeState({ latestVersion: version, latestVersionCheckedAt: now });
+    const cache = readUpdateCache();
+    const warning = formatAvailableUpdateWarning(
+      getVersion(),
+      cache.latestVersion ?? null,
+    );
+    if (warning) writeStandardError(warning);
+    if (cache.error)
+      getLogger().debug(`Previous Sandbox update check failed: ${cache.error}`);
+    const token = claimUpdateRefresh(getClock().now());
+    if (token === undefined) {
+      getLogger().debug("Using cached Sandbox update check or refresh backoff");
+      return;
+    }
+    launchUpdateWorker(token);
+  } catch (error) {
+    reportFailure(error);
+  }
+}
+
+function launchUpdateWorker(token: string): void {
+  const recordFailure = (error: unknown) => {
+    const summary = reportFailure(error);
+    try {
+      finishUpdateRefresh(token, getClock().now(), { error: summary });
+    } catch (cacheError) {
+      reportFailure(cacheError);
+    }
+  };
+  try {
+    const executablePath = getHostEnvironment().executablePath;
+    if (!executablePath) throw new Error("Node executable path is unavailable");
+    const worker = getProcessManager().start({
+      command: executablePath,
+      args: [
+        path.join(getPackageRootPath(), "dist", "apps", "sandbox", "main.js"),
+        UPDATE_CHECK_WORKER_ARGUMENT,
+        token,
+      ],
+      lifetime: "detached",
+      interaction: { mode: "non-interactive" },
+      stdio: "ignore",
+    });
+    getLogger().debug(
+      `Started background ${chalk.cyan("Sandbox update check")}`,
+    );
+    void worker.result.then((result) => {
+      if (result.exitCode !== 0)
+        recordFailure(
+          new Error(`Update worker exited with code ${result.exitCode}`),
+        );
+    }, recordFailure);
+  } catch (error) {
+    recordFailure(error);
+  }
+}
+
+export async function runUpdateCheckWorker(token: string): Promise<void> {
+  if (!startUpdateRefresh(token, getClock().now())) return;
+  try {
+    const latestVersion = await fetchLatestVersion(PACKAGE_NAME);
+    if (
+      !/^\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/.test(
+        latestVersion,
+      )
+    ) {
+      throw new Error("npm returned an invalid Sandbox release version");
+    }
+    finishUpdateRefresh(token, getClock().now(), { latestVersion });
     getLogger().debug("Refreshed Sandbox update cache");
   } catch (error) {
-    getLogger().debug(
-      `Sandbox update check failed: ${error instanceof Error ? error.message.split("\n")[0] : String(error)}`,
-    );
+    finishUpdateRefresh(token, getClock().now(), {
+      error: reportFailure(error),
+    });
   }
 }

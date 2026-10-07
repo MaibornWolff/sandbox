@@ -1,84 +1,171 @@
 import { describe, expect, test } from "bun:test";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type { SandboxRuntimeSelection } from "#platform/container-runtime/index.js";
+import { readState, writeState } from "#platform/state/index.js";
 import { runInHostTestScope } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
-import { formatImageSize, removeDanglingImages } from "./image-cleanup.js";
+import { formatImageSize, removeUnusedManagedImages } from "./image-cleanup.js";
 
 async function withRuntime<T>(
   callback: (
     harness: ReturnType<typeof createStatefulContainerRuntimeHarness>,
-    runtime: ContainerRuntime,
+    runtime: SandboxRuntimeSelection,
   ) => Promise<T>,
 ): Promise<T> {
+  using cleanup = new DisposableStack();
   const root = createTestDir("image-cleanup");
+  cleanup.defer(() => cleanupTestDir(root));
   const harness = createStatefulContainerRuntimeHarness();
   const runtime = await harness.provider.resolve();
-  try {
-    return (
-      await runInHostTestScope({ root }, () => callback(harness, runtime))
-    ).result;
-  } finally {
-    cleanupTestDir(root);
-  }
+  return (await runInHostTestScope({ root }, () => callback(harness, runtime)))
+    .result;
 }
 
-describe("removeDanglingImages", () => {
-  test("removes unused images and reports freed space", async () => {
+describe("removeUnusedManagedImages", () => {
+  test("removes only unused managed images and reports estimated space", async () => {
     await withRuntime(async (harness, runtime) => {
       harness.images.create({
         id: "unused",
+        labels: { "sandbox.managed": "true" },
         dangling: true,
         size: 1_500_000,
-        created: "today",
       });
       harness.images.create({
         id: "used",
+        labels: { "sandbox.managed": "true" },
         dangling: true,
         size: 2_000_000,
-        created: "today",
       });
-      harness.containers.create({
+      harness.images.create({
+        id: "unmanaged",
+        dangling: true,
+        size: 5_000_000,
+      });
+      writeState({
+        sandboxImages: {
+          "docker:unused": { reference: "unused", digest: "unused" },
+          "docker:used": { reference: "used", digest: "used" },
+          "docker:unmanaged": {
+            reference: "unmanaged",
+            digest: "unmanaged",
+          },
+        },
+      });
+      harness.instances.create({
         name: "consumer",
         image: "used",
         labels: {},
         status: "running",
       });
 
-      await expect(removeDanglingImages(runtime)).resolves.toEqual({
+      await expect(removeUnusedManagedImages(runtime)).resolves.toEqual({
         removed: 1,
         freedSpace: "1.5MB",
       });
       expect(harness.images.find("unused")).toBeUndefined();
       expect(harness.images.find("used")).toBeDefined();
+      expect(harness.images.find("unmanaged")).toBeDefined();
     });
   });
 
-  test("continues when one image cannot be removed", async () => {
+  test("preserves ownership records after removal failures", async () => {
     await withRuntime(async (harness, runtime) => {
-      harness.images.create({ id: "failed", dangling: true, size: 1_000 });
-      harness.images.create({ id: "removed", dangling: true, size: 2_000 });
-      harness.system.fail("image.remove", new Error("in use"));
-
-      await expect(removeDanglingImages(runtime)).resolves.toEqual({
-        removed: 1,
-        freedSpace: "2KB",
+      harness.images.create({
+        id: "failed",
+        labels: { "sandbox.managed": "true" },
+        dangling: true,
       });
+      writeState({
+        sandboxImages: {
+          "docker:current": {
+            reference: "current",
+            digest: "current",
+            ownedDigests: ["failed"],
+          },
+        },
+      });
+      harness.system.fail("image.remove", new Error("runtime conflict"));
+
+      await expect(removeUnusedManagedImages(runtime)).rejects.toThrow(
+        "runtime conflict",
+      );
       expect(harness.images.find("failed")).toBeDefined();
-      expect(harness.images.find("removed")).toBeUndefined();
+      expect(
+        readState().sandboxImages?.["docker:current"]?.ownedDigests,
+      ).toEqual(["failed"]);
     });
   });
 
-  test("treats failed image queries as empty", async () => {
+  test("preserves ownership records for retained images", async () => {
     await withRuntime(async (harness, runtime) => {
-      harness.system.fail(
-        "image.dangling.list",
-        new Error("runtime unavailable"),
-      );
-      await expect(removeDanglingImages(runtime)).resolves.toEqual({
+      harness.images.create({
+        id: "retained",
+        references: ["retained:latest"],
+        labels: { "sandbox.managed": "true" },
+      });
+      writeState({
+        sandboxImages: {
+          "docker:current": {
+            reference: "current",
+            digest: "current",
+            ownedDigests: ["retained"],
+          },
+        },
+      });
+
+      await expect(removeUnusedManagedImages(runtime)).resolves.toEqual({
         removed: 0,
         freedSpace: "0B",
       });
+      expect(
+        readState().sandboxImages?.["docker:current"]?.ownedDigests,
+      ).toEqual(["retained"]);
+    });
+  });
+
+  test("does not delete another runtime's equal digest metadata", async () => {
+    await withRuntime(async (harness, runtime) => {
+      harness.images.create({
+        id: "shared-digest",
+        labels: { "sandbox.managed": "true" },
+        dangling: true,
+      });
+      writeState({
+        sandboxImages: {
+          "docker:selected": {
+            reference: "selected",
+            digest: "shared-digest",
+          },
+          "podman:other": {
+            reference: "other",
+            digest: "shared-digest",
+          },
+        },
+      });
+
+      await removeUnusedManagedImages(runtime);
+
+      expect(readState().sandboxImages).toEqual({
+        "podman:other": {
+          reference: "other",
+          digest: "shared-digest",
+        },
+      });
+    });
+  });
+
+  test("does not evaluate images that are not recorded as candidates", async () => {
+    await withRuntime(async (harness, runtime) => {
+      harness.images.create({
+        id: "unrecorded",
+        labels: { "sandbox.managed": "true" },
+        dangling: true,
+      });
+      await expect(removeUnusedManagedImages(runtime)).resolves.toEqual({
+        removed: 0,
+        freedSpace: "0B",
+      });
+      expect(harness.images.find("unrecorded")).toBeDefined();
     });
   });
 });

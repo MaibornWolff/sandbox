@@ -14,7 +14,7 @@ The network system uses three layers:
 
 1. Domain resolution rejects domains outside the allowlist.
 2. A domain-aware proxy routes supported outbound traffic.
-3. A network firewall blocks direct outbound connections.
+3. IPv4 and IPv6 firewalls block direct outbound connections.
 
 The agent user cannot change the network policy after container startup.
 
@@ -31,13 +31,17 @@ flowchart LR
 
 This design keeps domain checks in the request path. It also blocks applications that try to connect directly to an external address.
 
+The IPv6 firewall permits only address configuration messages, established traffic, and required resolver traffic in restricted mode. Only the dnsmasq user can contact a selected IPv6 resolver. The rule restricts the destination address, guest interface, port 53, and TCP or User Datagram Protocol (UDP). Other direct IPv6 Domain Name System (DNS) and external traffic is blocked.
+
 ## Supported Traffic
 
 Hypertext Transfer Protocol (HTTP), secure HTTP (HTTPS), Secure Shell (SSH), and Git over SSH use the proxy path.
 
 Another protocol must support tunneling through the proxy. A direct custom protocol might not work in restricted mode.
 
-Container-local services and private container networks remain available for normal development workflows.
+Container-local services remain available. Restricted mode does not permit direct access to private Internet Protocol (IP) ranges.
+
+Exact runtime host aliases resolve to the reachable host gateway. The aliases do not permit gateway ports. For a normal session, Sandbox temporarily permits only the authenticated host-command broker port for the agent user. Sandbox removes this rule when the session ends. Sandbox does not create wildcard host aliases.
 
 ## Configure the Allowlist
 

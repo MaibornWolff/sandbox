@@ -13,8 +13,8 @@ beforeAll(async () => {
   projectDir = await createTempProject("container-start-signals");
   await writeProjectFile(
     projectDir,
-    ".sandbox/config.toml",
-    'env = ["SANDBOX_DEBUG=1"]\n',
+    ".sandbox/docker/Dockerfile",
+    "FROM sandbox-base:latest\nENV SANDBOX_DEBUG=1\n",
   );
   sb = createSandbox({ cwd: projectDir, timeoutSeconds: 120 });
 

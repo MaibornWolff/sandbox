@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { SANDBOX_RUNTIME_LABEL } from "#modules/sandbox-runtime/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
@@ -12,15 +15,39 @@ async function givenLayeredProject(
   await app.project.givenConfig({ allowNetwork: [] });
 }
 
-function givenSuccessfulProcessRequests(
+function givenSuccessfulPodmanBuild(
   app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
-  count: number,
 ): void {
-  for (let request = 0; request < count; request += 1) {
+  const missing = { exitCode: 1, stdout: "", stderr: "No such image" };
+  const inspection = {
+    exitCode: 0,
+    stdout: JSON.stringify([
+      {
+        Id: "sha256:built",
+        RepoTags: null,
+        Size: 0,
+        Config: { Labels: { "sandbox.managed": "true" } },
+      },
+    ]),
+    stderr: "",
+  };
+  for (let build = 0; build < 3; build += 1) {
+    app.processes
+      .expectStart({ match: { command: "podman" } })
+      .resolveResult(missing);
     app.processes
       .expectStart({ match: { command: "podman" } })
       .resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+    app.processes
+      .expectStart({ match: { command: "podman" } })
+      .resolveResult(inspection);
   }
+  app.processes
+    .expectStart({ match: { command: "podman" } })
+    .resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+  app.processes
+    .expectStart({ match: { command: "podman" } })
+    .resolveResult(inspection);
 }
 
 describe("sandbox build and upgrade", () => {
@@ -33,7 +60,6 @@ describe("sandbox build and upgrade", () => {
     const full = await app.cli.run("build");
     expect(full.exitCode).toBe(0);
     expect(full.stderr).toContain("Building sandbox-base:latest");
-    expect(full.stderr).toContain("Build complete");
     expect(
       app.runtime.images.builds().map((build) => build.options.tag),
     ).toEqual([
@@ -41,10 +67,17 @@ describe("sandbox build and upgrade", () => {
       "sandbox-user:latest",
       `sandbox-${generateProjectSlug(app.project.root)}:latest`,
     ]);
-    expect(app.runtime.images.builds()[0]?.options.buildArgs).toMatchObject({
+    expect(
+      app.runtime.images.builds()[0]?.options.buildArguments,
+    ).toMatchObject({
       HOST_UID: "1000",
       HOST_GID: "1001",
     });
+    expect(
+      app.runtime.images
+        .builds()
+        .every((build) => build.options.labels["sandbox.managed"] === "true"),
+    ).toBe(true);
 
     const beforeUser = app.runtime.images.builds().length;
     const user = await app.cli.run("build", "--user");
@@ -75,7 +108,7 @@ describe("sandbox build and upgrade", () => {
     expect((await app.cli.run("build")).exitCode).toBe(0);
     const initialBuilds = app.runtime.images.builds();
     expect(
-      initialBuilds.every((build) => build.options.noCache === false),
+      initialBuilds.every((build) => build.options.cachePolicy === "use"),
     ).toBe(true);
 
     expect((await app.cli.run("build", "--no-cache")).exitCode).toBe(0);
@@ -83,7 +116,9 @@ describe("sandbox build and upgrade", () => {
       .builds()
       .slice(initialBuilds.length);
     expect(noCacheBuilds).toHaveLength(3);
-    expect(noCacheBuilds.every((build) => build.options.noCache)).toBe(true);
+    expect(
+      noCacheBuilds.every((build) => build.options.cachePolicy === "bypass"),
+    ).toBe(true);
 
     const beforeUpgrade = app.runtime.images.builds().length;
     const upgrade = await app.cli.run("upgrade", "--project");
@@ -92,7 +127,7 @@ describe("sandbox build and upgrade", () => {
       app.runtime.images
         .builds()
         .slice(beforeUpgrade)
-        .every((build) => build.options.noCache),
+        .every((build) => build.options.cachePolicy === "bypass"),
     ).toBe(true);
   });
 
@@ -120,13 +155,16 @@ describe("sandbox build and upgrade", () => {
     );
   });
 
-  test("honors configured runtime selection", async () => {
-    await using app = await setupSandboxAppTest({ runtime: "podman" });
-    app.global.writeConfig('runtime = "podman"\n');
+  test.each(["podman", "apple-container"] as const)(
+    "honors configured %s runtime selection without fallback",
+    async (runtime) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      app.global.writeConfig(`runtime = "${runtime}"\n`);
 
-    expect((await app.cli.run("build")).exitCode).toBe(0);
-    expect(app.runtime.resolvedConfigurations()).toEqual(["podman"]);
-  });
+      expect((await app.cli.run("build")).exitCode).toBe(0);
+      expect(app.runtime.resolvedConfigurations()).toEqual([runtime]);
+    },
+  );
 
   test("uses only harness-owned Podman secrets and redacts command output", async () => {
     await using configured = await setupSandboxAppTest({
@@ -135,7 +173,7 @@ describe("sandbox build and upgrade", () => {
       runtimeBoundary: "process",
     });
     configured.global.writeConfig('runtime = "podman"\n');
-    givenSuccessfulProcessRequests(configured, 3);
+    givenSuccessfulPodmanBuild(configured);
 
     const configuredResult = await configured.cli.run("--verbose", "build");
     const configuredBuilds = configured.processes.requests.filter(
@@ -145,18 +183,25 @@ describe("sandbox build and upgrade", () => {
     expect(configuredResult.exitCode).toBe(0);
     expect(
       configuredBuilds.some((request) =>
-        request.args?.includes("GITHUB_TOKEN=harness-secret"),
+        request.args?.includes("id=GITHUB_TOKEN,env=GITHUB_TOKEN"),
       ),
     ).toBe(true);
-    expect(configuredResult.stderr).toContain("GITHUB_TOKEN=<redacted>");
+    expect(configuredResult.stderr).toContain(
+      "id=GITHUB_TOKEN,env=GITHUB_TOKEN",
+    );
     expect(configuredResult.stderr).not.toContain("harness-secret");
+    expect(
+      configuredBuilds
+        .flatMap((request) => request.args ?? [])
+        .some((arg) => arg.startsWith("GITHUB_TOKEN=")),
+    ).toBe(false);
 
     await using absent = await setupSandboxAppTest({
       runtime: "podman",
       runtimeBoundary: "process",
     });
     absent.global.writeConfig('runtime = "podman"\n');
-    givenSuccessfulProcessRequests(absent, 3);
+    givenSuccessfulPodmanBuild(absent);
 
     const absentResult = await absent.cli.run("--verbose", "build");
     const absentBuildArgs = absent.processes.requests
@@ -174,122 +219,77 @@ describe("sandbox build and upgrade", () => {
   });
 });
 
-describe("sandbox migrate", () => {
-  test("reports no legacy resources and remains idempotent", async () => {
-    await using app = await setupSandboxAppTest();
+test("rejects the removed migration command without accessing runtime resources", async () => {
+  await using app = await setupSandboxAppTest();
 
-    const first = await app.cli.run("migrate");
-    const second = await app.cli.run("migrate");
-    expect(first.stderr).toContain(
-      "Nothing to migrate - all resources use the new naming",
-    );
-    expect(second.exitCode).toBe(0);
-    expect(app.runtime.images.all()).toEqual([]);
-    expect(app.runtime.volumes.all()).toEqual([]);
-  });
+  const result = await app.cli.run("migrate");
 
-  test("migrates eligible images, containers, volumes, and Dockerfiles", async () => {
-    await using app = await setupSandboxAppTest();
-    app.project.writeDockerfile("FROM sandbox--base:latest\n");
-    await app.project.givenConfig({ allowNetwork: [] });
-    app.runtime.images.create({
-      id: "sha256:legacy",
-      references: ["sandbox--base:latest"],
-      labels: { generation: "legacy" },
-    });
-    app.runtime.volumes.create({
-      name: "sandbox--cache",
-      files: { "cache/value": "preserved" },
-    });
-    const container = app.runtime.containers.create({
-      name: "sandbox--legacy-project",
-      image: "sandbox--base:latest",
-      labels: { [PROJECT_LABEL]: "legacy-project" },
-      status: "exited",
-    });
-
-    const result = await app.cli.run("migrate");
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain("Retagged 1 image(s)");
-    expect(result.stderr).toContain("Migrated cache volume");
-    expect(result.stderr).toContain("Removed 1 legacy container(s)");
-    expect(app.runtime.images.find("sandbox-base:latest")?.id).toBe(
-      "sha256:legacy",
-    );
-    expect(app.runtime.images.find("sandbox--base:latest")).toBeUndefined();
-    expect(app.runtime.volumes.find("sandbox-cache")?.files).toEqual({
-      "cache/value": "preserved",
-    });
-    expect(app.runtime.volumes.find("sandbox--cache")).toBeUndefined();
-    expect(container.snapshot().status).toBe("removed");
-  });
-
-  test("protects active resources through runtime conflicts and continues partial migration", async () => {
-    await using app = await setupSandboxAppTest();
-    app.runtime.images.create({ references: ["sandbox--base:latest"] });
-    app.runtime.images.create({ references: ["sandbox-base:latest"] });
-    app.runtime.volumes.create({ name: "sandbox--cache" });
-    app.runtime.volumes.create({ name: "sandbox-cache" });
-    app.runtime.system.fail("volume.remove", new Error("volume is in use"));
-    app.runtime.system.fail(
-      "container.remove",
-      new Error("container is active"),
-    );
-    const active = app.runtime.containers.create({
-      name: "sandbox--active",
-      image: "sandbox--base:latest",
-      labels: { [PROJECT_LABEL]: "active" },
-      status: "running",
-    });
-
-    const result = await app.cli.run("migrate");
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).toContain("Failed to retag");
-    expect(result.stderr).toContain("Could not remove legacy volume");
-    expect(result.stderr).toContain("Failed to remove container");
-    expect(app.runtime.images.find("sandbox--base:latest")).toBeDefined();
-    expect(app.runtime.volumes.find("sandbox--cache")).toBeDefined();
-    expect(active.snapshot().status).toBe("running");
-  });
-
-  test("contains runtime collection failures as an empty migration", async () => {
-    await using app = await setupSandboxAppTest();
-    app.runtime.system.fail(
-      "image.references.list",
-      new Error("runtime unavailable"),
-    );
-    app.runtime.system.fail("volume.exists", new Error("runtime unavailable"));
-
-    const result = await app.cli.run("migrate");
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("runtime unavailable");
-  });
+  expect(result.exitCode).toBe(1);
+  expect(result.stderr).toContain("unknown command 'migrate'");
+  expect(app.runtime.resolvedConfigurations()).toEqual([]);
+  expect(app.runtime.events()).toEqual([]);
 });
 
 describe("sandbox clean", () => {
+  test("removes old unreferenced runtime caches", async () => {
+    await using app = await setupSandboxAppTest();
+    const old = new Date(Date.UTC(2025, 11, 29));
+    const referenced = `1.69.0-${"a".repeat(64)}`;
+    const unused = `1.68.0-${"b".repeat(64)}`;
+    for (const id of [referenced, unused]) {
+      const directory = path.join(
+        app.workspace.dataRoot,
+        "sandbox",
+        "runtime",
+        id,
+      );
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(path.join(directory, "runtime.js"), id);
+      utimesSync(directory, old, old);
+    }
+    app.runtime.instances.create({
+      name: "runtime-consumer",
+      image: "sandbox-project:latest",
+      labels: {
+        [PROJECT_LABEL]: "project",
+        [SANDBOX_RUNTIME_LABEL]: referenced,
+      },
+      status: "running",
+    });
+
+    const cleanResult = await app.cli.run("clean", "--force");
+    expect(cleanResult.exitCode, cleanResult.stderr).toBe(0);
+    expect(
+      app.workspace.dataFileExists(`sandbox/runtime/${referenced}/runtime.js`),
+    ).toBe(true);
+    expect(
+      app.workspace.dataFileExists(`sandbox/runtime/${unused}/runtime.js`),
+    ).toBe(false);
+  });
+
   test("handles no resources and removes stopped Sandbox containers from all projects", async () => {
     await using empty = await setupSandboxAppTest();
     const noResources = await empty.cli.run("clean", "--force");
     expect(noResources.exitCode).toBe(0);
     expect(noResources.stderr).toContain("No containers to remove");
-    expect(noResources.stderr).toContain("No dangling images to clean");
+    expect(noResources.stderr).toContain("No unused managed images to clean");
 
     await using app = await setupSandboxAppTest();
     await app.project.givenConfig({ allowNetwork: [] });
     const current = generateProjectSlug(app.project.root);
-    const stopped = app.runtime.containers.create({
+    const stopped = app.runtime.instances.create({
       name: "stopped",
       image: `sandbox-${current}:latest`,
       labels: { [PROJECT_LABEL]: current },
       status: "exited",
     });
-    const running = app.runtime.containers.create({
+    const running = app.runtime.instances.create({
       name: "running",
       image: `sandbox-${current}:latest`,
       labels: { [PROJECT_LABEL]: current },
       status: "running",
     });
-    const other = app.runtime.containers.create({
+    const other = app.runtime.instances.create({
       name: "other",
       image: "sandbox-other:latest",
       labels: { [PROJECT_LABEL]: "other" },
@@ -302,9 +302,9 @@ describe("sandbox clean", () => {
     expect(other.snapshot().status).toBe("removed");
   });
 
-  test("--all removes running containers and unused dangling images", async () => {
+  test("--all removes running instances without pruning untracked images", async () => {
     await using app = await setupSandboxAppTest();
-    const running = app.runtime.containers.create({
+    const running = app.runtime.instances.create({
       name: "running",
       image: "sandbox-project:latest",
       labels: { [PROJECT_LABEL]: "project" },
@@ -312,6 +312,7 @@ describe("sandbox clean", () => {
     });
     app.runtime.images.create({
       id: "sha256:dangling",
+      labels: { "sandbox.managed": "true" },
       dangling: true,
       size: 1_500_000,
       created: "today",
@@ -320,15 +321,18 @@ describe("sandbox clean", () => {
     const result = await app.cli.run("clean", "--all", "--force");
     expect(result.exitCode).toBe(0);
     expect(running.snapshot().status).toBe("removed");
-    expect(app.runtime.images.find("sha256:dangling")).toBeUndefined();
-    expect(result.stderr).toContain("Removed 1 dangling images");
-    expect(result.stderr).toContain("Freed: 1.5MB");
+    expect(app.runtime.images.find("sha256:dangling")).toBeDefined();
+    expect(result.stderr).toContain("No unused managed images to clean");
   });
 
   test("keeps dangling images used by active containers", async () => {
     await using app = await setupSandboxAppTest();
-    app.runtime.images.create({ id: "sha256:used", dangling: true });
-    app.runtime.containers.create({
+    app.runtime.images.create({
+      id: "sha256:used",
+      labels: { "sandbox.managed": "true" },
+      dangling: true,
+    });
+    app.runtime.instances.create({
       name: "consumer",
       image: "sha256:used",
       labels: {},
@@ -345,20 +349,20 @@ describe("sandbox clean", () => {
       'persist_paths = [{ path = "/work", use_named_volume = "work" }]\n',
     );
     await accepted.project.givenConfig({ allowNetwork: [] });
-    accepted.runtime.volumes.create({ name: "sandbox-cache" });
-    accepted.runtime.volumes.create({ name: "sandbox-work" });
+    accepted.runtime.storage.create({ name: "sandbox-cache" });
+    accepted.runtime.storage.create({ name: "sandbox-work" });
     accepted.project.givenPersistentData({ "state.txt": "state" });
     const acceptedExecution = accepted.cli.run("clean", "--data");
     await accepted.tui.waitForText("This will delete all sandbox containers");
     await accepted.tui.user.type("y");
     expect((await acceptedExecution).exitCode).toBe(0);
-    expect(accepted.runtime.volumes.find("sandbox-cache")).toBeUndefined();
-    expect(accepted.runtime.volumes.find("sandbox-work")).toBeUndefined();
+    expect(accepted.runtime.storage.find("sandbox-cache")).toBeUndefined();
+    expect(accepted.runtime.storage.find("sandbox-work")).toBeUndefined();
     expect(accepted.project.persistentDataExists()).toBe(false);
 
     await using rejected = await setupSandboxAppTest();
     await rejected.project.givenConfig({ allowNetwork: [] });
-    rejected.runtime.volumes.create({ name: "sandbox-cache" });
+    rejected.runtime.storage.create({ name: "sandbox-cache" });
     rejected.runtime.images.create({
       id: "sha256:dangling",
       dangling: true,
@@ -369,7 +373,7 @@ describe("sandbox clean", () => {
     await rejected.tui.user.enter();
     const rejectedResult = await rejectedExecution;
     expect(rejectedResult.stderr).toContain("Cancelled");
-    expect(rejected.runtime.volumes.find("sandbox-cache")).toBeDefined();
+    expect(rejected.runtime.storage.find("sandbox-cache")).toBeDefined();
     expect(rejected.runtime.images.find("sha256:dangling")).toBeDefined();
     expect(rejected.project.persistentDataExists()).toBe(true);
   });
@@ -382,13 +386,13 @@ describe("sandbox clean", () => {
     expect((await cancellation).exitCode).toBe(1);
 
     await using partial = await setupSandboxAppTest();
-    partial.runtime.containers.create({
+    partial.runtime.instances.create({
       name: "first",
       image: "sandbox-first:latest",
       labels: { [PROJECT_LABEL]: "first" },
       status: "running",
     });
-    const second = partial.runtime.containers.create({
+    const second = partial.runtime.instances.create({
       name: "second",
       image: "sandbox-second:latest",
       labels: { [PROJECT_LABEL]: "second" },

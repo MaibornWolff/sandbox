@@ -1,6 +1,15 @@
 import { z } from "zod/v4";
 import { HostCommandRuleSchema } from "#modules/host-command-escape/index.js";
-import { type Config, RUNTIME_IDS, type RuntimeId } from "./config.js";
+import {
+  APPLE_CONTAINER_DNS_MODES,
+  DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+} from "#platform/container-runtime/index.js";
+import {
+  CLIPBOARD_MODES,
+  type Config,
+  RUNTIME_IDS,
+  type RuntimeId,
+} from "./config.js";
 
 export type MergeStrategy = "accumulate" | "override";
 type DefaultDecision = "runtime" | "value" | "optional";
@@ -49,11 +58,30 @@ export const CONFIG_FIELD_CATALOG = {
   runtime: defineField({
     configKey: "runtime",
     schema: z.enum(RUNTIME_IDS).optional(),
-    type: '"docker" | "podman"',
+    type: '"docker" | "podman" | "apple-container"',
     description: "Container runtime to use.",
     mergeStrategy: "override",
     defaultDecision: "runtime",
     examples: [],
+  }),
+  runtimes: defineField({
+    configKey: "runtimes",
+    schema: z
+      .strictObject({
+        "apple-container": z
+          .strictObject({
+            dns: z.enum(APPLE_CONTAINER_DNS_MODES).optional(),
+          })
+          .optional(),
+      })
+      .optional(),
+    type: '{ "apple-container" = { dns = "default" | "host" | "host-ipv6" } }',
+    description:
+      "Runtime-specific options. Apple DNS can use the runtime default, primary host DNS, or the host IPv6 bridge proxy.",
+    mergeStrategy: "override",
+    defaultDecision: "value",
+    defaultValue: DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+    examples: ['[runtimes.apple-container]\ndns = "host-ipv6"'],
   }),
   readonly: defineField({
     configKey: "readonly",
@@ -68,13 +96,18 @@ export const CONFIG_FIELD_CATALOG = {
   }),
   clipboard: defineField({
     configKey: "clipboard",
-    schema: z.enum(["auto", "x11", "disabled"]).optional(),
-    type: '"auto" | "x11" | "disabled"',
-    description: "Clipboard sharing mode between host and container.",
+    schema: z
+      .enum(CLIPBOARD_MODES, {
+        error: 'Use clipboard = "enabled" or clipboard = "disabled".',
+      })
+      .optional(),
+    type: '"enabled" | "disabled"',
+    description:
+      "Host clipboard access for attached sessions. Disabled sessions have no host clipboard reads or writes.",
     mergeStrategy: "override",
     defaultDecision: "value",
-    defaultValue: "auto",
-    examples: [],
+    defaultValue: "enabled",
+    examples: ['"disabled"'],
   }),
   full_network: defineField({
     configKey: "fullNetwork",
@@ -112,7 +145,7 @@ export const CONFIG_FIELD_CATALOG = {
     schema: z.array(z.string()).optional(),
     type: "string[]",
     description:
-      'Environment variables to pass into the container. Format: "VAR" (passthrough from host) or "VAR=value" (explicit).',
+      'Environment variables for each shell or command session, not container startup. Format: "VAR" (host passthrough) or "VAR=value" (explicit). Reserved: SANDBOX, SANDBOX_*, CLAUDE_CODE_SSE_PORT, DISPLAY, X11_AVAILABLE.',
     mergeStrategy: "accumulate",
     defaultDecision: "value",
     defaultValue: [],
@@ -197,11 +230,16 @@ export const CONFIG_FIELD_CATALOG = {
 export function createCatalogDefaults(runtime: RuntimeId): Config {
   return {
     runtime,
+    runtimes: {
+      "apple-container": {
+        dns: DEFAULT_CONTAINER_RUNTIME_OPTIONS["apple-container"].dns,
+      },
+    },
     mounts: [...(CONFIG_FIELD_CATALOG.mounts.defaultValue ?? [])],
     env: [...(CONFIG_FIELD_CATALOG.env.defaultValue ?? [])],
     readonly: CONFIG_FIELD_CATALOG.readonly.defaultValue ?? false,
+    clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "enabled",
     persistPaths: [...(CONFIG_FIELD_CATALOG.persist_paths.defaultValue ?? [])],
-    clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "auto",
     settings: [...(CONFIG_FIELD_CATALOG.settings.defaultValue ?? [])],
     ports: [...(CONFIG_FIELD_CATALOG.ports.defaultValue ?? [])],
     allowNetwork: [...(CONFIG_FIELD_CATALOG.allow_network.defaultValue ?? [])],

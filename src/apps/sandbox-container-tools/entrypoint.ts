@@ -1,7 +1,8 @@
 import {
   type ContainerNetworkLifecycle,
+  installContainerNetworkSecurity,
+  parseGuestHostMappings,
   parseNetworkBootstrapRequest,
-  startContainerNetwork,
 } from "#modules/network/index.js";
 import { type Clock, getClock } from "#platform/clock/index.js";
 import {
@@ -15,7 +16,6 @@ import {
   runSettingsSyncAsSandbox,
   startIdeBridge,
   terminateContainerSessions,
-  writeSshProxyConfiguration,
 } from "#platform/container-system/index.js";
 import {
   getSandboxEnvironment,
@@ -63,63 +63,43 @@ export async function runContainerEntrypoint(
     logger.debug("container state prepared");
     repairMountOwnership();
     logger.debug("mount ownership repaired");
-    await runSettingsApplyAsSandbox();
-    logger.debug("copied settings applied");
-
-    const idePort = parseIdeBridgePort(
-      environment.variables.CLAUDE_CODE_SSE_PORT,
-    );
-    const ideLifecycle =
-      idePort === undefined ? undefined : startIdeBridge(idePort);
-
-    const serializedNetwork = environment.variables.SANDBOX_FIREWALL;
-    const networkStartup = serializedNetwork
-      ? initializeManagedNetwork(
-          serializedNetwork,
-          networkCancellation.signal,
-          () => receivedSignal !== undefined,
-        ).then((lifecycle) => {
-          logger.debug("managed network started");
-          return lifecycle;
-        })
-      : Promise.resolve({
-          failure: new Promise<Error>(() => undefined),
-        });
+    const hostAccessName = environment.variables.SANDBOX_HOST_ACCESS_NAME;
+    if (!hostAccessName) {
+      throw new Error("SANDBOX_HOST_ACCESS_NAME is required");
+    }
+    const networkStartup = prepareNetworkStartup({
+      environment,
+      hostAccessName,
+      signal: networkCancellation.signal,
+    });
     const startupResult = await Promise.race([
       networkStartup.then((lifecycle) => ({
         type: "started" as const,
         lifecycle,
       })),
-      ...(ideLifecycle
-        ? [
-            ideLifecycle.failure.then((failure) => ({
-              type: "failure" as const,
-              failure,
-            })),
-          ]
-        : []),
       signalReceived.then((signal) => ({ type: "signal" as const, signal })),
     ]);
-    if (startupResult.type === "failure") {
-      networkCancellation.abort(
-        new DOMException(
-          "Network startup was cancelled after a required child failure",
-          "AbortError",
-        ),
-      );
-      await settleNetworkStartup(
-        networkStartup,
-        "network startup stopped after child exit",
-      );
-      throw startupResult.failure;
-    }
     if (startupResult.type === "signal") {
       await settleNetworkStartup(
-        networkStartup,
+        networkStartup.then((lifecycle) => lifecycle.readiness),
         "network startup stopped after signal",
       );
       return getExitCodeForSignal(startupResult.signal);
     }
+
+    const startupSignal = await completeStartup({
+      lifecycle: startupResult.lifecycle,
+      cancellation: networkCancellation,
+      signalReceived,
+    });
+    if (startupSignal) return getExitCodeForSignal(startupSignal);
+    const idePort = parseIdeBridgePort(
+      environment.variables.CLAUDE_CODE_SSE_PORT,
+    );
+    const ideLifecycle =
+      idePort === undefined
+        ? undefined
+        : startIdeBridge(idePort, hostAccessName);
 
     logger.debug("ready");
     markContainerReady();
@@ -154,6 +134,58 @@ export async function runContainerEntrypoint(
   return receivedSignal ? getExitCodeForSignal(receivedSignal) : 0;
 }
 
+async function prepareNetworkStartup(options: {
+  readonly environment: SandboxEnvironment;
+  readonly hostAccessName: string;
+  readonly signal: AbortSignal;
+}): Promise<ContainerNetworkLifecycle> {
+  const { environment, hostAccessName, signal } = options;
+  const hostMappings = parseGuestHostMappings(
+    environment.variables.SANDBOX_GUEST_HOST_MAPPINGS,
+  );
+  const serializedNetwork = environment.variables.SANDBOX_FIREWALL;
+  if (!serializedNetwork) {
+    return {
+      readiness: Promise.resolve(),
+      failure: new Promise<Error>(() => undefined),
+    };
+  }
+  const lifecycle = await installContainerNetworkSecurity(
+    parseNetworkBootstrapRequest(serializedNetwork),
+    { signal, hostMappings, hostAccessName },
+  );
+  getLogger().debug("managed network security installed");
+  return lifecycle;
+}
+
+async function completeStartup(options: {
+  readonly lifecycle: ContainerNetworkLifecycle;
+  readonly cancellation: AbortController;
+  readonly signalReceived: Promise<NodeJS.Signals>;
+}): Promise<NodeJS.Signals | undefined> {
+  const { lifecycle, cancellation, signalReceived } = options;
+  const settings = runSettingsApplyAsSandbox(cancellation.signal).then(() => {
+    getLogger().debug("copied settings applied");
+  });
+  const pending = [lifecycle.readiness, settings];
+  try {
+    const result = await Promise.race([
+      Promise.all(pending).then(() => undefined),
+      lifecycle.failure.then((error) => {
+        throw error;
+      }),
+      signalReceived,
+    ]);
+    if (result) cancellation.abort();
+    return result;
+  } catch (error) {
+    cancellation.abort(error);
+    throw error;
+  } finally {
+    await Promise.allSettled(pending);
+  }
+}
+
 async function shutdownManagedChildren(
   processes: ProcessManager,
   receivedSignal: NodeJS.Signals | undefined,
@@ -176,17 +208,6 @@ async function settleNetworkStartup(
   } catch (error) {
     getLogger().debug(`${failureContext}: ${getErrorMessage(error)}`);
   }
-}
-
-async function initializeManagedNetwork(
-  serializedNetwork: string,
-  signal: AbortSignal,
-  signalWasReceived: () => boolean,
-): Promise<ContainerNetworkLifecycle> {
-  const request = parseNetworkBootstrapRequest(serializedNetwork);
-  const lifecycle = await startContainerNetwork(request, { signal });
-  if (!request.noProxy && !signalWasReceived()) writeSshProxyConfiguration();
-  return lifecycle;
 }
 
 interface IdleState {

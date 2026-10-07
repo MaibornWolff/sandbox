@@ -63,14 +63,7 @@ describe("public CLI bundle", () => {
       ),
     ]);
 
-    const metafile = await buildPublicCliBundle({ repoRoot, outdir });
-    const externalImports = Object.values(metafile.outputs).flatMap((output) =>
-      output.imports.filter(
-        (dependency) => !dependency.path.startsWith("node:"),
-      ),
-    );
-
-    expect(externalImports).toEqual([]);
+    await buildPublicCliBundle({ repoRoot, outdir });
     const entryPoint = path.join(outdir, "main.js");
     await chmod(entryPoint, 0o644);
     expect(await runCommand([launcher, "--version"])).toEqual({

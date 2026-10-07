@@ -1,6 +1,10 @@
 # Project-specific sandbox config (merged with global)
 
-# Environment
+# Session environment: applies to each shell or command, not startup services.
+# Changes to these values do not prevent container reuse.
+# "VAR" passes through from host, "VAR=value" sets explicitly. Last assignment wins.
+# Reserved: SANDBOX, SANDBOX_*, CLAUDE_CODE_SSE_PORT, DISPLAY, X11_AVAILABLE.
+# `sandbox container start` does not apply env.
 # env = ["DATABASE_URL=postgres://localhost:5432/dev"]
 
 # Persistence - project-relative paths useful for build artifacts

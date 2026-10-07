@@ -105,10 +105,16 @@ describe("interactive container runtime process", () => {
         provideTerminal(createTerminal()),
       ],
       () =>
-        runInteractiveContainerRuntimeProcess(runtime, {
-          args: ["run", "--name", "sandbox-project", "image"],
-          signalContainer: "sandbox-project",
-        }),
+        runInteractiveContainerRuntimeProcess(
+          {
+            binaryName: "docker",
+            signalContainer: runtime.instances.signal,
+          },
+          {
+            args: ["run", "--name", "sandbox-project", "image"],
+            signalContainer: "sandbox-project",
+          },
+        ),
     );
     await child.waitForStart();
 

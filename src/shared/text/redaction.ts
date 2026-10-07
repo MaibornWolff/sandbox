@@ -26,6 +26,7 @@ const SECRET_PATTERNS = [
 ];
 
 const SENSITIVE_ASSIGNMENT_OPTIONS = ["-e", "--env", "--build-arg"];
+const SENSITIVE_VALUE_OPTIONS = ["--dns"];
 const SENSITIVE_INLINE_PREFIXES = ["--env=", "--build-arg="];
 
 interface RedactionContextOptions {
@@ -76,8 +77,7 @@ export function redactDockerCommand(command: string): string {
 /**
  * Redact sensitive assignments in an argv-style command array.
  *
- * Handles `-e KEY=VALUE`, `--env KEY=VALUE`, `--build-arg KEY=VALUE`,
- * `--env=KEY=VALUE`, and `--build-arg=KEY=VALUE`.
+ * Handles sensitive assignments and opaque option values such as `--dns`.
  */
 /** @testonly */
 export function redactCommandArgs(args: string[]): string[] {
@@ -91,6 +91,11 @@ export function redactCommandArgs(args: string[]): string[] {
       const next = redacted[i + 1];
       if (!next) continue;
       redacted[i + 1] = redactAssignmentForDisplay(next);
+      i++;
+      continue;
+    }
+    if (SENSITIVE_VALUE_OPTIONS.includes(arg)) {
+      if (redacted[i + 1]) redacted[i + 1] = REDACTED;
       i++;
       continue;
     }
@@ -199,6 +204,12 @@ function collectSensitiveAssignmentValues(args: string[]): string[] {
     if (SENSITIVE_ASSIGNMENT_OPTIONS.includes(arg)) {
       const assignment = args[i + 1];
       if (assignment) collectSensitiveAssignmentValue(assignment, values);
+      i++;
+      continue;
+    }
+    if (SENSITIVE_VALUE_OPTIONS.includes(arg)) {
+      const value = args[i + 1];
+      if (value) values.push(value);
       i++;
       continue;
     }

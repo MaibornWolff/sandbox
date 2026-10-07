@@ -7,12 +7,13 @@ import { showActiveConfig } from "./active-config-display.js";
 
 function render(
   overrides: Parameters<typeof createTestConfig>[0] = {},
+  verbose = false,
 ): string {
   const output: string[] = [];
   const logger = createLogger(
     createSystemClock(),
     (message) => output.push(message),
-    {},
+    { verbose },
   );
   runWithDependencies([provideLogger(logger)], () =>
     showActiveConfig(createTestConfig(overrides)),
@@ -23,20 +24,28 @@ function render(
 describe("showActiveConfig", () => {
   test("shows nothing for default config", () => {
     expect(render()).toBe("");
+    expect(render({}, true)).toBe("");
+  });
+
+  test("hides active settings without verbose mode", () => {
+    expect(render({ readonly: true, env: ["FOO=bar"] })).toBe("");
   });
 
   test("summarizes active request values", () => {
-    const output = render({
-      readonly: true,
-      mounts: ["/src:/dst:ro", "/another:/path:rw"],
-      env: ["FOO=bar"],
-      ports: ["127.0.0.1:8080:80"],
-      allowHostCommands: [
-        ["open", { regex: ".+" }],
-        ["bun", "run", "test:e2e"],
-      ],
-      shmSize: "2g",
-    });
+    const output = render(
+      {
+        readonly: true,
+        mounts: ["/src:/dst:ro", "/another:/path:rw"],
+        env: ["FOO=bar"],
+        ports: ["127.0.0.1:8080:80"],
+        allowHostCommands: [
+          ["open", { regex: ".+" }],
+          ["bun", "run", "test:e2e"],
+        ],
+        shmSize: "2g",
+      },
+      true,
+    );
     expect(output).toContain("readonly");
     expect(output).toContain("2 mount(s)");
     expect(output).toContain("1 env var(s)");

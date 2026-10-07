@@ -1,17 +1,22 @@
 import { normalize } from "node:path";
 import chalk from "chalk";
+import { getClipboardCapabilityFactory } from "#modules/clipboard/index.js";
 import {
   type Config,
   getConfigurationService,
 } from "#modules/configuration/index.js";
-import { startHostCommandEscapeSession } from "#modules/host-command-escape/index.js";
+import { getHostBridgeService } from "#modules/host-bridge/index.js";
+import { createHostCommandCapability } from "#modules/host-command-escape/index.js";
 import type { BuildImagesResult } from "#modules/sandbox-images/index.js";
 import {
-  type ContainerRuntime,
-  getRuntimeProvider,
-  runInteractiveContainerRuntimeProcess,
-  startContainerLogStream,
+  cleanupSandboxRuntimeAfterSession,
+  prepareSandboxRuntime,
+} from "#modules/sandbox-runtime/index.js";
+import type {
+  SandboxInstanceSpec,
+  SandboxRuntime,
 } from "#platform/container-runtime/index.js";
+import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { readPackageVersion } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
@@ -19,35 +24,35 @@ import { confirmDestruction, getTerminal } from "#platform/terminal/index.js";
 import {
   generateProjectSlug,
   normalizePath,
-  redactCommandForDisplay,
   windowsPathToDocker,
 } from "#shared/text/index.js";
-import { buildContainerArgs } from "../arguments/container-arguments.js";
-import { buildExecArgs } from "../arguments/session-arguments.js";
-import { computeContainerHash } from "../container-hashing.js";
+import { buildSandboxInstanceSpec } from "../arguments/container-arguments.js";
+import { validateConfiguredEnvironment } from "../arguments/environment-arguments.js";
+import { buildSandboxExecSpec } from "../arguments/session-arguments.js";
+import { computeRuntimeContainerHash } from "../container-hashing.js";
 import type { SandboxContext } from "../sandbox-context.js";
 import type { SandboxOptions } from "../sandbox-options.js";
+import { prepareClipboardSession } from "./clipboard-session.js";
 import {
   createFreshContainer,
   findOrCreateContainer,
   pickFreshContainerName,
-  waitForReady,
 } from "./container-reuse.js";
-import { resolveHostAgentTitle } from "./host-agent-title.js";
 import {
-  getImageIdFallback,
-  prepareSandboxEnvironment,
-  warnIfX11Unavailable,
-} from "./sandbox-preparation.js";
+  ContainerReadinessError,
+  prepareContainerSession,
+} from "./container-session.js";
+import { resolveHostAgentTitle } from "./host-agent-title.js";
+import { prepareSandboxEnvironment } from "./sandbox-preparation.js";
+import { captureStartupLogs } from "./startup-logs.js";
 
 interface ExecutorOptions {
-  command: string[];
-  stdin: boolean;
-  tty: boolean;
-  timingLabel?: string;
-  beforeSpawn?: (config: Config) => void;
-  /** Run the container in the foreground (non-detached, no --rm). */
-  foreground?: boolean;
+  readonly command: string[];
+  readonly stdin: boolean;
+  readonly tty: boolean;
+  readonly timingLabel?: string;
+  readonly beforeSpawn?: (config: Config) => void;
+  readonly foreground?: boolean;
 }
 
 class SandboxExecutionExitError extends Error {
@@ -67,29 +72,22 @@ function throwForChildExit(exitCode: number): void {
 }
 
 async function runForegroundContainer(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   options: {
-    readonly containerArgs: string[];
+    readonly containerSpec: SandboxInstanceSpec;
     readonly projectSlug: string;
   },
 ): Promise<void> {
-  const logger = getLogger();
   const containerName = await pickFreshContainerName(
     service,
     options.projectSlug,
   );
-  const runArgs = [
-    "run",
-    "--init",
-    "--name",
-    containerName,
-    ...options.containerArgs,
-  ];
-  logger.debug(
-    `Foreground run: ${redactCommandForDisplay(service.binaryName, runArgs)}`,
-  );
-  logger.endTiming("Container setup");
-
+  const spec: SandboxInstanceSpec = {
+    ...options.containerSpec,
+    name: containerName,
+    removeOnExit: false,
+  };
+  getLogger().endTiming("Container setup");
   writeOutput(
     chalk.cyan(
       `Starting container ${chalk.bold(containerName)} in foreground (Ctrl+C to stop)...`,
@@ -102,90 +100,136 @@ async function runForegroundContainer(
   );
   writeOutput();
 
-  const result = await runInteractiveContainerRuntimeProcess(service, {
-    args: runArgs,
-    signalContainer: containerName,
+  const result = await service.instances.runAttached(spec, {
+    attachStdin: false,
+    allocateTerminal: false,
   });
   if (result.exitCode !== 0) {
     writeOutput();
     writeOutput(chalk.yellow("Container stopped. Inspect with:"));
-    writeOutput(chalk.dim(`  ${service.binaryName} logs ${containerName}`));
-    writeOutput(chalk.dim(`  ${service.binaryName} inspect ${containerName}`));
-    writeOutput(
-      chalk.dim(`  ${service.binaryName} rm ${containerName}  # to clean up`),
-    );
+    writeOutput(chalk.dim(`  sandbox logs ${containerName}`));
+    writeOutput(chalk.dim("  sandbox status"));
+    writeOutput(chalk.dim("  sandbox clean"));
   }
   throwForChildExit(result.exitCode);
 }
 
-async function resolveExecutionContainer(
-  service: ContainerRuntime,
+async function prepareResolvedSession(
+  service: SandboxRuntime,
   options: {
-    readonly containerArgs: string[];
-    readonly imageName: string;
-    readonly imageId: string;
+    readonly containerName: string;
+    readonly created: boolean;
+    readonly endpoint?: string;
+  },
+): Promise<{
+  readonly containerName: string;
+  readonly access: AsyncDisposable;
+}> {
+  const logger = getLogger();
+  if (options.created) logger.info("Creating sandbox container...");
+  await using resources = new AsyncDisposableStack();
+  const logCapture = options.created
+    ? resources.use(captureStartupLogs(service, options.containerName))
+    : undefined;
+  const access = await prepareContainerSession({
+    containers: service.instances,
+    containerId: options.containerName,
+    endpoint: options.endpoint,
+    timeoutMs: options.created ? 30_000 : 5_000,
+  }).catch(async (error) => {
+    if (logCapture) {
+      await logCapture.stop();
+      logCapture.reportFailure();
+    }
+    throw error;
+  });
+  resources.use(access);
+  await logCapture?.stop();
+  logger.debug(`Container ${chalk.cyan(options.containerName)} is ready`);
+  return { containerName: options.containerName, access: resources.move() };
+}
+
+async function resolveExecutionContainer(
+  service: SandboxRuntime,
+  options: {
+    readonly containerSpec: SandboxInstanceSpec;
+    readonly imageIdentity: string;
     readonly projectSlug: string;
     readonly skipReuse: boolean;
+    readonly endpoint?: string;
   },
-): Promise<{ readonly containerName: string; readonly created: boolean }> {
+): Promise<{
+  readonly containerName: string;
+  readonly access: AsyncDisposable;
+}> {
   const logger = getLogger();
   if (options.skipReuse) {
-    return {
+    return prepareResolvedSession(service, {
       containerName: await createFreshContainer(
         service,
         options.projectSlug,
-        options.containerArgs,
-        options.imageName,
+        options.containerSpec,
       ),
       created: true,
-    };
+      endpoint: options.endpoint,
+    });
   }
 
-  const imageId =
-    options.imageId || (await getImageIdFallback(service, options.imageName));
-  if (!imageId) {
+  const imageIdentity =
+    options.imageIdentity || options.containerSpec.image.digest;
+  if (!imageIdentity) {
     logger.error(
-      `Failed to get image ID for ${options.imageName}. Run 'sandbox build' first.`,
+      `Failed to get immutable image identity. Run 'sandbox build' first.`,
     );
     throw new SandboxExecutionExitError(1);
   }
 
   const version = readPackageVersion();
-  const hash = computeContainerHash(version, imageId, options.containerArgs);
+  const hash = await computeRuntimeContainerHash({
+    version,
+    service,
+    imageIdentity,
+    spec: options.containerSpec,
+  });
   logger.debug(
-    `Container hash: ${hash} (version=${version}, image=${options.imageName})`,
+    `Container hash: ${hash} (version=${version}, image=${options.containerSpec.image.digest}, runtime=${service.runtime})`,
   );
   let result = await findOrCreateContainer(
     service,
     options.projectSlug,
     hash,
-    options.containerArgs,
-    options.imageName,
+    options.containerSpec,
   );
 
-  if (!result.created) {
-    try {
-      await waitForReady(service, result.containerName, 5_000);
-      logger.debug(`Reusing existing container: ${result.containerName}`);
-    } catch {
-      logger.debug(
-        `Reused container ${result.containerName} stopped, creating new one`,
-      );
-      result = await findOrCreateContainer(
-        service,
-        options.projectSlug,
-        hash,
-        options.containerArgs,
-        options.imageName,
-      );
-      return { ...result, created: true };
-    }
+  try {
+    return await prepareResolvedSession(service, {
+      ...result,
+      endpoint: options.endpoint,
+    });
+  } catch (error) {
+    if (result.created || !(error instanceof ContainerReadinessError))
+      throw error;
+    const instance = await service.instances.inspect(result.containerName);
+    if (instance && instance.state !== "exited" && instance.state !== "dead")
+      throw error;
+    logger.debug(
+      `Reused container ${chalk.cyan(result.containerName)} stopped, creating new one`,
+    );
+    result = await findOrCreateContainer(
+      service,
+      options.projectSlug,
+      hash,
+      options.containerSpec,
+    );
+    return prepareResolvedSession(service, {
+      ...result,
+      endpoint: options.endpoint,
+    });
   }
-  return result;
 }
 
 async function execute(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   ctx: SandboxContext,
   executorOptions: ExecutorOptions,
   verbose: boolean,
@@ -198,74 +242,110 @@ async function execute(
   const { config, projectRoot, repositoryRoots } = ctx;
   const currentDir = environment.currentWorkingDirectory;
   const projectSlug = generateProjectSlug(projectRoot);
+  const hostInfo = await service.ensureHostReady();
 
   logger.startTiming("Container setup");
-  const { args: containerArgs, imageName } = await buildContainerArgs(service, {
-    config,
-    projectRoot,
-    currentDir,
-    projectSlug,
-    repositoryRoots,
-  });
+  await using runtimePackage = await prepareSandboxRuntime();
+  await using _runtimeCleanup = cleanupSandboxRuntimeAfterSession(
+    service,
+    runtimePackage.id,
+  );
+  const plannedSpec = await buildSandboxInstanceSpec(
+    {
+      runtime: service.runtime,
+      hostAccessName: hostInfo.hostAccessName,
+      storage: service.storage,
+    },
+    {
+      runtimePackage,
+      config,
+      projectRoot,
+      currentDir,
+      projectSlug,
+      repositoryRoots,
+    },
+  );
+
+  const containerSpec: SandboxInstanceSpec = {
+    ...plannedSpec,
+    image: buildResult.image,
+  };
 
   if (foreground) {
     if (executorOptions.timingLabel && verbose) {
       logger.endTiming(executorOptions.timingLabel);
     }
-    await runForegroundContainer(service, { containerArgs, projectSlug });
+    await runForegroundContainer(service, { containerSpec, projectSlug });
     return;
   }
 
-  const resolved = await resolveExecutionContainer(service, {
-    containerArgs,
-    imageName,
-    imageId: buildResult.imageName === imageName ? buildResult.imageId : "",
-    projectSlug,
-    skipReuse,
-  });
-  if (resolved.created) {
-    logger.info("Creating sandbox container...");
-    const logStream = startContainerLogStream(service, resolved.containerName);
-    await waitForReady(service, resolved.containerName).catch(async (error) => {
-      await logStream.stop();
-      logStream.reportFailure();
-      throw error;
-    });
-    await logStream.stop();
-    logger.debug(`Container ${resolved.containerName} is ready`);
-  }
-  logger.endTiming("Container setup");
-
-  await using hostCommandEscapeSession = await startHostCommandEscapeSession({
+  await using commandCapability = await createHostCommandCapability({
     commandRules: config.allowHostCommands,
     hostProjectRoot: projectRoot,
     containerProjectRoot: windowsPathToDocker(projectRoot),
-    containerHostName: service.getHostInternalDns(),
   });
+  await using clipboardCapabilities =
+    config.clipboard === "enabled"
+      ? getClipboardCapabilityFactory().create()
+      : undefined;
+  await using bridgeSession = await getHostBridgeService().startSession({
+    containerHostName: hostInfo.hostAccessName,
+    capabilities: [
+      commandCapability,
+      ...(clipboardCapabilities?.capabilities ?? []),
+    ],
+  });
+  await using sessionResources = new AsyncDisposableStack();
+  const containerName = await service.withInstanceStartup(async () => {
+    const resolved = await resolveExecutionContainer(service, {
+      containerSpec,
+      imageIdentity: buildResult.image.digest,
+      projectSlug,
+      skipReuse,
+      endpoint: config.noProxy ? undefined : bridgeSession.endpoint,
+    });
+    sessionResources.use(resolved.access);
+    return resolved.containerName;
+  });
+  const sessionEnvironment = { ...bridgeSession.clientEnvironment };
+  if (clipboardCapabilities) {
+    const clipboard = sessionResources.use(
+      await prepareClipboardSession({
+        containers: service.instances,
+        containerId: containerName,
+        bridgeEnvironment: bridgeSession.clientEnvironment,
+      }),
+    );
+    Object.assign(sessionEnvironment, clipboard.environment);
+  } else {
+    logger.debug("Clipboard access is disabled by configuration.");
+  }
+  logger.endTiming("Container setup");
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
   }
-  const execArgs = buildExecArgs({
-    containerName: resolved.containerName,
+  const execution = buildSandboxExecSpec({
     currentDir,
     command,
     stdin,
     tty,
+    environment: config.env,
     proxyEnabled: !config.noProxy,
-    hostCommandEscapeEnvironment: hostCommandEscapeSession.clientEnvironment,
+    sessionEnvironment,
     verbose,
   });
-  logger.debug(
-    `Exec command: ${redactCommandForDisplay(service.binaryName, ["exec", ...execArgs])}`,
-  );
 
   const title = resolveHostAgentTitle(command);
   if (title) logger.debug(`Host agent title: ${chalk.cyan(title)}`);
-  const result = await runInteractiveContainerRuntimeProcess(service, {
-    args: ["exec", ...execArgs],
-    ...(title ? { title } : {}),
-    forwardSignal: (signal) => hostCommandEscapeSession.forwardSignal(signal),
-  });
+  const result = await service.instances.execAttached(
+    containerName,
+    execution.spec,
+    {
+      ...execution.session,
+      ...(title ? { title } : {}),
+      forwardSignal: (signal) => commandCapability.forwardSignal(signal),
+    },
+  );
   throwForChildExit(result.exitCode);
 }
 
@@ -281,14 +361,22 @@ export async function executeInSandbox(
 
   if (timingLabel && useVerboseTiming) logger.startTiming(timingLabel);
   if (useVerboseTiming) logger.startTiming("Load config");
-  const { config, projectRoot, repositoryRoots, configuredRuntime } =
+  const { config, projectRoot, repositoryRoots, runtimeResolution } =
     await getConfigurationService().load(cliOptions);
-  const runtimeService = await getRuntimeProvider().resolve(configuredRuntime);
-  config.runtime = runtimeService.runtime;
+  validateConfiguredEnvironment(config.env);
+  if (executorOptions.foreground && config.env.length > 0) {
+    logger.warn(
+      `${chalk.cyan("sandbox container start")} does not start a session and does not apply env`,
+    );
+  }
+  const runtimeSelection =
+    await getRuntimeProvider().resolve(runtimeResolution);
+  const { runtime } = runtimeSelection;
+  config.runtime = runtime.runtime;
   if (useVerboseTiming) logger.endTiming("Load config");
   const ctx: SandboxContext = { config, projectRoot, repositoryRoots };
   const buildResult = await prepareSandboxEnvironment(
-    runtimeService,
+    runtimeSelection,
     ctx,
     cliOptions,
     useVerboseTiming,
@@ -321,11 +409,8 @@ export async function executeInSandbox(
   }
 
   beforeSpawn?.(config);
-  if (!executorOptions.foreground) {
-    await warnIfX11Unavailable(silent, config.clipboard);
-  }
   await execute(
-    runtimeService,
+    runtime,
     ctx,
     executorOptions,
     useVerboseTiming,

@@ -1,8 +1,8 @@
 import chalk from "chalk";
 import { getConfigurationService } from "#modules/configuration/index.js";
 import {
-  type ContainerRuntime,
   getRuntimeProvider,
+  type SandboxRuntime,
 } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { confirmDestruction } from "#platform/terminal/index.js";
@@ -20,7 +20,7 @@ interface ContainerWithSessions {
 }
 
 async function gatherSessions(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containers: SandboxContainer[],
 ): Promise<ContainerWithSessions[]> {
   return Promise.all(
@@ -65,22 +65,24 @@ export function buildStopWarning(
 }
 
 async function cancelContainerSessions(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
   sessions: readonly SessionInfo[],
 ): Promise<void> {
   if (sessions.length === 0) return;
-  await service.execInContainer(containerId, [
-    "kill",
-    "-TERM",
-    "--",
-    ...sessions.map(({ pid }) => pid),
-  ]);
+  const result = await service.instances.exec(containerId, {
+    command: ["kill", "-TERM", "--", ...sessions.map(({ pid }) => pid)],
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to stop container sessions with exit code ${result.exitCode}: ${result.stderr}`,
+    );
+  }
 }
 
 /** @testonly */
 export async function stopContainers(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containersWithSessions: readonly ContainerWithSessions[],
 ): Promise<number> {
   const logger = getLogger();
@@ -94,7 +96,7 @@ export async function stopContainers(
       );
     }
     try {
-      await service.stopContainer(container.id);
+      await service.instances.stopAndRemove(container.id);
       logger.success(`Stopped container: ${container.name}`);
       removed++;
     } catch (error) {
@@ -108,13 +110,13 @@ export async function stopContainers(
 
 export async function stopCommand(options: StopOptions): Promise<void> {
   const logger = getLogger();
-  const { projectRoot, configuredRuntime } =
+  const { projectRoot, runtimeResolution } =
     await getConfigurationService().load(options);
-  const runtimeService = await getRuntimeProvider().resolve(configuredRuntime);
+  const { runtime } = await getRuntimeProvider().resolve(runtimeResolution);
   const projectSlug = options.all
     ? undefined
     : generateProjectSlug(projectRoot);
-  const containers = await findSandboxContainers(runtimeService, {
+  const containers = await findSandboxContainers(runtime, {
     status: "running",
     projectSlug,
   });
@@ -124,10 +126,7 @@ export async function stopCommand(options: StopOptions): Promise<void> {
     return;
   }
 
-  const containersWithSessions = await gatherSessions(
-    runtimeService,
-    containers,
-  );
+  const containersWithSessions = await gatherSessions(runtime, containers);
   if (!options.force) {
     const confirmed = await confirmDestruction(
       buildStopWarning(containersWithSessions),
@@ -138,6 +137,6 @@ export async function stopCommand(options: StopOptions): Promise<void> {
     }
   }
 
-  const removed = await stopContainers(runtimeService, containersWithSessions);
+  const removed = await stopContainers(runtime, containersWithSessions);
   logger.success(`Stopped ${removed} container(s)`);
 }

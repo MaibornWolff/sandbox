@@ -9,8 +9,6 @@ const GLOBAL_OPTIONS_WITH_VALUES = new Set([
   "--port",
   "-n",
   "--allow-network",
-  "-c",
-  "--clipboard",
 ]);
 
 const ASSIST_COMMAND = chalk.bold.cyan("sandbox assist");

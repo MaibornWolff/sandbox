@@ -1,25 +1,53 @@
-/** @lintignore Public container runtime process contract. */
-export { runInteractiveContainerRuntimeProcess } from "./interactive-process.js";
-/** @lintignore Public container log streaming contract. */
-export { startContainerLogStream } from "./log-stream.js";
+/** @lintignore Public runtime options contract. */
+export {
+  APPLE_CONTAINER_DNS_MODES,
+  type AppleContainerDnsMode,
+  type AppleContainerOptions,
+  type ContainerRuntimeOptions,
+  DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+} from "./runtime-options.js";
 /** @lintignore Public runtime-provider contract. */
 export {
-  type ContainerRuntimeProvider,
+  type ContainerRuntimeProvider as SandboxRuntimeProvider,
   createProductionRuntimeProvider,
   getRuntimeProvider,
   provideRuntimeProvider,
+  type RuntimeResolutionRequest,
 } from "./runtime-provider.js";
-
-/** @lintignore Public container runtime contract types. */
+/** @lintignore Public Sandbox runtime contract. */
 export type {
-  ContainerEntry,
-  ContainerExecOptions,
-  ContainerRuntime,
-  CreateContainerOptions,
-  DanglingImageEntry,
-  ImageBuildOptions,
-  ImageInspection,
-  ListContainersOptions,
-  RuntimeFlagsConfig,
-  RuntimeHostInfo,
-} from "./types.js";
+  CommandResult,
+  PublishedPort,
+  SandboxExecSpec,
+  SandboxImage,
+  SandboxImageBuilder,
+  SandboxImageBuildRequest,
+  SandboxImageBuildSecret,
+  SandboxImageCleanupRemoval,
+  SandboxImageCleanupRequest,
+  SandboxImageCleanupResult,
+  SandboxImageCleanupSkip,
+  SandboxInstanceDetails,
+  SandboxInstanceOperations,
+  SandboxInstanceQuery,
+  SandboxInstanceReference,
+  SandboxInstanceRemoveOptions,
+  SandboxInstanceSpec,
+  SandboxInstanceState,
+  SandboxInstanceSummary,
+  SandboxLogFollowRequest,
+  SandboxLogQuery,
+  SandboxLogSubscription,
+  SandboxMount,
+  SandboxResources,
+  SandboxRuntime,
+  SandboxRuntimeInfo,
+  SandboxRuntimeMemoryInfo,
+  SandboxRuntimeSelection,
+  SandboxSecurity,
+  SandboxStorage,
+  SandboxStorageOperations,
+  SandboxStorageSpec,
+  TerminalSessionOptions,
+} from "./sandbox-contract.js";
+export { SandboxInstanceNameConflictError } from "./sandbox-contract.js";

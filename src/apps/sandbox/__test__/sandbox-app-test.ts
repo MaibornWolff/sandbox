@@ -1,10 +1,18 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  createClipboardCapabilityFactory,
+  provideClipboardCapabilityFactory,
+} from "#modules/clipboard/index.js";
+import {
   readConfigFixture,
   writeTrustedProjectConfig,
 } from "#modules/configuration/__test__/index.js";
 import type { AllowedNetwork, Config } from "#modules/configuration/index.js";
+import {
+  createHostBridgeService,
+  provideHostBridgeService,
+} from "#modules/host-bridge/index.js";
 import {
   createNetworkObservationFixture,
   type NetworkObservationFixture,
@@ -37,6 +45,7 @@ import {
   provideHostEnvironment,
 } from "#platform/environment/index.js";
 import { createLogger, provideLogger } from "#platform/logging/index.js";
+import { createFakeNativeClipboardService } from "#platform/native-clipboard/__test__/index.js";
 import {
   createProcessTestHarness,
   type ProcessTestHarness,
@@ -62,10 +71,7 @@ import {
   type AssistanceFixture,
   createAssistanceFixture,
 } from "./assistance.js";
-import {
-  createHostDiagnosticsFixture,
-  type HostDiagnosticsFixture,
-} from "./host-diagnostics.js";
+import { createClipboardSessionFixture } from "./clipboard-session.js";
 
 interface CliResult {
   readonly exitCode: number;
@@ -77,7 +83,7 @@ interface SandboxAppTestOptions {
   readonly variables?: Readonly<Record<string, string>>;
   readonly interactive?: boolean;
   readonly platform?: NodeJS.Platform;
-  readonly runtime?: "docker" | "podman";
+  readonly runtime?: "apple-container" | "docker" | "podman";
   readonly runtimeBoundary?: "stateful" | "process";
   readonly workspaceAtHome?: boolean;
 }
@@ -90,7 +96,7 @@ export interface SandboxAppTest {
     readonly root: string;
     givenConfig(config: {
       readonly allowNetwork: readonly AllowedNetwork[];
-      readonly runtime?: "docker" | "podman";
+      readonly runtime?: "apple-container" | "docker" | "podman";
     }): Promise<void>;
     writeConfig(
       content: string,
@@ -150,37 +156,22 @@ export interface SandboxAppTest {
   };
   readonly runtime: StatefulContainerRuntimeHarness;
   readonly clock: TestClock;
+  readonly clipboard: ReturnType<typeof createFakeNativeClipboardService>;
+  readonly clipboardSession: ReturnType<typeof createClipboardSessionFixture>;
   readonly processes: ProcessTestHarness;
   readonly updates: SelfUpdateFixture;
   readonly editor: EditorFixture;
   readonly assistance: AssistanceFixture;
-  readonly diagnostics: HostDiagnosticsFixture;
   [Symbol.asyncDispose](): Promise<void>;
 }
 
-function configureInitialDiagnosticsState(
-  environment: ReturnType<typeof createHostEnvironment>,
-  processes: ProcessTestHarness,
-): void {
-  const displayNumber =
-    environment.variables.DISPLAY?.match(/:(\d+)/)?.[1] ?? "0";
-  const notFound = { exitCode: 1, stdout: "", stderr: "not found" };
-  processes
-    .expectStart({
-      match: {
-        command: "test",
-        args: ["-e", `/tmp/.X11-unix/X${displayNumber}`],
-      },
-    })
-    .resolveResult(notFound);
-  processes
-    .expectStart({
-      match: {
-        command: "test",
-        args: ["-d", "/Applications/Utilities/XQuartz.app"],
-      },
-    })
-    .resolveResult(notFound);
+function startedAtFromUptime(uptime: string | undefined): Date {
+  const match = uptime?.match(/^Up (\d+) (minute|minutes|hour|hours)$/u);
+  const amount = Number(match?.[1] ?? 1);
+  const unitMilliseconds = match?.[2]?.startsWith("hour")
+    ? 60 * 60 * 1_000
+    : 60 * 1_000;
+  return new Date(Date.UTC(2026, 0, 1) - amount * unitMilliseconds);
 }
 
 function createProjectFixture(options: {
@@ -241,7 +232,7 @@ function createProjectFixture(options: {
       const suffix = nextProjectContainer++;
       const projectSlug = generateProjectSlug(projectRoot);
       const baseName = `sandbox-${projectSlug}`;
-      const container = runtime.containers.create({
+      const container = runtime.instances.create({
         name: suffix === 1 ? baseName : `${baseName}-${suffix}`,
         image: `sandbox-${projectSlug}:latest`,
         labels: {
@@ -251,6 +242,7 @@ function createProjectFixture(options: {
             : {}),
         },
         status: containerOptions.state,
+        startedAt: startedAtFromUptime(containerOptions.uptime),
         ...(containerOptions.uptime ? { uptime: containerOptions.uptime } : {}),
       });
       if (containerOptions.sessions) {
@@ -336,6 +328,46 @@ function createWorkspaceRoots(workspaceAtHome: boolean): {
   return roots;
 }
 
+function createClipboardServices(processes: ProcessTestHarness) {
+  const webSockets = createNodeWebSocketService();
+  const bridge = createHostBridgeService(webSockets);
+  const clipboard = createFakeNativeClipboardService();
+  const clipboardFactory = createClipboardCapabilityFactory(clipboard);
+  return {
+    webSockets,
+    bridge,
+    clipboard,
+    clipboardFactory,
+    clipboardSession: createClipboardSessionFixture(processes),
+  };
+}
+
+function createAppLogger(clock: TestClock, terminal: TestTerminal) {
+  return createLogger(
+    clock.clock,
+    (message) => terminal.io.stderr.write(`${message}\n`),
+    {},
+  );
+}
+
+function createAppEditor(
+  processes: ProcessTestHarness,
+  environment: ReturnType<typeof createHostEnvironment>,
+  terminal: TestTerminal,
+) {
+  const editor = createEditorFixture({
+    processes,
+    platform: environment.platform,
+    environmentEditors: [
+      environment.variables.EDITOR,
+      environment.variables.VISUAL,
+    ].filter((value): value is string => Boolean(value)),
+    cancel: () => terminal.abort(),
+  });
+  editor.givenAvailableEditors([]);
+  return editor;
+}
+
 export async function setupSandboxAppTest(
   options: SandboxAppTestOptions = {},
 ): Promise<SandboxAppTest> {
@@ -375,28 +407,16 @@ export async function setupSandboxAppTest(
   updates.givenGlobalBinary("sandbox");
   const git = createHostGitFixture(processes);
   git.givenNoRepository(projectRoot);
-  const editor = createEditorFixture({
-    processes,
-    platform: environment.platform,
-    environmentEditors: [
-      ...(environment.variables.EDITOR ? [environment.variables.EDITOR] : []),
-      ...(environment.variables.VISUAL ? [environment.variables.VISUAL] : []),
-    ],
-    cancel: () => terminal.abort(),
-  });
-  editor.givenAvailableEditors([]);
+  const editor = createAppEditor(processes, environment, terminal);
   const assistance = createAssistanceFixture({
     executableDirectory: executableRoot,
     processes,
     platform: environment.platform,
   });
-  configureInitialDiagnosticsState(environment, processes);
-  const logger = createLogger(
-    clock.clock,
-    (message) => terminal.io.stderr.write(`${message}\n`),
-    {},
-  );
+  const logger = createAppLogger(clock, terminal);
   const executions = new Set<Promise<CliResult>>();
+  const { webSockets, bridge, clipboard, clipboardFactory, clipboardSession } =
+    createClipboardServices(processes);
   const technicalBindings = (): readonly DependencyBinding[] => [
     provideHostEnvironment(environment),
     provideTerminal(terminal.io),
@@ -404,7 +424,9 @@ export async function setupSandboxAppTest(
     provideProcessManager(processes.manager),
     provideLogger(logger),
     provideRuntimeProvider(runtimeProvider),
-    provideWebSocketService(createNodeWebSocketService()),
+    provideWebSocketService(webSockets),
+    provideHostBridgeService(bridge),
+    provideClipboardCapabilityFactory(clipboardFactory),
   ];
 
   return {
@@ -418,6 +440,7 @@ export async function setupSandboxAppTest(
         git.prepare();
         updates.prepare();
         editor.prepare();
+        clipboardSession.prepare();
         const stdoutStart = terminal.stdout().length;
         const stderrStart = terminal.stderr().length;
         const execution = runWithDependencies(technicalBindings(), async () => {
@@ -499,14 +522,16 @@ export async function setupSandboxAppTest(
     },
     runtime,
     clock,
+    clipboard,
+    clipboardSession,
     processes,
     updates,
     editor,
     assistance,
-    diagnostics: createHostDiagnosticsFixture(processes),
     async [Symbol.asyncDispose]() {
       terminal.abort();
       await Promise.allSettled([...executions]);
+      await clipboard[Symbol.asyncDispose]();
       await terminal.dispose();
       cleanupTestDir(root);
     },

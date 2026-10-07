@@ -2,11 +2,14 @@ import path from "node:path";
 
 const ALLOWED_SOURCE_ROOTS = [
   "src/apps/sandbox-container-tools/",
+  "src/modules/clipboard/",
   "src/modules/configuration/",
+  "src/modules/host-bridge/",
   "src/modules/network/",
   "src/modules/sandbox-settings/",
   "src/modules/storage/",
   "src/platform/clock/",
+  "src/platform/container-runtime/",
   "src/platform/container-system/",
   "src/platform/dependency-injection/",
   "src/platform/environment/",
@@ -14,13 +17,16 @@ const ALLOWED_SOURCE_ROOTS = [
   "src/platform/logging/",
   "src/platform/process/",
   "src/platform/terminal/",
+  "src/platform/native-clipboard/",
+  "src/platform/websocket/",
+  "src/platform/x11-clipboard/",
   "src/shared/",
 ] as const;
 
 function normalizeInputPath(repoRoot: string, inputPath: string): string {
   const absolutePath = path.isAbsolute(inputPath)
     ? inputPath
-    : path.resolve(repoRoot, inputPath);
+    : path.resolve(inputPath);
   return path.relative(repoRoot, absolutePath).replaceAll("\\", "/");
 }
 

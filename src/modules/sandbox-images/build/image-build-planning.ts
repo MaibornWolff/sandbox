@@ -9,14 +9,17 @@ import {
   getProjectImageName,
   USER_IMAGE,
 } from "#modules/sandbox-resources/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type {
+  SandboxImage,
+  SandboxRuntime,
+} from "#platform/container-runtime/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { pathExists } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { readState } from "#platform/state/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import type {
   BuildImagesOptions,
-  BuildTrigger,
   LayerType,
 } from "../image-build-contracts.js";
 import { getDockerBuildContextDirectory } from "../sandbox-image-paths.js";
@@ -45,11 +48,6 @@ interface ResolvedLayer {
   selected: boolean;
 }
 
-interface LayerInspection {
-  imageId: string;
-  currentLabelHash: string | null;
-}
-
 interface LayerState {
   localHash: string;
   currentLabelHash: string | null;
@@ -66,7 +64,7 @@ interface LayerPlanEntry {
 
 export interface BuildPlan {
   layers: LayerPlanEntry[];
-  finalImageId: string;
+  finalImage?: SandboxImage;
 }
 
 /**
@@ -134,10 +132,6 @@ function getBaseDockerfilePath(): string {
   getLogger().debug(`Base Dockerfile path: ${dockerfilePath}`);
 
   return dockerfilePath;
-}
-
-function isValidDockerfileHash(value: string | null): value is string {
-  return value !== null && /^[a-f0-9]{12}$/u.test(value);
 }
 
 function combineBuildInputHashes(...inputs: readonly string[]): string {
@@ -244,71 +238,11 @@ async function resolveLayers(
   return layers;
 }
 
-async function inspectLayers(
-  layers: ResolvedLayer[],
-  service: ContainerRuntime,
-): Promise<Map<LayerType, LayerInspection>> {
-  const inspectionEntries = await Promise.all(
-    layers.map(async (layer) => {
-      const inspection = await service.inspectImage(layer.imageName, [
-        "dockerfile.hash",
-      ]);
-      return [
-        layer.type,
-        {
-          imageId: inspection?.id ?? "",
-          currentLabelHash: inspection?.labels["dockerfile.hash"] ?? null,
-        },
-      ] as const;
-    }),
-  );
-
-  return new Map(inspectionEntries);
-}
-
-function shouldBuildLayerEntry(options: {
-  layer: ResolvedLayer;
-  inspection: LayerInspection;
-  expectedHash: string;
-  buildTrigger: BuildTrigger;
-  targetLayer?: LayerType;
-}): boolean {
-  const { layer, inspection, expectedHash, buildTrigger, targetLayer } =
-    options;
-
-  const isAncestorOnly = !layer.selected && targetLayer !== undefined;
-  const labelIsValid = isValidDockerfileHash(inspection.currentLabelHash);
-
-  if (!inspection.imageId) {
-    return true;
-  }
-
-  const logger = getLogger();
-  if (!labelIsValid) {
-    logger.debug(
-      `Rebuild ${layer.imageName}: missing, empty, or malformed dockerfile.hash label`,
-    );
-    return true;
-  }
-
-  if (buildTrigger === "always" && !isAncestorOnly) {
-    logger.debug(`Rebuild ${layer.imageName}: build trigger is always`);
-    return true;
-  }
-
-  const needsRebuild = inspection.currentLabelHash !== expectedHash;
-  logger.debug(`Image hash comparison for ${layer.imageName}:`);
-  logger.debug(`  Expected hash: ${expectedHash}`);
-  logger.debug(`  Current label: ${inspection.currentLabelHash}`);
-  logger.debug(`  Needs rebuild: ${needsRebuild}`);
-  return needsRebuild;
-}
-
 /**
  * @testonly
  */
 export async function planLayerBuilds(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   options: BuildImagesOptions,
 ): Promise<BuildPlan> {
   const {
@@ -324,8 +258,7 @@ export async function planLayerBuilds(
     projectRoot,
     targetLayer,
   );
-  const inspection = await inspectLayers(resolvedLayers, service);
-
+  const imageState = readState().sandboxImages ?? {};
   const entries: LayerPlanEntry[] = [];
   const states = new Map<LayerType, LayerState>();
 
@@ -339,35 +272,43 @@ export async function planLayerBuilds(
         ? computeBaseBuildInputHash(contextHash)
         : contextHash;
     const expectedHash = computeExpectedHash(localHash, parentExpectedHash);
-    const currentInspection = inspection.get(layer.type);
-
-    if (!currentInspection) {
-      throw new Error(`Missing layer inspection for ${layer.type}`);
-    }
-
+    const recordedImage = imageState[`${service.runtime}:${layer.imageName}`];
+    const currentLabelHash = recordedImage?.labels?.["dockerfile.hash"] ?? null;
+    const imageExists =
+      recordedImage !== undefined &&
+      /^sha256:[a-f0-9]+$/u.test(recordedImage.digest) &&
+      (service.runtime !== "apple-container" ||
+        recordedImage.reference !== recordedImage.digest);
+    const forceSelectedBuild = buildTrigger === "always" && layer.selected;
     const state: LayerState = {
       localHash,
-      currentLabelHash: currentInspection.currentLabelHash,
+      currentLabelHash,
       expectedHash,
-      imageExists: currentInspection.imageId.length > 0,
-      shouldBuild: shouldBuildLayerEntry({
-        layer,
-        inspection: currentInspection,
-        expectedHash,
-        buildTrigger,
-        targetLayer,
-      }),
-      forceNoCache: cacheStrategy === "none",
+      imageExists,
+      shouldBuild:
+        !imageExists ||
+        !/^[a-f0-9]{12}$/u.test(currentLabelHash ?? "") ||
+        currentLabelHash !== expectedHash ||
+        forceSelectedBuild,
+      forceNoCache: cacheStrategy === "none" || forceSelectedBuild,
     };
 
     states.set(layer.type, state);
     entries.push({ layer, state });
   }
 
+  const finalLayer = resolvedLayers.at(-1);
+  const recordedFinalImage = finalLayer
+    ? imageState[`${service.runtime}:${finalLayer.imageName}`]
+    : undefined;
   return {
     layers: entries,
-    finalImageId:
-      inspection.get(resolvedLayers.at(-1)?.type ?? "base")?.imageId ?? "",
+    finalImage: recordedFinalImage
+      ? {
+          reference: recordedFinalImage.reference,
+          digest: recordedFinalImage.digest,
+        }
+      : undefined,
   };
 }
 

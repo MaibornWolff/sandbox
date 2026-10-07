@@ -27,8 +27,9 @@ flowchart TB
     Settings[User settings]
     Data[Persistent data]
     Runtime[Container runtime]
-    Broker[Session host-command broker]
+    Broker[Authenticated session bridge]
     HostChild[Allowed host child]
+    Native[Host clipboard]
   end
 
   subgraph Container
@@ -37,6 +38,7 @@ flowchart TB
     Persistent[Persistent paths]
     SharedSettings[Shared settings]
     Firewall[Network firewall]
+    Display[Private X11 display and clipboard proxy]
   end
 
   Services[Allowed network services]
@@ -46,6 +48,9 @@ flowchart TB
   CLI --> Broker
   Agent -->|authenticated request| Broker
   Broker -->|allowlist match| HostChild
+  Agent <-->|clipboard selections| Display
+  Display <-->|authenticated encrypted requests| Broker
+  Broker <-->|in-process native calls| Native
   Project -->|mount| Mounts
   Settings -->|mount and synchronize| SharedSettings
   Data -->|mount| Persistent
@@ -66,11 +71,15 @@ The host command:
 
 - reads and merges configuration
 - selects or builds the container image
+- prepares a versioned, content-identified runtime cache
 - creates mounts
 - starts and stops containers
 - starts agent sessions
-- starts one authenticated host-command broker for each normal session
+- starts one authenticated session bridge for each attached session
+- prepares a private container clipboard display for each enabled attached session
 - reports status and diagnostic information
+
+Update notices use the cached result from an earlier invocation. When a refresh is due, the host starts a detached update worker and does not wait for it. The worker has a bounded registry timeout. Its separate, atomically published cache prevents update checks from overwriting image or storage state. Failed attempts delay the next refresh.
 
 ### Container environment
 
@@ -84,9 +93,22 @@ The container environment:
 - manages session lifetime
 - synchronizes new mount-mode settings during a normal stop
 
-### Container runtime
+### Sandbox runtime
 
-Docker or Podman provides process and filesystem isolation. The runtime also creates mounts, networks, images, and volumes.
+The container-runtime component exposes two boundaries:
+
+- `SandboxImageBuilder` checks local image availability, builds immutable images, and removes selected unused images.
+- `SandboxRuntime` runs instances and owns runtime-local persistent storage.
+
+Docker, Podman, and Apple `container` implement both boundaries. Sandbox modules use opaque instance and storage handles. They do not use runtime image stores, container names, or volume names. Docker and Podman share Docker-compatible code only inside the adapter.
+
+Automatic instance cleanup preserves instances that are still being created. Runtime adapters report name conflicts through one semantic error. Callers can then retry without parsing runtime CLI messages.
+
+The Apple adapter initializes newly allocated logical storage from image contents before instance creation. One helper copies all new volumes into staging directories. A storage lock prevents concurrent copies. Existing storage is retained, and warm starts do not repeat initialization.
+
+A build returns a content identity that the selected runtime can start. Docker and Podman use the local image ID. Apple uses the image descriptor digest. Sandbox records this immutable identity for `--no-build` and reuse decisions.
+
+An image record is not proof that the image is still in the runtime image store. When build inputs are unchanged, Sandbox checks the final image reference and content identity before it skips the build. This check does not require parent images. If the final image is missing or changed, Sandbox checks all layers through the image builder. The builder reuses matching local layers and builds missing or changed layers.
 
 ## Configuration Model
 
@@ -125,6 +147,10 @@ Sandbox uses three image layers:
 
 A change rebuilds the affected layer and its child layers. This design keeps user and project customization separate.
 
+Runtime program files are separate from image layers. `modules/sandbox-runtime` owns their package validation, identity, host cache paths, atomic publication, preparation leases, and cleanup. The leases prevent cleanup from removing a runtime between cache preparation and container creation. `modules/sandbox-containers` combines the cached runtime bind mount with a tool image at startup. Configuration does not construct these resources.
+
+Runtime files are copied into the Sandbox data directory and mounted read-only. Runtime-only changes select a different container without rebuilding tool images. The container runtime does not need access to the host installation path.
+
 See [Layered Images](./LAYERED-IMAGES.md).
 
 ## Network Model
@@ -137,7 +163,13 @@ Outbound network access uses a domain allowlist. The network system has three re
 
 Full-network mode keeps the network path but disables domain filtering.
 
-A normal session can reach its host-command broker through the container runtime host name, such as `host.docker.internal` or `host.containers.internal`. The existing network path permits this host connection. The broker still requires its session token and command allowlist. Sandbox does not add a broader network-policy exception.
+An attached session can reach its host bridge through the container runtime host name. Docker uses `host.docker.internal`, Podman uses `host.containers.internal`, and Apple uses `host.container.internal`. Apple also provides `host.docker.internal` as a compatibility alias. The Apple aliases use the reachable host gateway. Host services that listen only on localhost are not supported. The bridge uses encrypted WebSocket transport with a session-specific pinned certificate. Each capability requires an active session token. Host commands also require an argument allowlist. Sandbox temporarily permits only the bridge host and port for the agent user. It removes this network-policy exception when the session ends.
+
+The Apple adapter owns its runtime-specific network behavior. Configuration selects `default`, `host`, or `host-ipv6` DNS once when it constructs the adapter. Host mode selects a guest-usable server from the current primary macOS DNS configuration. It does not use scoped resolvers or substitute public DNS. Resolver discovery, readiness, and runtime arguments stay private to the adapter. The guest DNS proxy provides exact Apple host aliases, without subdomain mappings. Sandbox does not add a privileged host setup workflow.
+
+Each instance-startup scope shares one network snapshot between the compatibility check and container creation. The scope releases discovery helpers on reuse, creation, or failure. Independent scopes read current network and DNS state. User sessions run outside this scope.
+
+In `host` and `host-ipv6` modes, the adapter revalidates shared builder DNS before each image build. Concurrent preparation calls share only the in-progress check. A process-owned filesystem lock serializes builder DNS preparation across Sandbox processes. Only the owner releases its lock. An abandoned lock requires manual recovery because filesystem checks cannot safely delete a lock that another process has replaced.
 
 See [Network Firewall](./NETWORK-FIREWALL.md).
 
@@ -148,10 +180,14 @@ A normal session follows this sequence:
 ```mermaid
 flowchart LR
   Config[Merge configuration] --> Image[Select or build image]
-  Image --> Create[Create container]
-  Create --> Apply[Apply copy-mode settings]
-  Apply --> Services[Start container services]
-  Services --> Session[Run session as non-root user]
+  Image --> Runtime[Prepare host runtime cache]
+  Runtime --> Create[Create container]
+  Create --> Security[Install IPv4 and IPv6 firewall policies]
+  Security --> Apply[Apply copy-mode settings as non-root user]
+  Security --> Services[Start container services]
+  Apply --> Ready[Wait for settings and services]
+  Services --> Ready
+  Ready --> Session[Run session as non-root user]
   Session --> Idle{Sessions remain active?}
   Idle -->|Yes| Wait[Keep container running]
   Wait --> Idle
@@ -161,17 +197,30 @@ flowchart LR
 
 1. Merge configuration.
 2. Select or build the image.
-3. Create the container with its mounts and network policy.
-4. Apply copy-mode settings. Stop startup if this operation fails.
-5. Start required container services.
-6. Start a host-command broker for the normal execution session.
-7. Run the requested command as the non-root user.
-8. Stop the broker and its active host children when the execution ends.
+3. Prepare the runtime cache and mounts. Stop startup if runtime preparation fails.
+4. Start the session bridge, then find a compatible container or create one.
+5. For a new container, install both firewall policies before starting services and applying copy-mode settings. Apply settings as the non-root user while services become ready. Cancel and settle pending startup work if either operation fails.
+6. Wait for container readiness and install the bounded session bridge exception in one guest operation. If clipboard access is enabled, prepare the private clipboard display and wait for proxy readiness. `modules/sandbox-containers` owns this session preparation and its cleanup.
+7. Run the requested command as the non-root user. Inject only the ready proxy's display environment. A clipboard startup failure gives a warning but does not stop the command.
+8. Remove the session bridge exception. Stop the proxy, bridge, and active host children when execution ends.
 9. Keep the container available while sessions remain active.
 10. Synchronize new mount-mode settings during a normal stop.
 11. Stop or remove the container according to the command and configuration.
+12. After the session ends, remove old runtime caches when scheduled and no container references them.
 
-Sandbox can reuse a compatible running container. A configuration or image change requires a different container.
+Sandbox can reuse a compatible running container. A configuration, image, or runtime-content change requires a different container.
+
+## Clipboard Ownership and Packaging
+
+Each enabled attached session has separate clipboard-read and clipboard-write capabilities. `clipboard = "disabled"` prevents their creation and skips the private display and proxy. This session setting does not change tool images or container reuse. Host command permissions are independent.
+
+`modules/host-bridge` owns authentication, capability routing, transport limits, and listener lifetime. It does not import capability workflows. `modules/host-command-escape` owns command authorization. `modules/clipboard` owns text and PNG policy, bridge transfers, and the container proxy workflow.
+
+`platform/x11-clipboard` owns the private X virtual framebuffer (Xvfb), authentication, and selection transfers. It does not forward a host display or mount host X11 sockets. Reads fetch current host content on demand. Selection ownership events forward container copies. No idle clipboard polling is needed.
+
+`platform/native-clipboard` is a thin CrossCopy adapter. It loads `@crosscopy/clipboard` on the first authorized operation, maps native format names, converts PNG bytes to and from Base64, and runs native calls one at a time. It owns no product rules. `modules/clipboard` owns size limits, text and PNG validation, the request deadline, and transfer limits. Cancellation or a timeout fails the request. It cannot stop a native call that already started, so later calls wait for it.
+
+The public CLI bundle keeps `@crosscopy/clipboard` as its only external package, so the installed package loads the binary for the host platform. The container-tools bundle has no native clipboard inputs. Host native dependencies are installed with the host package, not inside the container.
 
 ## Data Ownership
 
@@ -179,10 +228,11 @@ Sandbox can reuse a compatible running container. A configuration or image chang
 | --- | --- | --- |
 | Project files | Host project | Independent of the container |
 | User settings | Host configuration directory | Shared between projects |
-| Per-project persistent data | Sandbox data directory | One project |
-| Global persistent data | Sandbox data directory | Shared between projects |
+| Per-project persistent data | Sandbox runtime or Sandbox data directory | One project |
+| Global persistent data | Sandbox runtime or Sandbox data directory | Shared between projects |
 | Temporary container data | Container | Until the container is removed |
-| Image layers | Container runtime | Until image cleanup |
+| Image layers | Sandbox image builder | Until scoped image cleanup |
+| Runtime package cache | Sandbox runtime component | Until unused and removed by scheduled cleanup |
 
 ## Security Boundaries
 
@@ -193,7 +243,8 @@ Sandbox relies on these boundaries:
 - The network allowlist defines external network access.
 - The non-root container user limits changes to protected container state.
 - Project configuration requires trust before Sandbox applies it.
-- The host-command broker checks a session token and the complete argument vector before it starts a host process.
+- The host bridge checks an active session token before it dispatches a capability.
+- Host command escape checks the complete argument vector before it starts a host process.
 - Each host-command rule requires an exact executable and must consume all arguments.
 - Regular expressions match one complete argument. Repetition has a configured minimum and maximum.
 
@@ -210,4 +261,4 @@ These boundaries do not prevent every attack. An allowed domain can receive data
 - [Network Firewall](./NETWORK-FIREWALL.md)
 - [Persistence](./PERSISTENCE.md)
 - [Settings Synchronization](./SETTINGS-SYNC.md)
-- [X11 Clipboard Setup](./X11-SETUP.md)
+- [Clipboard Access](./CLIPBOARD.md)

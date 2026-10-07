@@ -1,20 +1,20 @@
 import { once } from "node:events";
+import {
+  chunkHostBridgePayload,
+  HOST_BRIDGE_ENDPOINT_VARIABLE,
+  openHostBridgeConnection,
+} from "#modules/host-bridge/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { getProcessManager } from "#platform/process/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
-import {
-  getWebSocketService,
-  type WebSocketConnection,
-  type WebSocketMessage,
+import type {
+  WebSocketConnection,
+  WebSocketMessage,
 } from "#platform/websocket/index.js";
 import {
   decodeBinaryChannel,
   encodeBinaryChannel,
   encodeControlMessage,
-  HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE,
-  HOST_COMMAND_ESCAPE_MAX_MESSAGE_BYTES,
-  HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE,
-  HOST_COMMAND_ESCAPE_TOKEN_VARIABLE,
   parseBrokerControlMessage,
   STREAM_CHANNEL,
 } from "./protocol.js";
@@ -48,16 +48,16 @@ function readInputChunk(
   input: NodeJS.ReadableStream,
   signal: AbortSignal,
 ): Promise<Uint8Array | string | undefined> {
-  if (signal.aborted) return Promise.resolve(undefined);
+  if (signal.aborted || !input.readable) return Promise.resolve(undefined);
   return new Promise((resolve, reject) => {
     const cleanup = () => {
+      input.pause();
       input.removeListener("data", onData);
       input.removeListener("end", onEnd);
       input.removeListener("error", onError);
       signal.removeEventListener("abort", onAbort);
     };
     const onData = (chunk: Uint8Array | string) => {
-      input.pause();
       cleanup();
       resolve(chunk);
     };
@@ -84,22 +84,32 @@ function readInputChunk(
 function forwardStdin(connection: WebSocketConnection): StdinForwarder {
   const input = getTerminal().input;
   const controller = new AbortController();
-  const completion = (async () => {
+  const forwarding = (async () => {
     for (;;) {
       const chunk = await readInputChunk(input, controller.signal);
       if (chunk === undefined) break;
       const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-      if (bytes.byteLength > 0) {
+      for (const frame of chunkHostBridgePayload(bytes, 1)) {
         await connection.sendBinary(
-          encodeBinaryChannel(STREAM_CHANNEL.stdin, bytes),
+          encodeBinaryChannel(STREAM_CHANNEL.stdin, frame),
+          { signal: controller.signal },
         );
       }
     }
     if (!controller.signal.aborted) {
-      await connection.sendText(encodeControlMessage({ type: "stdin-end" }));
+      await connection.sendText(encodeControlMessage({ type: "stdin-end" }), {
+        signal: controller.signal,
+      });
     }
-  })();
-  return { completion, stop: () => controller.abort() };
+  })().catch(async () => {
+    if (!controller.signal.aborted) {
+      await connection.close(1011, "stdin-forwarding-failed");
+    }
+  });
+  return {
+    completion: forwarding,
+    stop: () => controller.abort(),
+  };
 }
 
 async function runList(connection: WebSocketConnection): Promise<void> {
@@ -185,57 +195,52 @@ async function runExecute(
       .catch(() => undefined);
   };
   const abort = () => forwardSignal("SIGTERM");
-  getTerminal().signal.addEventListener("abort", abort, { once: true });
+  const terminal = getTerminal();
+  terminal.signal.addEventListener("abort", abort, { once: true });
   void getProcessManager().termination.then((signal) => {
     if (signal === "SIGINT" || signal === "SIGTERM" || signal === "SIGHUP") {
       forwardSignal(signal);
     }
   });
-  try {
-    for await (const incoming of connection.messages) {
-      const exitCode = await handleExecuteMessage(connection, incoming, state);
-      if (exitCode === undefined) continue;
-      exited = true;
-      state.stdin?.stop();
-      await state.stdin?.completion.catch(() => undefined);
-      if (exitCode !== 0) throw new HostCommandEscapeExitError(exitCode);
-      return;
-    }
-    throw new Error(
-      "Host command escape broker closed before the command exited.",
-    );
-  } finally {
+  await using cleanup = new AsyncDisposableStack();
+  cleanup.defer(async () => {
     state.stdin?.stop();
-    getTerminal().signal.removeEventListener("abort", abort);
+    await state.stdin?.completion;
+    terminal.signal.removeEventListener("abort", abort);
+  });
+  for await (const incoming of connection.messages) {
+    const exitCode = await handleExecuteMessage(connection, incoming, state);
+    if (exitCode === undefined) continue;
+    exited = true;
+    if (exitCode !== 0) throw new HostCommandEscapeExitError(exitCode);
+    return;
   }
+  throw new Error(
+    "Host command escape broker closed before the command exited.",
+  );
 }
 
 export async function runHostCommandEscape(
   options: RunHostCommandEscapeOptions,
 ): Promise<void> {
   const variables = getHostEnvironment().variables;
-  const endpoint = variables[HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE];
-  const protocol = variables[HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE];
-  const token = variables[HOST_COMMAND_ESCAPE_TOKEN_VARIABLE];
-  if (!endpoint || !protocol || !token) {
+  if (!variables[HOST_BRIDGE_ENDPOINT_VARIABLE]) {
     await writeOutput(
       getTerminal().stderr,
       "sandbox escape: no active host command escape broker\n",
     );
     throw new HostCommandEscapeExitError(1);
   }
-  let connection: WebSocketConnection | undefined;
   try {
-    connection = await getWebSocketService().connect({
-      url: endpoint,
-      protocol,
-      maxMessageBytes: HOST_COMMAND_ESCAPE_MAX_MESSAGE_BYTES,
-      headers: { authorization: `Bearer ${token}` },
-      signal: getTerminal().signal,
+    const signal = getTerminal().signal;
+    signal.throwIfAborted();
+    await using connection = await openHostBridgeConnection({
+      capability: "host-command",
+      environment: variables,
+      signal,
     });
-    await using managedConnection = connection;
-    if (options.operation === "list") await runList(managedConnection);
-    else await runExecute(managedConnection, options.argv);
+    if (options.operation === "list") await runList(connection);
+    else await runExecute(connection, options.argv);
   } catch (error) {
     if (error instanceof HostCommandEscapeExitError) throw error;
     const message = error instanceof Error ? error.message : "unknown error";

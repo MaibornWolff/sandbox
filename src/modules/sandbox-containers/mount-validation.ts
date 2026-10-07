@@ -2,6 +2,27 @@ import { posix, win32 } from "node:path";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { realPathOrSelf } from "#platform/filesystem/index.js";
 
+export function validateProtectedMountPaths(
+  protectedPath: string,
+  destinations: readonly string[],
+): void {
+  const root = posix.normalize(protectedPath).replace(/\/$/, "");
+  for (const destination of destinations) {
+    const normalized = posix
+      .normalize(destination.replaceAll("\\", "/"))
+      .replace(/\/$/, "");
+    if (
+      normalized === root ||
+      normalized.startsWith(`${root}/`) ||
+      root.startsWith(`${normalized}/`)
+    ) {
+      throw new Error(
+        `Mount destination ${destination} overlaps the managed Sandbox runtime at ${protectedPath}. Choose another destination.`,
+      );
+    }
+  }
+}
+
 function getPathImplementation() {
   return getHostEnvironment().platform === "win32" ? win32 : posix;
 }

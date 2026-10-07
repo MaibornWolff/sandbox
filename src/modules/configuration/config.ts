@@ -1,8 +1,12 @@
 import type { CommandPattern } from "#modules/host-command-escape/index.js";
+import type { ContainerRuntimeOptions } from "#platform/container-runtime/index.js";
 import type { NetworkPortSelection } from "./network-port-selection.js";
 
-export const RUNTIME_IDS = ["docker", "podman"] as const;
+export const RUNTIME_IDS = ["docker", "podman", "apple-container"] as const;
 export type RuntimeId = (typeof RUNTIME_IDS)[number];
+
+export const CLIPBOARD_MODES = ["enabled", "disabled"] as const;
+type ClipboardMode = (typeof CLIPBOARD_MODES)[number];
 
 export interface AllowedNetwork {
   host: string;
@@ -42,11 +46,12 @@ export interface SettingsEntry {
 
 export interface Config {
   runtime: RuntimeId;
+  runtimes: ContainerRuntimeOptions;
   mounts: string[];
   env: string[];
   readonly: boolean;
+  clipboard: ClipboardMode;
   persistPaths: PersistPath[];
-  clipboard: "auto" | "x11" | "disabled";
   settings: SettingsEntry[];
   ports: string[];
   allowNetwork: AllowedNetwork[];
@@ -60,7 +65,6 @@ export interface ConfigOverrides {
   mount?: string | string[];
   env?: string | string[];
   readonly?: boolean;
-  clipboard?: "auto" | "x11" | "disabled";
   port?: string | string[];
   allowNetwork?: string | string[];
   fullNetwork?: boolean;

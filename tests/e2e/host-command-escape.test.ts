@@ -20,6 +20,12 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+function readOpenInvocations(): string[] {
+  return existsSync(openInvocationPath)
+    ? readFileSync(openInvocationPath, "utf8").trim().split("\n")
+    : [];
+}
+
 beforeAll(async () => {
   projectDir = await createTempProject("host-command-escape");
   fixturePath = join(projectDir, "host-command-fixture.mjs");
@@ -60,9 +66,7 @@ if (operation === "io") {
   await writeProjectFile(
     projectDir,
     ".sandbox/config.toml",
-    `env = ["SANDBOX_IDLE_TIMEOUT_SECONDS=30"]
-
-[[allow_host_commands]]
+    `[[allow_host_commands]]
 pattern = [${tomlString(process.execPath)}, ${tomlString(fixturePath)}, "io"]
 
 [[allow_host_commands]]
@@ -86,7 +90,13 @@ test_no_match = [
 ]
 `,
   );
+  await writeProjectFile(
+    projectDir,
+    ".sandbox/docker/Dockerfile",
+    "FROM sandbox-base:latest\nENV SANDBOX_IDLE_TIMEOUT_SECONDS=30\n",
+  );
   sb = createSandbox({ cwd: projectDir, timeoutSeconds: 40 });
+  expect((await sb.build()).exitCode).toBe(0);
 });
 
 afterAll(async () => {
@@ -174,16 +184,15 @@ describe("host command escape", () => {
       expect(result.stdout).toContain(`opened:${target}`);
     }
 
-    expect(readFileSync(openInvocationPath, "utf8").trim().split("\n")).toEqual(
-      [
-        '["report.HTML"]',
-        '["http://example.com/report"]',
-        '["https://example.com/report"]',
-      ],
-    );
+    expect(readOpenInvocations()).toEqual([
+      '["report.HTML"]',
+      '["http://example.com/report"]',
+      '["https://example.com/report"]',
+    ]);
   });
 
   test("rejects unsafe open targets and trailing arguments before host process creation", async () => {
+    const previousInvocations = readOpenInvocations();
     const rejectedArguments = [
       ["/Applications/Calculator.app"],
       ["file:///tmp/report.html"],
@@ -215,9 +224,7 @@ describe("host command escape", () => {
     );
     expect(trailing.exitCode).toBe(126);
     expect(trailing.stderr).toContain("command is not allowed");
-    expect(
-      readFileSync(openInvocationPath, "utf8").trim().split("\n"),
-    ).toHaveLength(3);
+    expect(readOpenInvocations()).toEqual(previousInvocations);
   });
 
   test("denies unmatched commands before they can create a host effect", async () => {
@@ -240,7 +247,7 @@ describe("host command escape", () => {
     const saved = await sb.run(
       "sh",
       "-c",
-      `printf "export SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT='%s'\\nexport SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL='%s'\\nexport SANDBOX_HOST_COMMAND_ESCAPE_TOKEN='%s'\\n" "$SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT" "$SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL" "$SANDBOX_HOST_COMMAND_ESCAPE_TOKEN" > .stale-escape-session`,
+      `printf "export SANDBOX_HOST_BRIDGE_ENDPOINT='%s'\\nexport SANDBOX_HOST_BRIDGE_TOKEN='%s'\\nexport SANDBOX_HOST_BRIDGE_CERTIFICATE='%s'\\n" "$SANDBOX_HOST_BRIDGE_ENDPOINT" "$SANDBOX_HOST_BRIDGE_TOKEN" "$SANDBOX_HOST_BRIDGE_CERTIFICATE" > .stale-escape-session`,
     );
     expect(saved.exitCode).toBe(0);
 

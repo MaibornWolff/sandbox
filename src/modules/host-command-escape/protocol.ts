@@ -1,12 +1,3 @@
-export const HOST_COMMAND_ESCAPE_PROTOCOL = "sandbox-host-command-escape.v1";
-export const HOST_COMMAND_ESCAPE_MAX_MESSAGE_BYTES = 1024 * 1024;
-export const HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE =
-  "SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT";
-export const HOST_COMMAND_ESCAPE_TOKEN_VARIABLE =
-  "SANDBOX_HOST_COMMAND_ESCAPE_TOKEN";
-export const HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE =
-  "SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL";
-
 export const STREAM_CHANNEL = {
   stdin: 1,
   stdout: 2,
@@ -55,12 +46,6 @@ function parseJson(text: string): unknown {
   }
 }
 
-function parseSupportedSignal(value: unknown): SupportedSignal | undefined {
-  return value === "SIGINT" || value === "SIGTERM" || value === "SIGHUP"
-    ? value
-    : undefined;
-}
-
 export function parseClientControlMessage(text: string): ClientControlMessage {
   const value = parseJson(text);
   if (!isRecord(value) || typeof value.type !== "string") {
@@ -77,20 +62,20 @@ export function parseClientControlMessage(text: string): ClientControlMessage {
     Array.isArray(value.argv) &&
     value.argv.length > 0 &&
     value.argv.every((part) => typeof part === "string") &&
-    typeof value.argv[0] === "string" &&
-    value.argv[0].length > 0 &&
+    (value.argv[0]?.length ?? 0) > 0 &&
     typeof value.cwd === "string" &&
     value.cwd.length > 0
   ) {
     return { type: "execute", argv: value.argv, cwd: value.cwd };
   }
-  const signal = parseSupportedSignal(value.signal);
   if (
     value.type === "signal" &&
     hasOnlyKeys(value, ["type", "signal"]) &&
-    signal !== undefined
+    (value.signal === "SIGINT" ||
+      value.signal === "SIGTERM" ||
+      value.signal === "SIGHUP")
   ) {
-    return { type: "signal", signal };
+    return { type: "signal", signal: value.signal };
   }
   throw new Error("Host command escape client control message is invalid.");
 }

@@ -3,6 +3,7 @@
 ## User Communication
 
 - You MUST use ASD-STE100 Simplified Technical English when talking to the user.
+- You MUST organize confirmation prompts for consequential host changes into labeled sections for purpose, changes, risks, recovery, and confirmation.
 
 ## Commands
 
@@ -26,19 +27,26 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST run `bun check` after every task
 - You MUST NOT use `any`, `@ts-ignore`, or `biome-ignore`.
 - You MUST reproduce bugs with a failing test first.
+- You MUST verify CLI bug fixes with the reported command when the required runtime is available.
+- You MUST verify each startup optimization with the reported CLI command and record its timings before proceeding to the next optimization.
 - You MUST NOT weaken E2E tests by replacing failing external fixtures with less equivalent ones without investigating the failure.
 - You SHOULD fetch only the relevant tail of long CI logs unless earlier output is needed.
 - You MUST keep code Node.js-compatible (no Bun-specific APIs outside tests).
+- You MUST load synchronous and asynchronous disposal polyfills in each Node.js entrypoint before application code runs.
 - You MUST ensure solutions work on Windows (no reliance on Unix-only system commands like `diff`, `which`, etc.).
 - You MUST co-locate tests: `foo.ts` → `foo.test.ts`.
 - You MUST use `getRepoRootPath(process.cwd())` for project-relative paths, not `process.cwd()` directly.
-- Sandboxed environment: no Docker access. You MUST ask user to manually test.
+- You MUST run Docker-backed tests through `sandbox escape` when permitted and ask for manual testing only when host execution is unavailable.
 - You MUST bundle image setup package actions by package manager.
+- You MUST keep runtime-only code changes from triggering rebuilds of system, user, and project tool images.
+- You MUST keep startup paths performant and avoid redundant container-runtime operations.
+- You MUST expose Docker and Podman operations only through the `ContainerRuntime` interface.
 - You MUST keep native terminal scrolling available while users review long output.
 - You SHOULD size interactive terminal views from the available terminal height.
 - You MUST calculate terminal mouse hit regions from rendered physical rows, including wrapped lines.
 - You MUST use semantic input actions instead of translating keys into raw terminal escape sequences outside terminal adapters and tests.
 - You MUST create repository worktrees under `.agents/worktrees/`.
+- You SHOULD use the fewest subagents needed and keep each work package complete and focused.
 
 ## Response Style
 
@@ -49,13 +57,18 @@ Use these rules when talking to the user:
 - You MUST NOT use hollow transition words ("Furthermore", "Moreover", "Additionally", "In conclusion").
 - You MUST NOT use AI-favored vocabulary ("leverage", "delve", "it's worth noting", "in the realm of").
 - You SHOULD write concisely and directly. Prefer plain words over formal or elaborate phrasing.
+- You SHOULD keep CLI option help focused on user actions and omit internal lifecycle details.
 
 ## Code Style
 
 - You MUST use specific error messages and preserve exit codes from child processes.
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
+- You SHOULD use extensible enum values for feature modes and reuse existing configuration merge strategies.
 - You SHOULD keep functions under 150 lines and cognitive complexity under 15.
+- You MUST include code size, readability, and shared-helper opportunities in code reviews.
+- You SHOULD use explicit branches and named phases for lifecycle logic instead of nested ternaries or compressed expressions.
+- You SHOULD reuse shared timeout and cancellation helpers instead of repeating timer races and cleanup.
 - You SHOULD extract compound validation conditions into named functions when this makes the rule easier to read.
 - You SHOULD extract non-trivial mapping and parsing callbacks into named functions.
 - If `bun cpd` reports clones, you MUST extract into a shared utility.
@@ -127,6 +140,7 @@ Use these rules when talking to the user:
 ### Abstractions
 
 - You MUST prefer small, deep APIs that hide complete workflows.
+- You SHOULD prefer one shared workflow across container runtimes and keep necessary runtime differences inside adapters.
 - Callers MUST NOT coordinate another component's internal steps.
 - You MUST keep intermediate plans and transport formats private unless callers need them to decide behavior.
 - Lifecycle operation names MUST state their phase when timing changes behavior.
@@ -140,6 +154,8 @@ Use these rules when talking to the user:
 - You MUST NOT use `*-command-registration.ts`.
 
 ## Key Files and Concepts
+
+- You SHOULD keep runtime selection in user configuration examples and keep project templates focused on common project settings.
 
 Paths are platform/XDG-dependent. Use `getSandboxConfigDir()` (`{config}`) and `getDataHomeDir()` (`{data}`) — never hardcode `~/.config` or `~/.local/share`.
 

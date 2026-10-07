@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["ES2022", "ESNext.Disposable"],
+    "lib": ["ES2024", "ESNext.Disposable"],
     "moduleResolution": "bundler",
     "moduleDetection": "force",
     "paths": {

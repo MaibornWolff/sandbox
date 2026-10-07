@@ -1,0 +1,54 @@
+[
+  {
+    "configuration": {
+      "creationDate": "2026-09-13T12:00:00Z",
+      "descriptor": {
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "size": 856
+      },
+      "name": "sandbox-project:latest"
+    },
+    "id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "variants": [
+      {
+        "config": {
+          "architecture": "amd64",
+          "config": {
+            "Labels": {
+              "dockerfile.hash": "amd64-value",
+              "sandbox.managed": "true"
+            }
+          },
+          "os": "linux"
+        },
+        "digest": "sha256:amd64",
+        "platform": {
+          "architecture": "amd64",
+          "os": "linux"
+        },
+        "size": 1700
+      },
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Labels": {
+              "dockerfile.hash": "arm64-value",
+              "sandbox.managed": "true"
+            }
+          },
+          "os": "linux",
+          "variant": "v8"
+        },
+        "digest": "sha256:arm64",
+        "platform": {
+          "architecture": "arm64",
+          "os": "linux",
+          "variant": "v8"
+        },
+        "size": 1900
+      }
+    ]
+  }
+]

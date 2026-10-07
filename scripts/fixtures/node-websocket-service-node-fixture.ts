@@ -18,7 +18,6 @@ async function nextValue<T>(values: AsyncIterable<T>): Promise<T> {
 async function startAcceptedServer(
   options: {
     readonly maxBytes?: number;
-    readonly signal?: AbortSignal;
     readonly authorizeUpgrade?: Parameters<
       ReturnType<typeof createNodeWebSocketService>["startServer"]
     >[0]["authorizeUpgrade"];
@@ -29,7 +28,6 @@ async function startAcceptedServer(
     port: 0,
     protocol,
     maxMessageBytes: options.maxBytes ?? maxMessageBytes,
-    signal: options.signal,
     authorizeUpgrade: options.authorizeUpgrade ?? (() => ({ accepted: true })),
   });
 }
@@ -38,9 +36,10 @@ async function connectTo(
   server: WebSocketServer,
 ): Promise<WebSocketConnection> {
   return createNodeWebSocketService().connect({
-    url: `ws://${server.endpoint.host}:${server.endpoint.port}/session`,
+    url: `wss://${server.endpoint.host}:${server.endpoint.port}/session`,
     protocol,
     maxMessageBytes,
+    pinnedCertificate: server.certificate,
   });
 }
 
@@ -135,21 +134,8 @@ async function verifyAbortedSend(): Promise<void> {
   assert.equal(accepted.protocol, protocol);
 }
 
-async function verifyServerAbort(): Promise<void> {
-  const controller = new AbortController();
-  await using server = await startAcceptedServer({ signal: controller.signal });
-  await using client = await connectTo(server);
-  await using accepted = await nextValue(server.connections);
-
-  controller.abort();
-  assert.equal((await client.closed).code, 1006);
-  assert.equal((await accepted.closed).code, 1006);
-  await assert.rejects(connectTo(server));
-}
-
 await verifyMessageExchange();
 await verifyBackpressure();
 await verifyProtocolDetails();
 await verifyMessageLimit();
 await verifyAbortedSend();
-await verifyServerAbort();

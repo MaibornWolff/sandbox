@@ -1,3 +1,15 @@
+import {
+  createClipboardCapabilityFactory,
+  provideClipboardCapabilityFactory,
+} from "#modules/clipboard/index.js";
+import {
+  createHostBridgeService,
+  provideHostBridgeService,
+} from "#modules/host-bridge/index.js";
+import {
+  runUpdateCheckWorker,
+  UPDATE_CHECK_WORKER_ARGUMENT,
+} from "#modules/self-update/index.js";
 import { createSystemClock, provideClock } from "#platform/clock/index.js";
 import {
   createProductionRuntimeProvider,
@@ -14,6 +26,10 @@ import {
   provideLogger,
 } from "#platform/logging/index.js";
 import {
+  createCrosscopyClipboardService,
+  type NativeClipboardService,
+} from "#platform/native-clipboard/index.js";
+import {
   createNodeProcessManager,
   provideProcessManager,
   runWithProcessManager,
@@ -29,9 +45,21 @@ import {
 } from "#platform/websocket/index.js";
 import { createSandboxApplication } from "./application.js";
 
-export async function runProductionSandboxApplication(
+export function runProductionSandboxApplication(
   argv: readonly string[],
   terminalStreams: ProcessTerminalStreams,
+): Promise<number> {
+  return runSandboxApplicationWithClipboard(
+    argv,
+    terminalStreams,
+    createCrosscopyClipboardService,
+  );
+}
+
+export async function runSandboxApplicationWithClipboard(
+  argv: readonly string[],
+  terminalStreams: ProcessTerminalStreams,
+  createClipboard: (platform: NodeJS.Platform) => NativeClipboardService,
 ): Promise<number> {
   const environment = readProcessEnvironment();
   const controller = new AbortController();
@@ -49,6 +77,9 @@ export async function runProductionSandboxApplication(
   });
   const runtimeProvider = createProductionRuntimeProvider(processManager);
   const webSocketService = createNodeWebSocketService();
+  const bridge = createHostBridgeService(webSocketService);
+  await using nativeClipboard = createClipboard(environment.platform);
+  const clipboard = createClipboardCapabilityFactory(nativeClipboard);
 
   try {
     return await runWithDependencies(
@@ -60,11 +91,17 @@ export async function runProductionSandboxApplication(
         provideLogger(logger),
         provideRuntimeProvider(runtimeProvider),
         provideWebSocketService(webSocketService),
+        provideHostBridgeService(bridge),
+        provideClipboardCapabilityFactory(clipboard),
       ],
       () =>
-        runWithProcessManager(processManager, () =>
-          createSandboxApplication().run(argv),
-        ),
+        runWithProcessManager(processManager, async () => {
+          if (argv[0] === UPDATE_CHECK_WORKER_ARGUMENT && argv.length === 2) {
+            await runUpdateCheckWorker(argv[1] ?? "");
+            return 0;
+          }
+          return createSandboxApplication().run(argv);
+        }),
     );
   } finally {
     controller.abort();

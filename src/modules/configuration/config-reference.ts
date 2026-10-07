@@ -18,6 +18,9 @@ function formatDefault(value: unknown): string {
     if (value.length === 0) return "[]";
     return JSON.stringify(value, null, 2);
   }
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value);
+  }
   return String(value);
 }
 

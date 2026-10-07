@@ -3,10 +3,10 @@ import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import { createLogger, provideLogger } from "#platform/logging/index.js";
 import { createProcessTestHarness } from "#platform/process/__test__/index.js";
 import {
-  type ContainerRuntimeProvider,
   createProductionRuntimeProvider,
   getRuntimeProvider,
   provideRuntimeProvider,
+  type SandboxRuntimeProvider,
 } from "./index.js";
 
 describe("production container runtime provider", () => {
@@ -27,15 +27,20 @@ describe("production container runtime provider", () => {
           ),
         ),
       ],
-      () => provider.resolve("podman"),
+      () =>
+        provider.resolve({
+          configuredRuntime: "podman",
+          options: { "apple-container": { dns: "host-ipv6" } },
+        }),
     );
 
-    expect(service.runtime).toBe("podman");
+    expect(service.runtime.runtime).toBe("podman");
+    expect(service.imageOwnershipKey).toBe("podman");
     expect(processes.requests).toEqual([]);
   });
 
   test("resolves only the provider bound to the active scope", () => {
-    const provider: ContainerRuntimeProvider = {
+    const provider: SandboxRuntimeProvider = {
       resolve: () => Promise.reject(new Error("not used")),
     };
 

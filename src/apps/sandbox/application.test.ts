@@ -4,8 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createSystemClock, provideClock } from "#platform/clock/index.js";
 import {
-  type ContainerRuntimeProvider,
   provideRuntimeProvider,
+  type SandboxRuntimeProvider,
 } from "#platform/container-runtime/index.js";
 import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import {
@@ -27,7 +27,7 @@ async function runWithRuntimeFailure(
   const projectRoot = path.join(root, "project");
   fs.mkdirSync(projectRoot, { recursive: true });
   const terminal = createTestTerminal();
-  const provider: ContainerRuntimeProvider = {
+  const provider: SandboxRuntimeProvider = {
     async resolve() {
       throw error;
     },

@@ -1,84 +1,139 @@
 import { describe, expect, test } from "bun:test";
-import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import type { SandboxInstanceSpec } from "#platform/container-runtime/index.js";
 import {
   computeContainerHash,
-  getContainerHash,
-  getImageId,
-  SANDBOX_HASH_LABEL,
+  computeRuntimeContainerHash,
 } from "./container-hashing.js";
 
+function createSpec(
+  overrides: Partial<SandboxInstanceSpec> = {},
+): SandboxInstanceSpec {
+  return {
+    name: "sandbox-project",
+    image: { reference: "sha256:image", digest: "sha256:image" },
+    labels: { "sandbox.project": "project", "sandbox.hash": "excluded" },
+    environment: { B: "2", A: "1" },
+    mounts: [
+      {
+        type: "workspace",
+        sourcePath: "/host",
+        targetPath: "/workspace",
+        readOnly: false,
+      },
+    ],
+    ports: [{ hostPort: 3000, instancePort: 3000, protocol: "tcp" }],
+    init: true,
+    removeOnExit: true,
+    resources: { sharedMemorySize: "1g" },
+    security: { capabilities: ["NET_ADMIN"], nestedContainerRuntime: false },
+    ...overrides,
+  };
+}
+
+function hash(
+  spec: SandboxInstanceSpec,
+  overrides: Partial<{
+    readonly version: string;
+    readonly runtime: "apple-container" | "docker" | "podman";
+    readonly runtimeCompatibilityIdentity: string;
+    readonly imageIdentity: string;
+  }> = {},
+) {
+  return computeContainerHash({
+    version: "1.0.0",
+    runtime: "docker",
+    runtimeCompatibilityIdentity: "docker",
+    imageIdentity: "sha256:image",
+    spec,
+    ...overrides,
+  });
+}
+
 describe("computeContainerHash", () => {
-  test("returns a deterministic 12-character hexadecimal identity", () => {
-    const args = ["--label", "sandbox.project=test", "-v", "/a:/a:rw"];
-    const first = computeContainerHash("1.0.0", "sha256:abc", args);
-    const second = computeContainerHash("1.0.0", "sha256:abc", args);
-    expect(first).toMatch(/^[0-9a-f]{12}$/);
-    expect(second).toBe(first);
+  test("is stable for equivalent map order", () => {
+    const left = hash(createSpec());
+    const right = hash(createSpec({ environment: { A: "1", B: "2" } }));
+    expect(left).toBe(right);
   });
 
-  test("changes for version, image, argument value, or argument order", () => {
-    const baseline = computeContainerHash("1.0.0", "sha256:abc", ["-v", "/a"]);
-    expect(computeContainerHash("1.1.0", "sha256:abc", ["-v", "/a"])).not.toBe(
-      baseline,
+  test("excludes generated name and hash label", () => {
+    const left = hash(createSpec());
+    const right = hash(
+      createSpec({
+        name: "sandbox-project-2",
+        labels: { "sandbox.hash": "different", "sandbox.project": "project" },
+      }),
     );
-    expect(computeContainerHash("1.0.0", "sha256:def", ["-v", "/a"])).not.toBe(
-      baseline,
-    );
-    expect(computeContainerHash("1.0.0", "sha256:abc", ["-v", "/b"])).not.toBe(
-      baseline,
-    );
-    expect(computeContainerHash("1.0.0", "sha256:abc", ["/a", "-v"])).not.toBe(
-      baseline,
-    );
+    expect(left).toBe(right);
   });
 
-  test("uses separators to avoid concatenation collisions and handles empty args", () => {
-    expect(computeContainerHash("ab", "cd", [])).not.toBe(
-      computeContainerHash("a", "bcd", []),
-    );
-    expect(computeContainerHash("1", "sha256:a", [])).toMatch(/^[0-9a-f]{12}$/);
-  });
-});
-
-describe("managed runtime identities", () => {
-  test("reads Docker and Podman image IDs from managed image state", async () => {
-    for (const runtimeName of ["docker", "podman"] as const) {
-      const runtime = createStatefulContainerRuntimeHarness({
-        runtime: runtimeName,
-      });
-      runtime.images.create({
-        id: `sha256:${runtimeName}`,
-        references: ["sandbox-base:latest"],
-      });
-      const service = await runtime.provider.resolve();
-      expect(await getImageId(service, "sandbox-base:latest")).toBe(
-        `sha256:${runtimeName}`,
-      );
-      expect(runtime.events()).toContainEqual({
-        type: "image.id",
-        reference: "sandbox-base:latest",
-      });
-    }
+  test.each([
+    ["environment", createSpec({ environment: { A: "changed" } })],
+    ["mount", createSpec({ mounts: [] })],
+    ["port", createSpec({ ports: [] })],
+    ["resource", createSpec({ resources: { sharedMemorySize: "2g" } })],
+    [
+      "security",
+      createSpec({
+        security: { capabilities: [], nestedContainerRuntime: false },
+      }),
+    ],
+  ])("changes for a structural %s change", (_name, spec) => {
+    expect(hash(spec)).not.toBe(hash(createSpec()));
   });
 
-  test("reads present, absent, and missing container hash labels", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const labelled = runtime.containers.create({
-      name: "labelled",
-      image: "sandbox-base:latest",
-      labels: { [SANDBOX_HASH_LABEL]: "abc123def456" },
-      status: "running",
+  test("changes for runtime, compatibility, version, and image identity", () => {
+    const spec = createSpec();
+    const baseline = hash(spec);
+    expect(hash(spec, { runtime: "podman" })).not.toBe(baseline);
+    expect(
+      hash(spec, { runtimeCompatibilityIdentity: "changed-bridge" }),
+    ).not.toBe(baseline);
+    expect(hash(spec, { version: "2.0.0" })).not.toBe(baseline);
+    expect(hash(spec, { imageIdentity: "sha256:other" })).not.toBe(baseline);
+  });
+
+  test("reads a fresh bridge resolver identity without changing image identity", async () => {
+    let bridgeResolverIdentity = "bridge-a";
+    const service = {
+      runtime: "apple-container" as const,
+      getCompatibilityIdentity: async () => bridgeResolverIdentity,
+    };
+    const options = {
+      version: "1.0.0",
+      service,
+      imageIdentity: "sha256:image",
+      spec: createSpec(),
+    };
+
+    const first = await computeRuntimeContainerHash(options);
+    bridgeResolverIdentity = "bridge-b";
+    const second = await computeRuntimeContainerHash(options);
+
+    expect(first).not.toBe(second);
+    expect(options.imageIdentity).toBe("sha256:image");
+    expect(options.spec.image.digest).toBe("sha256:image");
+  });
+
+  test("preserves mount order", () => {
+    const first = createSpec({
+      mounts: [
+        {
+          type: "workspace",
+          sourcePath: "/one",
+          targetPath: "/data",
+          readOnly: true,
+        },
+        {
+          type: "workspace",
+          sourcePath: "/two",
+          targetPath: "/data/nested",
+          readOnly: false,
+        },
+      ],
     });
-    const unlabelled = runtime.containers.create({
-      name: "unlabelled",
-      image: "sandbox-base:latest",
-      labels: {},
-      status: "running",
-    });
-    const service = await runtime.provider.resolve();
-
-    expect(await getContainerHash(service, labelled.id)).toBe("abc123def456");
-    expect(await getContainerHash(service, unlabelled.id)).toBeNull();
-    expect(await getContainerHash(service, "missing")).toBeNull();
+    expect(hash(first)).not.toBe(
+      hash({ ...first, mounts: [...first.mounts].reverse() }),
+    );
   });
 });

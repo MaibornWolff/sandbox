@@ -1,13 +1,54 @@
+import { getProcessManager } from "#platform/process/index.js";
+import { getTerminal } from "#platform/terminal/index.js";
 import type {
-  ContainerExecOptions,
-  ContainerRuntime,
-  ContainerRuntimeProvider,
-  CreateContainerOptions,
-  ImageBuildOptions,
-  ListContainersOptions,
-  RuntimeFlagsConfig,
-} from "../index.js";
+  ContainerOperations as ContainerOperationGroup,
+  ContainerSpec,
+  ExecSpec,
+  TerminalSessionOptions,
+} from "../container-contract.js";
+import { openContainerExec } from "../exec-stream.js";
+import type {
+  ImageBuildSpec,
+  ImageCleanupRequest,
+  ImageOperations,
+} from "../image-contract.js";
+import type { SandboxRuntimeProvider } from "../index.js";
 import type { Runtime } from "../runtime-types.js";
+import {
+  createSandboxImageBuilder,
+  createSandboxInstanceOperations,
+  createSandboxStorageOperations,
+  resolveContentAddressedImage,
+} from "../sandbox-adapter.js";
+import type {
+  SandboxRuntime,
+  SandboxRuntimeSelection,
+} from "../sandbox-contract.js";
+import type { VolumeOperations } from "../volume-contract.js";
+
+interface ListContainersOptions {
+  readonly all?: boolean;
+  readonly labelFilter?: string;
+  readonly statusFilter?: string[];
+  readonly labelKeys?: string[];
+}
+
+interface CreateContainerOptions {
+  readonly name: string;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly labels?: Record<string, string>;
+  readonly extraArgs?: string[];
+  readonly image: string;
+  readonly autoRemove?: boolean;
+  readonly mounts?: ContainerSpec["mounts"];
+}
+
+interface ContainerExecOptions {
+  readonly user?: string;
+  readonly workdir?: string;
+  readonly env?: Record<string, string>;
+}
+
 import {
   createManagedContainer,
   type ManagedContainer,
@@ -33,8 +74,6 @@ import {
 } from "./managed-volume.js";
 
 export type ContainerRuntimeEvent =
-  | { readonly type: "system.version" }
-  | { readonly type: "system.memory" }
   | { readonly type: "container.list"; readonly options: ListContainersOptions }
   | {
       readonly type: "container.create";
@@ -50,6 +89,17 @@ export type ContainerRuntimeEvent =
       readonly containerId: string;
       readonly command: readonly string[];
       readonly options: ContainerExecOptions;
+    }
+  | {
+      readonly type: "container.exec-stream";
+      readonly containerId: string;
+      readonly spec: ExecSpec;
+    }
+  | {
+      readonly type: "container.exec-attached";
+      readonly containerId: string;
+      readonly spec: ExecSpec;
+      readonly session: TerminalSessionOptions;
     }
   | {
       readonly type: "container.state";
@@ -83,55 +133,14 @@ export type ContainerRuntimeEvent =
       readonly containerId: string;
       readonly force: boolean;
     }
-  | { readonly type: "image.references.list" }
-  | { readonly type: "image.exists"; readonly reference: string }
-  | {
-      readonly type: "image.inspect";
-      readonly reference: string;
-      readonly labelKeys: readonly string[];
-    }
-  | {
-      readonly type: "image.label";
-      readonly reference: string;
-      readonly label: string;
-    }
-  | { readonly type: "image.id"; readonly reference: string }
-  | { readonly type: "image.build"; readonly options: ImageBuildOptions }
-  | {
-      readonly type: "image.pull";
-      readonly reference: string;
-      readonly interactive: boolean;
-    }
-  | {
-      readonly type: "image.tag";
-      readonly source: string;
-      readonly target: string;
-    }
-  | { readonly type: "image.remove"; readonly identifier: string }
-  | { readonly type: "image.dangling.list"; readonly referencePattern: string }
-  | { readonly type: "image.containers.list"; readonly identifier: string }
+  | { readonly type: "image.inspect"; readonly reference: string }
+  | { readonly type: "image.build"; readonly options: ImageBuildSpec }
+  | { readonly type: "image.cleanup"; readonly request: ImageCleanupRequest }
   | { readonly type: "volume.exists"; readonly name: string }
   | { readonly type: "volume.create"; readonly name: string }
-  | {
-      readonly type: "volume.copy";
-      readonly source: string;
-      readonly target: string;
-    }
   | { readonly type: "volume.remove"; readonly name: string }
-  | {
-      readonly type: "runtime.run-flags";
-      readonly config: Readonly<RuntimeFlagsConfig>;
-    }
-  | { readonly type: "runtime.build-env" }
-  | {
-      readonly type: "runtime.build-secret-args";
-      readonly secretName: string;
-      readonly envVar: string;
-    }
-  | { readonly type: "host.internal-dns" }
-  | { readonly type: "host.setup" }
-  | { readonly type: "hint.prune" }
-  | { readonly type: "hint.install" };
+  | { readonly type: "host.ready" }
+  | { readonly type: "hint.prune" };
 
 export type RuntimeFailurePoint =
   | "resolve"
@@ -148,26 +157,17 @@ export type RuntimeFailurePoint =
   | "container.signal"
   | "container.stop"
   | "container.remove"
-  | "image.references.list"
-  | "image.exists"
   | "image.inspect"
-  | "image.label"
-  | "image.id"
   | "image.build"
-  | "image.pull"
-  | "image.tag"
   | "image.remove"
-  | "image.dangling.list"
-  | "image.containers.list"
   | "volume.exists"
   | "volume.create"
-  | "volume.copy"
   | "volume.remove"
-  | "host.setup";
+  | "host.ready";
 
 export interface StatefulContainerRuntimeHarness {
-  readonly provider: ContainerRuntimeProvider;
-  readonly containers: {
+  readonly provider: SandboxRuntimeProvider;
+  readonly instances: {
     create(values: ManagedContainerValues): ManagedContainer;
     find(identifier: string): ManagedContainerSnapshot | undefined;
     all(): readonly ManagedContainerSnapshot[];
@@ -179,7 +179,7 @@ export interface StatefulContainerRuntimeHarness {
     givenNextBuild(result: ManagedBuildResult): void;
     builds(): readonly ManagedBuildRecord[];
   };
-  readonly volumes: {
+  readonly storage: {
     create(values: ManagedVolumeValues): ManagedVolume;
     find(name: string): ManagedVolumeSnapshot | undefined;
     all(): readonly ManagedVolumeSnapshot[];
@@ -187,8 +187,7 @@ export interface StatefulContainerRuntimeHarness {
   readonly system: {
     givenVersion(version: string): void;
     givenMemoryBytes(memory: number | null): void;
-    givenHostSetupReady(): void;
-    givenHostSetupFailure(error: Error): void;
+    givenCompatibilityIdentity(identity: string): void;
     fail(point: RuntimeFailurePoint, error: Error): void;
   };
   events(): readonly ContainerRuntimeEvent[];
@@ -199,40 +198,30 @@ interface StatefulContainerRuntimeOptions {
   readonly runtime?: Runtime;
 }
 
-type ContainerOperations = Pick<
-  ContainerRuntime,
-  | "listContainers"
-  | "createContainer"
-  | "signalContainer"
-  | "stopContainer"
-  | "removeContainer"
-  | "waitUntilContainerReady"
-  | "execInContainer"
-  | "getContainerState"
-  | "getContainerLabel"
-  | "getContainerLogs"
-  | "getContainerUptime"
->;
-
-type ImageOperations = Pick<
-  ContainerRuntime,
-  | "listImageReferences"
-  | "imageExists"
-  | "inspectImage"
-  | "getImageLabel"
-  | "getImageId"
-  | "buildImage"
-  | "pullImage"
-  | "tagImage"
-  | "removeImage"
-  | "listDanglingImages"
-  | "getContainersUsingImage"
->;
-
-type VolumeOperations = Pick<
-  ContainerRuntime,
-  "volumeExists" | "createVolume" | "copyVolume" | "removeVolume"
->;
+interface LegacyContainerOperations {
+  listContainers(options?: ListContainersOptions): Promise<
+    Array<{
+      id: string;
+      name: string;
+      image: string;
+      labels?: Record<string, string>;
+    }>
+  >;
+  createContainer(options: CreateContainerOptions): Promise<void>;
+  signalContainer(id: string, signal: NodeJS.Signals): Promise<void>;
+  stopContainer(id: string): Promise<void>;
+  removeContainer(id: string, force?: boolean): Promise<void>;
+  waitUntilContainerReady(identifier: string, timeoutMs: number): Promise<void>;
+  execInContainer(
+    identifier: string,
+    command: string[],
+    options?: ContainerExecOptions,
+  ): Promise<string>;
+  getContainerState(id: string): Promise<string>;
+  getContainerLabel(id: string, label: string): Promise<string | null>;
+  getContainerLogs(id: string, tail?: number): Promise<string>;
+  getContainerUptime(id: string): Promise<string>;
+}
 
 function matchesLabel(
   container: ManagedContainerState,
@@ -260,16 +249,52 @@ function labelsFromArgs(args: readonly string[] = []): Record<string, string> {
   return labels;
 }
 
-function cloneBuildOptions(options: ImageBuildOptions): ImageBuildOptions {
+function cloneBuildOptions(options: ImageBuildSpec): ImageBuildSpec {
   return {
     ...options,
-    ...(options.buildArgs ? { buildArgs: { ...options.buildArgs } } : {}),
-    ...(options.labels ? { labels: { ...options.labels } } : {}),
-    ...(options.secrets
-      ? { secrets: options.secrets.map((secret) => ({ ...secret })) }
-      : {}),
-    ...(options.extraArgs ? { extraArgs: [...options.extraArgs] } : {}),
+    buildArguments: { ...options.buildArguments },
+    labels: { ...options.labels },
+    secrets: options.secrets.map((secret) => ({ ...secret })),
   };
+}
+
+function cloneRuntimeEvent(
+  event: ContainerRuntimeEvent,
+): ContainerRuntimeEvent {
+  switch (event.type) {
+    case "container.list":
+      return { ...event, options: { ...event.options } };
+    case "container.create":
+      return {
+        ...event,
+        options: {
+          ...event.options,
+          environment: { ...event.options.environment },
+        },
+      };
+    case "container.exec":
+      return {
+        ...event,
+        command: [...event.command],
+        options: { ...event.options },
+      };
+    case "container.exec-attached":
+      return {
+        ...event,
+        spec: {
+          ...event.spec,
+          command: [...event.spec.command],
+          ...(event.spec.environment
+            ? { environment: { ...event.spec.environment } }
+            : {}),
+        },
+        session: { ...event.session },
+      };
+    case "image.build":
+      return { ...event, options: cloneBuildOptions(event.options) };
+    default:
+      return { ...event };
+  }
 }
 
 class StatefulRuntimeWorld {
@@ -283,14 +308,21 @@ class StatefulRuntimeWorld {
   private readonly buildResults: ManagedBuildResult[] = [];
   private readonly buildRecords: ManagedBuildRecord[] = [];
   private version: string;
+  private compatibilityIdentity: string;
   private memoryBytes: number | null = 8 * 1024 * 1024 * 1024;
-  private hostSetupError: Error | undefined;
   private nextContainerId = 1;
   private nextImageId = 1;
 
   constructor(options: StatefulContainerRuntimeOptions) {
     this.runtimeName = options.runtime ?? "docker";
-    this.version = `${this.runtimeName === "docker" ? "Docker" : "Podman"} version 24.0.0, build fixture`;
+    this.compatibilityIdentity = this.runtimeName;
+    this.version = `${
+      {
+        docker: "Docker",
+        podman: "Podman",
+        "apple-container": "Apple container",
+      }[this.runtimeName]
+    } version 24.0.0, build fixture`;
   }
 
   private takeFailure(point: RuntimeFailurePoint): void {
@@ -304,7 +336,8 @@ class StatefulRuntimeWorld {
     const container =
       this.containers.get(identifier) ??
       [...this.containers.values()].find(
-        (candidate) => candidate.name === identifier,
+        (candidate) =>
+          candidate.name === identifier && candidate.status !== "removed",
       );
     if (!container || container.status === "removed")
       throw new Error(`Container "${identifier}" does not exist.`);
@@ -357,18 +390,7 @@ class StatefulRuntimeWorld {
     return volume;
   }
 
-  private removeImageReference(identifier: string): void {
-    const image = this.findImage(identifier);
-    if (!image) throw new Error(`No such image: ${identifier}`);
-    if (image.references.has(identifier)) {
-      image.references.delete(identifier);
-      image.dangling = image.references.size === 0;
-      return;
-    }
-    this.images.delete(image.id);
-  }
-
-  private async buildImage(options: ImageBuildOptions): Promise<void> {
+  private async buildImage(options: ImageBuildSpec): Promise<void> {
     this.takeFailure("image.build");
     const recordedOptions = cloneBuildOptions(options);
     this.recordedEvents.push({ type: "image.build", options: recordedOptions });
@@ -393,7 +415,7 @@ class StatefulRuntimeWorld {
     });
   }
 
-  private containerOperations(): ContainerOperations {
+  private containerOperations(): LegacyContainerOperations {
     return {
       listContainers: async (options = {}) => {
         this.takeFailure("container.list");
@@ -428,6 +450,7 @@ class StatefulRuntimeWorld {
           type: "container.create",
           options: {
             ...options,
+            environment: { ...options.environment },
             ...(options.labels ? { labels: { ...options.labels } } : {}),
             ...(options.extraArgs ? { extraArgs: [...options.extraArgs] } : {}),
           },
@@ -440,6 +463,7 @@ class StatefulRuntimeWorld {
             ...options.labels,
           },
           status: "running",
+          mounts: options.mounts,
         });
       },
       signalContainer: async (id, signal) => {
@@ -495,7 +519,7 @@ class StatefulRuntimeWorld {
           command: [...command],
           options: { ...options },
         });
-        return container.resolveExecResult(command, options);
+        return container.resolveExecResult(command);
       },
       getContainerState: async (id) => {
         this.takeFailure("container.state");
@@ -539,249 +563,352 @@ class StatefulRuntimeWorld {
     };
   }
 
-  private imageOperations(): ImageOperations {
-    return {
-      listImageReferences: async () => {
-        this.takeFailure("image.references.list");
-        this.recordedEvents.push({ type: "image.references.list" });
-        return [...this.images.values()].flatMap((image) => [
-          ...image.references,
-        ]);
-      },
-      imageExists: async (reference) => {
-        this.takeFailure("image.exists");
-        this.recordedEvents.push({ type: "image.exists", reference });
-        return this.findImage(reference) !== undefined;
-      },
-      inspectImage: async (reference, labelKeys = []) => {
-        this.takeFailure("image.inspect");
-        this.recordedEvents.push({
-          type: "image.inspect",
-          reference,
-          labelKeys: [...labelKeys],
-        });
-        const image = this.findImage(reference);
-        if (!image) return null;
+  private groupedContainerOperations(
+    legacy: LegacyContainerOperations,
+  ): ContainerOperationGroup {
+    const inspect = async (identifier: string) => {
+      try {
+        const container = this.findContainer(identifier);
         return {
-          id: image.id,
-          labels: Object.fromEntries(
-            labelKeys.map((key) => [key, image.labels[key] ?? null]),
-          ),
-        };
-      },
-      getImageLabel: async (reference, label) => {
-        this.takeFailure("image.label");
-        this.recordedEvents.push({ type: "image.label", reference, label });
-        return this.findImage(reference)?.labels[label] ?? null;
-      },
-      getImageId: async (reference) => {
-        this.takeFailure("image.id");
-        this.recordedEvents.push({ type: "image.id", reference });
-        const image = this.findImage(reference);
-        if (!image) throw new Error(`No such image: ${reference}`);
-        return image.id;
-      },
-      buildImage: (options) => this.buildImage(options),
-      pullImage: async (reference, interactive = false) => {
-        this.takeFailure("image.pull");
-        this.recordedEvents.push({
-          type: "image.pull",
-          reference,
-          interactive,
+          id: container.id,
+          name: container.name,
+          image: container.image,
+          imageIdentity: this.findImage(container.image)?.id ?? container.image,
+          labels: container.labels,
+          state: container.status === "removed" ? "unknown" : container.status,
+          startedAt: container.startedAt,
+          mounts: container.snapshot().mounts,
+        } as const;
+      } catch {
+        return null;
+      }
+    };
+    const create = async (spec: ContainerSpec): Promise<string> => {
+      await legacy.createContainer({
+        name: spec.name,
+        image: spec.image,
+        environment: spec.environment,
+        labels: { ...spec.labels },
+        autoRemove: spec.removeOnExit,
+        mounts: spec.mounts,
+      });
+      const started = [...this.containers.values()]
+        .reverse()
+        .find(
+          (container) =>
+            container.name === spec.name && container.status !== "removed",
+        );
+      if (!started) throw new Error(`Container "${spec.name}" did not start.`);
+      return started.id;
+    };
+    return {
+      async list(query = {}) {
+        const entries = await legacy.listContainers({
+          all: query.all,
+          statusFilter: query.states ? [...query.states] : undefined,
         });
-        if (!this.findImage(reference)) {
-          this.addImage({ references: [reference] });
+        const inspected = await Promise.all(
+          entries.map((entry) => inspect(entry.id)),
+        );
+        return inspected
+          .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+          .filter((entry) =>
+            Object.entries(query.labels ?? {}).every(([key, value]) =>
+              value === null
+                ? Object.hasOwn(entry.labels, key)
+                : entry.labels[key] === value,
+            ),
+          );
+      },
+      inspect,
+      startDetached: create,
+      async runAttached(spec) {
+        await create(spec);
+        return getProcessManager().start({
+          name: "stateful attached container",
+          command: "stateful-container-runtime",
+          args: ["run", spec.name],
+          lifetime: "application",
+          interaction: { mode: "interactive" },
+          stdio: "inherit",
+        }).result;
+      },
+      signal: legacy.signalContainer,
+      stopAndRemove: legacy.stopContainer,
+      remove: (id, options) => legacy.removeContainer(id, options?.force),
+      async exec(id, spec) {
+        try {
+          return {
+            exitCode: 0,
+            stdout: await legacy.execInContainer(id, [...spec.command], {
+              user: spec.user,
+              workdir: spec.workingDirectory,
+              env: spec.environment ? { ...spec.environment } : undefined,
+            }),
+            stderr: "",
+          };
+        } catch (error) {
+          if (error instanceof Error && error.message === "exit code 1") {
+            return { exitCode: 1, stdout: "", stderr: "" };
+          }
+          throw error;
         }
       },
-      tagImage: async (source, target) => {
-        this.takeFailure("image.tag");
-        this.recordedEvents.push({ type: "image.tag", source, target });
-        const image = this.findImage(source);
-        if (!image) throw new Error(`No such image: ${source}`);
-        const existing = this.findImage(target);
-        if (existing && existing.id !== image.id)
-          throw new Error(`Image reference "${target}" already exists.`);
-        image.references.add(target);
-        image.dangling = false;
-      },
-      removeImage: async (identifier) => {
-        this.takeFailure("image.remove");
-        this.recordedEvents.push({ type: "image.remove", identifier });
-        this.removeImageReference(identifier);
-      },
-      listDanglingImages: async (referencePattern) => {
-        this.takeFailure("image.dangling.list");
+      openExec: async (id, spec) => {
+        const container = this.findContainer(id);
         this.recordedEvents.push({
-          type: "image.dangling.list",
-          referencePattern,
+          type: "container.exec-stream",
+          containerId: container.id,
+          spec,
         });
-        return [...this.images.values()]
-          .filter((image) => image.dangling)
-          .map(({ id, size, created }) => ({ id, size, created }));
+        return openContainerExec("stateful-container-runtime", [
+          "exec",
+          "-i",
+          id,
+          ...spec.command,
+        ]);
       },
-      getContainersUsingImage: async (identifier) => {
-        this.takeFailure("image.containers.list");
+      execAttached: async (id, spec, session) => {
+        const container = this.findContainer(id);
         this.recordedEvents.push({
-          type: "image.containers.list",
-          identifier,
+          type: "container.exec-attached",
+          containerId: container.id,
+          spec: {
+            ...spec,
+            command: [...spec.command],
+            ...(spec.environment
+              ? { environment: { ...spec.environment } }
+              : {}),
+          },
+          session: { ...session },
         });
-        const image = this.findImage(identifier);
-        const references = image
-          ? new Set([image.id, ...image.references])
-          : new Set([identifier]);
-        return [...this.containers.values()]
-          .filter(
-            (container) =>
-              container.status !== "removed" && references.has(container.image),
-          )
-          .map((container) => container.id);
+        return getProcessManager().start({
+          name: "stateful attached container execution",
+          command: "stateful-container-runtime",
+          args: [...spec.command],
+          lifetime: "application",
+          interaction: {
+            mode: "interactive",
+            ...(session.title ? { title: session.title } : {}),
+            ...(session.forwardSignal
+              ? { forwardSignal: session.forwardSignal }
+              : {}),
+          },
+          stdio: "inherit",
+          signal: getTerminal().signal,
+        }).result;
+      },
+      readLogs: (id, query) => legacy.getContainerLogs(id, query?.tail),
+      followLogs: (id, request) => {
+        this.findContainer(id);
+        const child = getProcessManager().start({
+          name: "container log stream",
+          command: "stateful-container-runtime",
+          args: ["logs", id],
+          lifetime: "application",
+          interaction: { mode: "non-interactive" },
+          stdio: "ignore",
+          stdin: "ignore",
+          onStdout: request.onOutput,
+          onStderr: request.onError,
+        });
+        const stop = async (): Promise<void> => {
+          await child.stop();
+        };
+        return {
+          completion: child.result,
+          stop,
+          async [Symbol.asyncDispose]() {
+            await stop();
+          },
+        };
+      },
+    };
+  }
+
+  private imageOperations(): ImageOperations {
+    const inspect = async (reference: string) => {
+      this.takeFailure("image.inspect");
+      this.recordedEvents.push({ type: "image.inspect", reference });
+      const image = this.findImage(reference);
+      if (!image) return null;
+      return {
+        id: image.id,
+        references: [...image.references],
+        labels: { ...image.labels },
+        sizeBytes: image.size,
+      };
+    };
+    const isUsed = (identifier: string): boolean => {
+      const image = this.findImage(identifier);
+      const references = image
+        ? new Set([image.id, ...image.references])
+        : new Set([identifier]);
+      return [...this.containers.values()].some(
+        (container) =>
+          container.status !== "removed" && references.has(container.image),
+      );
+    };
+    return {
+      inspect,
+      build: async (options) => {
+        await this.buildImage(options);
+        const image = this.findImage(options.tag);
+        if (!image) throw new Error(`No such image: ${options.tag}`);
+        return {
+          id: image.id,
+          references: [...image.references],
+          labels: { ...image.labels },
+          sizeBytes: image.size,
+        };
+      },
+      removeUnused: async (request) => {
+        this.recordedEvents.push({
+          type: "image.cleanup",
+          request: {
+            candidates: [...request.candidates],
+            managedLabel: { ...request.managedLabel },
+          },
+        });
+        const removed: Array<{
+          id: string;
+          estimatedReclaimedBytes: number;
+        }> = [];
+        const skipped: Array<{
+          id: string;
+          reason: "missing" | "unmanaged" | "tagged" | "in-use";
+        }> = [];
+        for (const id of new Set(request.candidates)) {
+          const image = this.findImage(id);
+          if (!image) {
+            skipped.push({ id, reason: "missing" });
+          } else if (
+            image.labels[request.managedLabel.key] !==
+            request.managedLabel.value
+          ) {
+            skipped.push({ id, reason: "unmanaged" });
+          } else if (image.references.size > 0) {
+            skipped.push({ id, reason: "tagged" });
+          } else if (isUsed(id)) {
+            skipped.push({ id, reason: "in-use" });
+          } else {
+            this.takeFailure("image.remove");
+            this.images.delete(image.id);
+            removed.push({ id, estimatedReclaimedBytes: image.size });
+          }
+        }
+        return {
+          removed,
+          skipped,
+          estimatedReclaimedBytes: removed.reduce(
+            (total, image) => total + image.estimatedReclaimedBytes,
+            0,
+          ),
+        };
       },
     };
   }
 
   private volumeOperations(): VolumeOperations {
     return {
-      volumeExists: async (name) => {
+      exists: async (name) => {
         this.takeFailure("volume.exists");
         this.recordedEvents.push({ type: "volume.exists", name });
         return this.volumes.has(name);
       },
-      createVolume: async (name) => {
+      create: async (name) => {
         this.takeFailure("volume.create");
         this.recordedEvents.push({ type: "volume.create", name });
         this.addVolume({ name });
       },
-      copyVolume: async (source, target) => {
-        this.takeFailure("volume.copy");
-        this.recordedEvents.push({ type: "volume.copy", source, target });
-        const sourceVolume = this.volumes.get(source);
-        const targetVolume = this.volumes.get(target);
-        if (!sourceVolume || !targetVolume)
-          throw new Error("Source or target volume does not exist.");
-        targetVolume.files = { ...sourceVolume.files };
-      },
-      removeVolume: async (name) => {
+      remove: async (request) => {
         this.takeFailure("volume.remove");
-        this.recordedEvents.push({ type: "volume.remove", name });
-        if (!this.volumes.delete(name))
-          throw new Error(`No such volume: ${name}`);
+        const volume = this.volumes.get(request.name);
+        if (!volume) throw new Error(`No such volume: ${request.name}`);
+        const reference = [...this.containers.values()].find(
+          (container) =>
+            container.status !== "removed" &&
+            container
+              .snapshot()
+              .mounts?.some(
+                (mount) =>
+                  mount.type === "volume" && mount.volumeName === request.name,
+              ),
+        );
+        if (reference) {
+          throw new Error(
+            `Volume ${request.name} is referenced by container ${reference.id}.`,
+          );
+        }
+        this.recordedEvents.push({ type: "volume.remove", name: request.name });
+        this.volumes.delete(request.name);
       },
     };
   }
 
-  private createRuntime(): ContainerRuntime {
-    return {
+  private createRuntime(): SandboxRuntimeSelection {
+    const legacyContainers = this.containerOperations();
+    const containers = this.groupedContainerOperations(legacyContainers);
+    const images = this.imageOperations();
+    const volumes = this.volumeOperations();
+    const runtime: SandboxRuntime = {
       runtime: this.runtimeName,
-      binaryName: this.runtimeName,
-      getVersion: async () => {
+      instances: createSandboxInstanceOperations(
+        containers,
+        resolveContentAddressedImage,
+      ),
+      storage: createSandboxStorageOperations(volumes),
+      ensureHostReady: async () => {
+        this.takeFailure("host.ready");
         this.takeFailure("version");
-        this.recordedEvents.push({ type: "system.version" });
-        return this.version;
-      },
-      getMemoryBytes: async () => {
         this.takeFailure("memory");
-        this.recordedEvents.push({ type: "system.memory" });
-        return this.memoryBytes;
+        this.recordedEvents.push({ type: "host.ready" });
+        return {
+          version: this.version,
+          hostAccessName: {
+            docker: "host.docker.internal",
+            podman: "host.containers.internal",
+            "apple-container": "host.container.internal",
+          }[this.runtimeName],
+          memory:
+            this.memoryBytes === null
+              ? { bytes: null, scope: "unknown" }
+              : {
+                  bytes: this.memoryBytes,
+                  scope:
+                    this.runtimeName === "apple-container"
+                      ? "per-instance-default"
+                      : "shared-runtime-vm",
+                },
+        } as const;
       },
-      ...this.containerOperations(),
-      ...this.imageOperations(),
-      ...this.volumeOperations(),
-      getRuntimeRunFlags: (config = {}) => {
-        this.recordedEvents.push({
-          type: "runtime.run-flags",
-          config: Object.freeze({ ...config }),
-        });
-        const flags = [
-          ...(this.runtimeName === "podman"
-            ? ["--network=private", "--cgroups=disabled"]
-            : []),
-          "--cap-add=NET_ADMIN",
-          "--sysctl=net.ipv4.tcp_tw_reuse=1",
-          "--sysctl=net.ipv4.ip_local_port_range=1024\t65535",
-          "--sysctl=net.ipv4.tcp_fin_timeout=10",
-          "--ulimit",
-          this.runtimeName === "podman"
-            ? "nofile=65535:65535"
-            : "nofile=65536:65536",
-        ];
-        if (config.shmSize) flags.push("--shm-size", config.shmSize);
-        return flags;
-      },
-      getBuildEnv: () => {
-        this.recordedEvents.push({ type: "runtime.build-env" });
-        const environment: Record<string, string> =
-          this.runtimeName === "docker" ? { DOCKER_BUILDKIT: "1" } : {};
-        return environment;
-      },
-      getBuildSecretArgs: (secretName, envVar) => {
-        this.recordedEvents.push({
-          type: "runtime.build-secret-args",
-          secretName,
-          envVar,
-        });
-        return this.runtimeName === "docker"
-          ? ["--secret", `id=${secretName},env=${envVar}`]
-          : ["--build-arg", `${secretName}=$${secretName}`];
-      },
-      getHostInternalDns: () => {
-        this.recordedEvents.push({ type: "host.internal-dns" });
-        return this.runtimeName === "docker"
-          ? "host.docker.internal"
-          : "host.containers.internal";
-      },
-      ensureHostSetup: async () => {
-        this.takeFailure("host.setup");
-        this.recordedEvents.push({ type: "host.setup" });
-        if (this.hostSetupError) throw this.hostSetupError;
-        return { memoryBytes: this.memoryBytes };
-      },
-      getPruneHint: () => {
+      withInstanceStartup: (operation) => operation(),
+      getCompatibilityIdentity: async () => this.compatibilityIdentity,
+      getDiskSpaceAdvice: () => {
         this.recordedEvents.push({ type: "hint.prune" });
         return `${this.runtimeName} system prune`;
       },
-      getInstallHint: () => {
-        this.recordedEvents.push({ type: "hint.install" });
-        return this.runtimeName === "docker"
-          ? "Install Docker: https://docs.docker.com/get-docker/"
-          : "Install Podman: https://podman.io/getting-started/installation";
-      },
+    };
+    return {
+      runtime,
+      imageBuilder: createSandboxImageBuilder(
+        images,
+        resolveContentAddressedImage,
+      ),
+      imageOwnershipKey: this.runtimeName,
     };
   }
 
   private cloneEvents(): readonly ContainerRuntimeEvent[] {
-    return this.recordedEvents.map((event) => {
-      if (event.type === "container.list")
-        return { ...event, options: { ...event.options } };
-      if (event.type === "container.create")
-        return {
-          ...event,
-          options: {
-            ...event.options,
-            ...(event.options.labels
-              ? { labels: { ...event.options.labels } }
-              : {}),
-            ...(event.options.extraArgs
-              ? { extraArgs: [...event.options.extraArgs] }
-              : {}),
-          },
-        };
-      if (event.type === "container.exec")
-        return {
-          ...event,
-          command: [...event.command],
-          options: { ...event.options },
-        };
-      if (event.type === "image.build")
-        return { ...event, options: cloneBuildOptions(event.options) };
-      return { ...event };
-    });
+    return this.recordedEvents.map(cloneRuntimeEvent);
   }
 
   createHarness(): StatefulContainerRuntimeHarness {
     const runtime = this.createRuntime();
     return {
       provider: {
-        resolve: async (configuredRuntime) => {
+        resolve: async (request) => {
+          const configuredRuntime = request?.configuredRuntime;
           this.configurations.push(configuredRuntime);
           this.takeFailure("resolve");
           if (configuredRuntime && configuredRuntime !== this.runtimeName) {
@@ -792,7 +919,7 @@ class StatefulRuntimeWorld {
           return runtime;
         },
       },
-      containers: {
+      instances: {
         create: (values) => this.addContainer(values),
         find: (identifier) => {
           try {
@@ -819,7 +946,7 @@ class StatefulRuntimeWorld {
             stderr: [...build.stderr],
           })),
       },
-      volumes: {
+      storage: {
         create: (values) => this.addVolume(values),
         find: (name) => this.volumes.get(name)?.snapshot(),
         all: () =>
@@ -832,11 +959,8 @@ class StatefulRuntimeWorld {
         givenMemoryBytes: (value) => {
           this.memoryBytes = value;
         },
-        givenHostSetupReady: () => {
-          this.hostSetupError = undefined;
-        },
-        givenHostSetupFailure: (error) => {
-          this.hostSetupError = error;
+        givenCompatibilityIdentity: (value) => {
+          this.compatibilityIdentity = value;
         },
         fail: (point, error) => this.failures.set(point, error),
       },

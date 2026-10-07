@@ -108,6 +108,34 @@ describe("configuration service", () => {
     }
   });
 
+  test("applies Apple DNS precedence even when the Apple section is inactive", async () => {
+    const root = createTestDir("configuration-runtime-precedence");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const projectRoot = path.join(root, "project");
+    const globalPath = path.join(root, "config", "config.toml");
+    const projectPath = path.join(projectRoot, ".sandbox", "config.toml");
+    fs.mkdirSync(path.dirname(globalPath), { recursive: true });
+    fs.mkdirSync(path.dirname(projectPath), { recursive: true });
+    fs.writeFileSync(
+      globalPath,
+      'runtime = "docker"\n[runtimes.apple-container]\ndns = "host-ipv6"\n',
+    );
+    fs.writeFileSync(
+      projectPath,
+      '[runtimes.apple-container]\ndns = "default"\n',
+    );
+
+    const loaded = await withConfiguration(root, (service) => service.load({}));
+
+    expect(loaded.config.runtime).toBe("docker");
+    expect(loaded.config.runtimes["apple-container"].dns).toBe("default");
+    expect(loaded.runtimeResolution).toEqual({
+      configuredRuntime: "docker",
+      options: { "apple-container": { dns: "default" } },
+    });
+  });
+
   test("accepts an unchanged trusted config and rejects it after modification", async () => {
     const root = createTestDir("configuration-service-trust");
     using cleanup = new DisposableStack();

@@ -129,7 +129,7 @@ describe("sandbox network allow", () => {
       {
         type: "container.list",
         options: {
-          labelFilter: expect.stringMatching(/^sandbox\.project=/),
+          all: false,
           statusFilter: ["running"],
         },
       },

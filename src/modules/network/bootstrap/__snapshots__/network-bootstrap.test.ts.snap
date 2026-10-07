@@ -12,9 +12,7 @@ cache-size=10000
 no-negcache
 log-queries
 log-facility=/var/log/dns-proxy.log
-server=/host.docker.internal/1.1.1.1
-server=/host.lima.internal/1.1.1.1
-server=/host.containers.internal/1.1.1.1
+host-record=host.docker.internal,192.168.64.1
 server=/github.com/1.1.1.1
 server=/example.com/1.1.1.1
 address=/#/
@@ -33,6 +31,7 @@ cache-size=10000
 no-negcache
 log-queries
 log-facility=/var/log/dns-proxy.log
+host-record=host.docker.internal,192.168.64.1
 server=/#/1.1.1.1
 "
 `;

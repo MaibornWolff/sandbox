@@ -41,7 +41,7 @@ Use this scope only for data that must be available in multiple projects.
 | `global` | Share the data between projects |
 | `default` | Create a file with this content when the path does not exist |
 | `only_if_exists` | Create the mount only when the corresponding host path exists |
-| `use_named_volume` | Store the path in a Docker named volume |
+| `use_named_volume` | Store the path in a runtime-managed named volume |
 
 When `default` is absent, Sandbox creates an empty directory for a new persistent path.
 
@@ -75,9 +75,9 @@ Container path                    Host storage
 
 Writes to these container paths update the host storage immediately.
 
-## Named Volumes
+## Runtime-managed storage
 
-Use a Docker named volume when a tool cannot use a bind mount. Named volumes are shared between all projects.
+Use runtime-managed storage when a tool cannot use a bind mount. This storage is shared between all projects. Docker and Podman map it to a named volume. Apple maps it to an adapter-owned host directory. Sandbox uses an opaque storage handle and does not depend on the native resource name. The runtime refuses removal while an instance uses the storage.
 
 ```toml
 persist_paths = [
@@ -85,7 +85,11 @@ persist_paths = [
 ]
 ```
 
-Sandbox adds the `sandbox-` prefix to the configured value. The example creates the volume `sandbox-nix`.
+Sandbox adds the `sandbox-` prefix to the configured value. The example creates the logical storage key `sandbox-nix`. The selected runtime maps this key to its own storage system.
+
+When Apple storage is first allocated, the adapter copies image directory contents into it before the instance starts. It stages the copy and serializes concurrent initialization. It does not replace existing storage, including empty storage from earlier versions. Copied children retain their metadata. The mount root retains host-directory metadata. Later starts do not repeat the copy.
+
+Cleanup uses recorded storage handles. If a global storage handle is not recorded, the runtime looks up the current resource without creating it.
 
 Apply these rules:
 

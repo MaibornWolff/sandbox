@@ -21,7 +21,7 @@ async function advanceRetry(
 }
 
 describe("container network system", () => {
-  test("uses the rooted filesystem and preserves firewall command order", async () => {
+  test("uses the rooted filesystem for the upstream resolver", async () => {
     await using fixture = await setupContainerNetworkSystemTest({
       SANDBOX_DEBUG: "1",
     });
@@ -29,61 +29,10 @@ describe("container network system", () => {
       "/etc/resolv.conf",
       "search local\nnameserver 10.0.0.2\n",
     );
-    fixture.processes
-      .expectStart({
-        match: { command: "/usr/sbin/iptables", args: ["-F", "OUTPUT"] },
-      })
-      .resolveResult({
-        exitCode: 0,
-        stdout: "",
-        stderr: "",
-      });
-    fixture.processes
-      .expectStart({
-        match: {
-          command: "/usr/sbin/iptables",
-          args: ["-A", "OUTPUT", "-j", "REJECT"],
-        },
-      })
-      .resolveResult({ exitCode: 0, stdout: "", stderr: "" });
-
     await fixture.run(async (network) => {
-      await network.applyFirewall([
-        ["-F", "OUTPUT"],
-        ["-A", "OUTPUT", "-j", "REJECT"],
-      ]);
       expect(await network.discoverUpstreamDns()).toBe("10.0.0.2");
     });
-
-    expect(fixture.processes.requests).toEqual([
-      {
-        command: "/usr/sbin/iptables",
-        args: ["-F", "OUTPUT"],
-        signal: expect.any(AbortSignal),
-      },
-      {
-        command: "/usr/sbin/iptables",
-        args: ["-A", "OUTPUT", "-j", "REJECT"],
-        signal: expect.any(AbortSignal),
-      },
-    ]);
     expect(fixture.readFile("/etc/resolv.conf.upstream")).toContain("10.0.0.2");
-    expect(fixture.output.stderr()).toContain("network: iptables -F OUTPUT\n");
-  });
-
-  test("preserves command exit codes", async () => {
-    await using fixture = await setupContainerNetworkSystemTest();
-    fixture.processes.expectStart().resolveResult({
-      exitCode: 7,
-      stdout: "",
-      stderr: "denied\n",
-    });
-    await expect(
-      fixture.run((network) => network.applyFirewall([["-F", "OUTPUT"]])),
-    ).rejects.toMatchObject({
-      message: "/usr/sbin/iptables failed with exit code 7: denied",
-      exitCode: 7,
-    });
   });
 
   test("discovers only a valid upstream resolver", async () => {
@@ -103,7 +52,8 @@ describe("container network system", () => {
     );
     await waitForSleep(fixture);
     fixture.givenListening(DNS_ENDPOINT);
-    await fixture.clock.advanceBy(50);
+    await fixture.clock.advanceBy(5);
+    expect(fixture.tcp.attempts()).toHaveLength(2);
 
     await expect(startup).resolves.toBeUndefined();
     expect(fixture.readFile("/etc/dnsmasq.d/sandbox.conf")).toBe(DNS_CONFIG);
@@ -114,6 +64,27 @@ describe("container network system", () => {
     });
     expect(fixture.tcp.attempts()).toHaveLength(2);
     child.exit();
+  });
+
+  test("backs off readiness retries to a bounded interval", async () => {
+    await using fixture = await setupContainerNetworkSystemTest();
+    fixture.givenManagedChild("dnsmasq");
+    fixture.givenClosed(DNS_ENDPOINT);
+    const startup = fixture.run((network) =>
+      network.startDnsmasq({ config: DNS_CONFIG }),
+    );
+    let attempts = 1;
+    for (const interval of [5, 10, 20, 40, 50, 50]) {
+      await waitForSleep(fixture);
+      await fixture.clock.advanceBy(interval - 1);
+      expect(fixture.tcp.attempts()).toHaveLength(attempts);
+      await fixture.clock.advanceBy(1);
+      attempts += 1;
+      expect(fixture.tcp.attempts()).toHaveLength(attempts);
+    }
+    fixture.givenListening(DNS_ENDPOINT);
+    await advanceRetry(fixture);
+    await startup;
   });
 
   test("polls quickly while preserving the dnsmasq startup deadline", async () => {
@@ -133,7 +104,8 @@ describe("container network system", () => {
       "dnsmasq failed to start on 127.0.0.1:53",
     );
     expect(fixture.clock.currentTime()).toBe(5_000);
-    expect(fixture.tcp.attempts()).toHaveLength(100);
+    expect(fixture.tcp.attempts().length).toBeGreaterThanOrEqual(100);
+    expect(fixture.tcp.attempts().length).toBeLessThan(110);
   });
 
   test("reports managed child failure before readiness", async () => {

@@ -1,5 +1,6 @@
 import { getConfigurationService } from "#modules/configuration/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import { getClock } from "#platform/clock/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { buildSessionDetailsCommand } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
@@ -41,14 +42,24 @@ export interface SandboxStatus {
  * @testonly
  */
 export async function getContainerUptime(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
 ): Promise<string> {
-  return service.getContainerUptime(containerId);
+  const startedAt = (await service.instances.inspect(containerId))?.startedAt;
+  if (!startedAt) return "unknown";
+  const seconds = Math.max(
+    0,
+    Math.floor((getClock().now() - startedAt.getTime()) / 1_000),
+  );
+  if (seconds < 60) return `Up ${seconds} seconds`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Up ${minutes} minutes`;
+  const hours = Math.floor(minutes / 60);
+  return hours < 24 ? `Up ${hours} hours` : `Up ${Math.floor(hours / 24)} days`;
 }
 
 /**
- * Get active session details from a container's session marker directory.
+ * Get active session details from a container's `/tmp/sandbox-sessions/` directory.
  *
  * Cleans stale markers (dead PIDs) then reads `/proc/<PID>/cmdline` for each
  * remaining session. Returns an empty array if the exec fails entirely.
@@ -68,16 +79,15 @@ export function parseSessionDetails(output: string): SessionInfo[] {
 }
 
 export async function getSessionDetails(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerName: string,
 ): Promise<SessionInfo[]> {
   try {
-    const output = await service.execInContainer(
-      containerName,
-      buildSessionDetailsCommand(),
-    );
+    const result = await service.instances.exec(containerName, {
+      command: buildSessionDetailsCommand(),
+    });
 
-    return parseSessionDetails(output);
+    return result.exitCode === 0 ? parseSessionDetails(result.stdout) : [];
   } catch (error) {
     getLogger().debug(
       `Could not read sessions of ${containerName}: ${getErrorMessage(error)}`,
@@ -96,13 +106,13 @@ export async function getSessionDetails(
 export async function getSandboxStatus(
   cliOptions: SandboxOptions,
 ): Promise<SandboxStatus> {
-  const { projectRoot, configuredRuntime } =
+  const { projectRoot, runtimeResolution } =
     await getConfigurationService().load(cliOptions);
-  const runtimeService = await getRuntimeProvider().resolve(configuredRuntime);
+  const { runtime } = await getRuntimeProvider().resolve(runtimeResolution);
   const projectSlug = generateProjectSlug(projectRoot);
 
   // Find running containers for this project
-  const containers = await findSandboxContainers(runtimeService, {
+  const containers = await findSandboxContainers(runtime, {
     status: "running",
     projectSlug,
   });
@@ -111,9 +121,9 @@ export async function getSandboxStatus(
   const containerStatuses = await Promise.all(
     containers.map(async (container): Promise<ContainerStatusInfo> => {
       const [uptime, hash, sessions] = await Promise.all([
-        getContainerUptime(runtimeService, container.id),
-        getContainerHash(runtimeService, container.id),
-        getSessionDetails(runtimeService, container.name),
+        getContainerUptime(runtime, container.id),
+        getContainerHash(runtime, container.id),
+        getSessionDetails(runtime, container.name),
       ]);
 
       return {
@@ -128,7 +138,7 @@ export async function getSandboxStatus(
 
   return {
     projectSlug,
-    runtime: runtimeService.runtime,
+    runtime: runtime.runtime,
     containers: containerStatuses,
   };
 }

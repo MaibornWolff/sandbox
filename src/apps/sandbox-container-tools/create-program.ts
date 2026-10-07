@@ -3,10 +3,11 @@ import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import {
   type ContainerLogSource,
   collectPassiveNetworkState,
-  diagnoseContainerX11,
   readContainerLog,
 } from "#platform/container-system/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { diagnoseContainerX11 } from "#platform/x11-clipboard/index.js";
+import { runClipboardProxyCommand } from "./clipboard-proxy-command.js";
 import { runContainerEntrypoint } from "./entrypoint.js";
 
 const NETWORK_DIAGNOSTIC_SOURCES = [
@@ -40,6 +41,11 @@ export function createContainerToolsProgram(
     .action(async (defaultCommand: string[]) => {
       setExitCode(await runContainerEntrypoint(defaultCommand));
     });
+
+  program
+    .command("clipboard-proxy")
+    .description("Run the private clipboard session")
+    .action(runClipboardProxyCommand);
 
   const network = program
     .command("network")

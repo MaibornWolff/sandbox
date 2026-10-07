@@ -165,6 +165,7 @@ export interface TestProcess {
   waitForInput(): Promise<Uint8Array>;
   waitForInputEnd(): Promise<void>;
   pauseInput(): () => void;
+  failInput(error: Error): void;
   failStream(error: Error): void;
 }
 
@@ -187,6 +188,7 @@ class TestProcessRecord implements TestProcess {
   private readonly input = new AsyncByteQueue();
   private readonly inputEnded = deferred<void>();
   private inputBarrier: Deferred<void> | undefined;
+  private inputFailure: Error | undefined;
 
   constructor(
     private readonly external: boolean,
@@ -370,13 +372,21 @@ class TestProcessRecord implements TestProcess {
     };
   }
 
+  failInput(error: Error): void {
+    this.inputFailure ??= error;
+    this.inputBarrier?.reject(error);
+    this.inputBarrier = undefined;
+  }
+
   startedStreamingProcess(signal?: AbortSignal): StartedStreamingProcess {
     const started = this.startedProcess(signal);
     const stdin: ProcessInput = {
       write: async (chunk) => {
+        if (this.inputFailure) throw this.inputFailure;
         if (this.settled) throw new Error("Test process has exited.");
         this.input.push(chunk);
         await this.inputBarrier?.promise;
+        if (this.inputFailure) throw this.inputFailure;
         if (this.settled) throw new Error("Test process has exited.");
       },
       end: async () => {

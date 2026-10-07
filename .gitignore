@@ -13,7 +13,8 @@ node_modules/
 dist/
 
 # Build artifacts
-/docker/runtime/
+/THIRD_PARTY_NOTICES.md
+/SBOM.cdx.json
 *.log
 *.tmp
 *.bun-build
@@ -33,6 +34,7 @@ Thumbs.db
 .sandbox/
 .e2e-watcher/
 .agents/worktrees/
+.agents/changes/
 
 # Local settings
 .claude/settings.local.json

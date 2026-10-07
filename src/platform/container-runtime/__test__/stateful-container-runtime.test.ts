@@ -1,307 +1,126 @@
 import { describe, expect, test } from "bun:test";
+import type { SandboxInstanceSpec } from "../index.js";
 import { createStatefulContainerRuntimeHarness } from "./index.js";
 
-describe("stateful container runtime harness", () => {
-  test("starts empty and records container list operations", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    const runtime = await harness.provider.resolve("docker");
+function createSpec(name = "managed"): SandboxInstanceSpec {
+  return {
+    name,
+    image: { reference: "sha256:image", digest: "sha256:image" },
+    labels: { "sandbox.project": "project-a" },
+    environment: {},
+    mounts: [],
+    ports: [],
+    init: true,
+    removeOnExit: true,
+    resources: {},
+    security: { capabilities: ["NET_ADMIN"], nestedContainerRuntime: false },
+  };
+}
 
-    expect(
-      await runtime.listContainers({
-        labelFilter: "sandbox.project=isolated-project",
-        statusFilter: ["running"],
-      }),
-    ).toEqual([]);
-    expect(harness.events()).toEqual([
-      {
-        type: "container.list",
-        options: {
-          labelFilter: "sandbox.project=isolated-project",
-          statusFilter: ["running"],
-        },
-      },
-    ]);
-  });
-
-  test("filters managed containers by running state, status, and labels", async () => {
+describe("stateful sandbox runtime harness", () => {
+  test("filters instances by state and labels", async () => {
     const harness = createStatefulContainerRuntimeHarness();
-    harness.containers.create({
+    harness.instances.create({
       name: "running-match",
-      image: "sandbox-project:latest",
+      image: "sha256:image",
       labels: { "sandbox.project": "project-a" },
       status: "running",
     });
-    harness.containers.create({
-      name: "exited-match",
-      image: "sandbox-project:latest",
-      labels: { "sandbox.project": "project-a" },
+    harness.instances.create({
+      name: "other-project",
+      image: "sha256:image",
+      labels: { "sandbox.project": "project-b" },
       status: "exited",
     });
-    harness.containers.create({
-      name: "other-project",
-      image: "sandbox-project:latest",
-      labels: { "sandbox.project": "project-b" },
-      status: "running",
+    const { runtime } = await harness.provider.resolve();
+    const instances = await runtime.instances.list({
+      all: true,
+      labels: { "sandbox.project": "project-a" },
+      states: ["running"],
     });
-    const runtime = await harness.provider.resolve();
-
-    expect(
-      (await runtime.listContainers()).map((container) => container.name),
-    ).toEqual(["running-match", "other-project"]);
-    expect(
-      (
-        await runtime.listContainers({
-          all: true,
-          labelFilter: "sandbox.project=project-a",
-          statusFilter: ["exited"],
-        })
-      ).map((container) => container.name),
-    ).toEqual(["exited-match"]);
-    expect(
-      (
-        await runtime.listContainers({
-          all: true,
-          labelFilter: "sandbox.project",
-        })
-      ).map((container) => container.name),
-    ).toEqual(["running-match", "exited-match", "other-project"]);
-  });
-
-  test("executes deterministic fixtures and records ordered events", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    const container = harness.containers.create({
-      name: "managed",
-      image: "sandbox-project:latest",
-      labels: {},
-      status: "running",
-    });
-    container.givenExecResult(["cat", "/tmp/result"], "fixture output");
-    const runtime = await harness.provider.resolve();
-
-    await runtime.listContainers();
-    expect(
-      await runtime.execInContainer(container.id, ["cat", "/tmp/result"], {
-        user: "root",
-      }),
-    ).toBe("fixture output");
-    await runtime.signalContainer(container.id, "SIGTERM");
-    expect(container.snapshot().status).toBe("exited");
-    await runtime.removeContainer(container.id, true);
-
-    expect(harness.events()).toEqual([
-      { type: "container.list", options: {} },
-      {
-        type: "container.exec",
-        containerId: container.id,
-        command: ["cat", "/tmp/result"],
-        options: { user: "root" },
-      },
-      {
-        type: "container.signal",
-        containerId: container.id,
-        signal: "SIGTERM",
-      },
-      { type: "container.remove", containerId: container.id, force: true },
-    ]);
-    expect(container.snapshot().status).toBe("removed");
-  });
-
-  test("models image builds, tags, parents, inspect state, and ordered events", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    harness.images.create({
-      id: "sha256:parent",
-      references: ["sandbox-base:latest"],
-      labels: { "dockerfile.hash": "aaaaaaaaaaaa" },
-      inspectData: { architecture: "amd64" },
-    });
-    harness.images.givenNextBuild({
-      id: "sha256:child",
-      parentId: "sha256:parent",
-      stdout: ["step 1"],
-      stderr: ["warning"],
-    });
-    const runtime = await harness.provider.resolve();
-
-    await runtime.buildImage({
-      tag: "sandbox-user:latest",
-      dockerfilePath: "/build/Dockerfile",
-      contextDir: "/build",
-      labels: { "dockerfile.hash": "bbbbbbbbbbbb" },
-      noCache: true,
-    });
-    await runtime.tagImage("sandbox-user:latest", "sandbox-user:stable");
-
-    expect(harness.images.find("sandbox-user:stable")).toMatchObject({
-      id: "sha256:child",
-      parentId: "sha256:parent",
-      dangling: false,
-      labels: { "dockerfile.hash": "bbbbbbbbbbbb" },
-    });
-    expect(harness.images.find("sha256:parent")?.inspectData).toEqual({
-      architecture: "amd64",
-    });
-    expect(harness.images.builds()).toMatchObject([
-      { imageId: "sha256:child", stdout: ["step 1"], stderr: ["warning"] },
-    ]);
-    expect(harness.events().map((event) => event.type)).toEqual([
-      "image.build",
-      "image.tag",
+    expect(instances.map((instance) => instance.name)).toEqual([
+      "running-match",
     ]);
   });
 
-  test("models dangling filtering, image users, removal failures, and final state", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    harness.images.create({
-      id: "sha256:dangling",
-      dangling: true,
-      size: 4_096,
-      created: "yesterday",
+  test("returns the current compatibility identity from one runtime instance", async () => {
+    const harness = createStatefulContainerRuntimeHarness({
+      runtime: "apple-container",
     });
-    harness.containers.create({
-      name: "consumer",
-      image: "sha256:dangling",
-      labels: {},
-      status: "running",
-    });
-    const runtime = await harness.provider.resolve();
-
-    expect(await runtime.listDanglingImages("sandbox-*")).toEqual([
-      { id: "sha256:dangling", size: 4_096, created: "yesterday" },
-    ]);
-    expect(await runtime.getContainersUsingImage("sha256:dangling")).toEqual([
-      "container-1",
-    ]);
-    harness.system.fail("image.remove", new Error("in use"));
-    await expect(runtime.removeImage("sha256:dangling")).rejects.toThrow(
-      "in use",
+    const selection = await harness.provider.resolve();
+    harness.system.givenCompatibilityIdentity("bridge-a");
+    await expect(selection.runtime.getCompatibilityIdentity()).resolves.toBe(
+      "bridge-a",
     );
-    expect(harness.images.find("sha256:dangling")).toBeDefined();
+
+    harness.system.givenCompatibilityIdentity("bridge-b");
+    await expect(selection.runtime.getCompatibilityIdentity()).resolves.toBe(
+      "bridge-b",
+    );
   });
 
-  test("copies volume state and records create, copy, and removal order", async () => {
+  test("returns an opaque reference after detached startup", async () => {
     const harness = createStatefulContainerRuntimeHarness();
-    harness.volumes.create({
-      name: "legacy",
+    const { runtime } = await harness.provider.resolve();
+    await expect(
+      runtime.instances.startDetached(createSpec()),
+    ).resolves.toEqual({
+      id: "container-1",
+    });
+    expect(harness.instances.find("managed")?.image).toBe("sha256:image");
+  });
+
+  test("returns immutable image identity from a build", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.images.givenNextBuild({ id: "sha256:child" });
+    const { imageBuilder } = await harness.provider.resolve();
+    await expect(
+      imageBuilder.build({
+        tag: "sandbox-user:latest",
+        dockerfilePath: "/build/Dockerfile",
+        contextDirectory: "/build",
+        buildArguments: {},
+        labels: { "dockerfile.hash": "bbbbbbbbbbbb" },
+        secrets: [],
+        cachePolicy: "bypass",
+        output: "silent",
+      }),
+    ).resolves.toEqual({
+      reference: "sha256:child",
+      digest: "sha256:child",
+    });
+  });
+
+  test("refuses removal of attached storage and preserves its contents", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.storage.create({
+      name: "current",
       files: { "nested/file": "content" },
     });
-    const runtime = await harness.provider.resolve();
-
-    expect(await runtime.volumeExists("legacy")).toBe(true);
-    await runtime.createVolume("current");
-    await runtime.copyVolume("legacy", "current");
-    await runtime.removeVolume("legacy");
-
-    expect(harness.volumes.find("current")?.files).toEqual({
-      "nested/file": "content",
+    const { runtime } = await harness.provider.resolve();
+    const target = await runtime.storage.ensure({
+      key: "current",
+      scope: "global",
     });
-    expect(harness.volumes.find("legacy")).toBeUndefined();
-    expect(harness.events().map((event) => event.type)).toEqual([
-      "volume.exists",
-      "volume.create",
-      "volume.copy",
-      "volume.remove",
-    ]);
-  });
-
-  test("implements runtime metadata, pull, setup, and inspect operations explicitly", async () => {
-    const harness = createStatefulContainerRuntimeHarness({
-      runtime: "podman",
-    });
-    harness.system.givenVersion("podman version fixture");
-    harness.system.givenMemoryBytes(4_096);
-    const container = harness.containers.create({
-      name: "managed",
-      image: "registry.example/base:latest",
-      labels: { purpose: "contract" },
-      status: "running",
-      uptime: "5 minutes",
-    });
-    const runtime = await harness.provider.resolve("podman");
-
-    expect(runtime.runtime).toBe("podman");
-    expect(runtime.binaryName).toBe("podman");
-    expect(await runtime.getVersion()).toBe("podman version fixture");
-    expect(await runtime.getMemoryBytes()).toBe(4_096);
-    expect(await runtime.getContainerState(container.id)).toBe("running");
-    expect(await runtime.getContainerLabel(container.id, "purpose")).toBe(
-      "contract",
-    );
-    expect(await runtime.getContainerUptime(container.id)).toBe("5 minutes");
-
-    await runtime.pullImage("registry.example/base:latest", true);
-    expect(harness.images.find("registry.example/base:latest")).toBeDefined();
-    expect(runtime.getRuntimeRunFlags({ shmSize: "1gb" })).toContain(
-      "nofile=65535:65535",
-    );
-    expect(runtime.getBuildEnv()).toEqual({});
-    expect(runtime.getBuildSecretArgs("TOKEN", "TOKEN_ENV")).toEqual([
-      "--build-arg",
-      "TOKEN=$TOKEN",
-    ]);
-    expect(runtime.getHostInternalDns()).toBe("host.containers.internal");
-    await expect(runtime.ensureHostSetup()).resolves.toEqual({
-      memoryBytes: 4_096,
-    });
-    expect(runtime.getPruneHint()).toContain("podman system prune");
-    expect(runtime.getInstallHint()).toContain("Install Podman");
-
-    expect(harness.events().map((event) => event.type)).toEqual([
-      "system.version",
-      "system.memory",
-      "container.state",
-      "container.label",
-      "container.uptime",
-      "image.pull",
-      "runtime.run-flags",
-      "runtime.build-env",
-      "runtime.build-secret-args",
-      "host.internal-dns",
-      "host.setup",
-      "hint.prune",
-      "hint.install",
-    ]);
-  });
-
-  test("models explicit pull and durable host setup failures", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    const runtime = await harness.provider.resolve();
-
-    harness.system.fail("image.pull", new Error("registry unavailable"));
-    await expect(
-      runtime.pullImage("registry.example/missing:latest"),
-    ).rejects.toThrow("registry unavailable");
-    expect(
-      harness.images.find("registry.example/missing:latest"),
-    ).toBeUndefined();
-
-    harness.system.givenHostSetupFailure(new Error("daemon unavailable"));
-    await expect(runtime.ensureHostSetup()).rejects.toThrow(
-      "daemon unavailable",
-    );
-    await expect(runtime.ensureHostSetup()).rejects.toThrow(
-      "daemon unavailable",
-    );
-    harness.system.givenHostSetupReady();
-    await expect(runtime.ensureHostSetup()).resolves.toEqual({
-      memoryBytes: 8 * 1024 ** 3,
-    });
-  });
-
-  test("fails clearly for missing resources and exec fixtures", async () => {
-    const harness = createStatefulContainerRuntimeHarness();
-    const container = harness.containers.create({
-      name: "managed",
-      image: "sandbox-project:latest",
+    harness.instances.create({
+      name: "consumer",
+      image: "sha256:image",
       labels: {},
       status: "running",
+      mounts: [
+        {
+          type: "volume",
+          volumeName: "current",
+          targetPath: "/cache",
+          readOnly: false,
+        },
+      ],
     });
-    const runtime = await harness.provider.resolve();
-
-    await expect(runtime.getContainerState("missing")).rejects.toThrow(
-      'Container "missing" does not exist.',
+    await expect(runtime.storage.remove(target)).rejects.toThrow(
+      "referenced by container",
     );
-    await expect(
-      runtime.execInContainer(container.id, ["missing", "fixture"]),
-    ).rejects.toThrow("No exec result configured");
+    expect(harness.storage.find("current")?.files).toEqual({
+      "nested/file": "content",
+    });
   });
 });

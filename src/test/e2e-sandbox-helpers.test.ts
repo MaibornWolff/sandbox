@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { loadTomlConfig } from "#modules/configuration/index.js";
 import {
   assertSandboxSuccess,
   buildTerminalCommandArgs,
+  createE2eGlobalConfig,
   type SandboxResult,
   sanitizeSandboxOutput,
 } from "./e2e-sandbox-helpers.js";
+import { runWithTestLogger } from "./host-test-scope.js";
+import { cleanupTestDir, createTestDir } from "./utils.js";
 
 function result(overrides: Partial<SandboxResult> = {}): SandboxResult {
   return {
@@ -17,6 +23,35 @@ function result(overrides: Partial<SandboxResult> = {}): SandboxResult {
     ...overrides,
   };
 }
+
+describe("E2E global configuration", () => {
+  test("keeps template defaults and applies runtime and DNS selection", () => {
+    using cleanup = new DisposableStack();
+    const directory = createTestDir("e2e-config");
+    cleanup.defer(() => cleanupTestDir(directory));
+    const templatePath = join(directory, "template.toml");
+    const configPath = join(directory, "config.toml");
+    writeFileSync(
+      templatePath,
+      'runtime = "docker"\nenv = ["MISE_TRUSTED_CONFIG_PATHS=/"]\n[runtimes.apple-container]\ndns = "default"\n',
+    );
+    createE2eGlobalConfig({
+      templatePath,
+      configPath,
+      runtime: "apple-container",
+      appleDns: "host",
+    });
+    const config = runWithTestLogger(() => loadTomlConfig(configPath));
+    expect(config?.runtime).toBe("apple-container");
+    expect(config?.runtimes?.["apple-container"]?.dns).toBe("host");
+    expect(config?.env).toEqual(["MISE_TRUSTED_CONFIG_PATHS=/"]);
+
+    createE2eGlobalConfig({ templatePath, configPath });
+    const defaults = runWithTestLogger(() => loadTomlConfig(configPath));
+    expect(defaults?.runtime).toBe("docker");
+    expect(defaults?.runtimes?.["apple-container"]?.dns).toBe("default");
+  });
+});
 
 describe("sandbox result assertions", () => {
   test("accepts successful commands", () => {
@@ -38,19 +73,10 @@ describe("sandbox result assertions", () => {
 });
 
 describe("sandbox output sanitization", () => {
-  test("removes ignored warning blocks without leaving blank stderr", () => {
-    expect(
-      sanitizeSandboxOutput(
-        [
-          "⚠️  X11 clipboard not available",
-          "   Run `sandbox setup-x11` for setup instructions",
-          "   Terminal text clipboard may work via OSC 52 passthrough",
-          "",
-          "",
-          "",
-        ].join("\n"),
-      ),
-    ).toBe("");
+  test("removes container creation progress and normalizes line endings", () => {
+    expect(sanitizeSandboxOutput("Creating sandbox container...\r\n\r\n")).toBe(
+      "",
+    );
     expect(sanitizeSandboxOutput("HTTP 403 Blocked\r\n\r\n403\r\n")).toBe(
       "HTTP 403 Blocked\n\n403\n",
     );

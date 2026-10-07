@@ -3,8 +3,8 @@ import { chmod, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildContainerToolsBundle } from "./container-bundle.js";
-import { prepareImageRuntimePackage } from "./image-runtime-package.js";
 import { buildPublicCliBundle } from "./public-cli-bundle.js";
+import { prepareRuntimePackage } from "./runtime-package.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const distDirectory = path.resolve(
@@ -83,8 +83,8 @@ await buildContainerToolsBundle({
 if (process.platform !== "win32") {
   await chmod(hostEntryPoint, 0o755);
 }
-await prepareImageRuntimePackage({
-  repoRoot,
-  distDirectory,
-  contextDirectory: path.join(path.dirname(distDirectory), "docker"),
+await rm(path.join(repoRoot, "docker", "runtime"), {
+  recursive: true,
+  force: true,
 });
+await prepareRuntimePackage({ repoRoot, distDirectory });

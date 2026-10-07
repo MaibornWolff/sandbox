@@ -1,13 +1,22 @@
 import type { Config } from "#modules/configuration/index.js";
 import { getFinalImage } from "#modules/sandbox-images/index.js";
-import { CACHE_VOLUME } from "#modules/sandbox-resources/index.js";
-import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import {
-  getPersistentMounts,
-  mountToDockerArg,
-} from "#modules/storage/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
-import { detectX11 } from "#platform/environment/index.js";
+  CACHE_VOLUME,
+  ensureRuntimeStorage,
+  getNamedVolumeName,
+} from "#modules/sandbox-resources/index.js";
+import {
+  type CachedSandboxPackage,
+  SANDBOX_RUNTIME_LABEL,
+} from "#modules/sandbox-runtime/index.js";
+import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
+import { getPersistentMounts } from "#modules/storage/index.js";
+import type {
+  PublishedPort,
+  SandboxInstanceSpec,
+  SandboxMount,
+  SandboxStorageOperations,
+} from "#platform/container-runtime/index.js";
 import {
   getExternalWorktreePath,
   type RepositoryRoots,
@@ -15,183 +24,143 @@ import {
 import { getLogger } from "#platform/logging/index.js";
 import {
   resolveContainerPath,
+  splitColonString,
   windowsPathToDocker,
 } from "#shared/text/index.js";
-import { getContainerDisplay } from "../container-display.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
-import { convertMountForDocker } from "../mount-path-conversion.js";
-import { validateMountPath } from "../mount-validation.js";
+import {
+  validateMountPath,
+  validateProtectedMountPaths,
+} from "../mount-validation.js";
 import {
   addIdeBridgePortEnvironment,
   logEnvironmentVariables,
 } from "./environment-arguments.js";
-import {
-  addNamedVolumeMounts,
-  addPersistMounts,
-  logCustomMounts,
-  logMounts,
-} from "./mount-arguments.js";
-import { addNetworkArguments, addPortArguments } from "./network-arguments.js";
+import { logCustomMounts, logMounts } from "./mount-arguments.js";
 
-// ---------------------------------------------------------------------------
-// Shared option types
-// ---------------------------------------------------------------------------
-
-type ContainerArgumentRuntime = Pick<
-  ContainerRuntime,
-  "runtime" | "getHostInternalDns" | "getRuntimeRunFlags"
->;
-
-interface BuildContainerArgsOptions {
-  config: Config;
-  projectRoot: string;
-  currentDir: string; // Used for worktree detection
-  projectSlug: string;
-  repositoryRoots: RepositoryRoots;
+interface SandboxInstanceSpecRuntime {
+  readonly runtime: "apple-container" | "docker" | "podman";
+  readonly hostAccessName: string;
+  readonly storage: SandboxStorageOperations;
 }
 
-interface ContainerDirectMount {
-  readonly containerPath: string;
-  readonly mode: "ro" | "rw";
+interface BuildSandboxInstanceSpecOptions {
+  readonly runtimePackage: CachedSandboxPackage;
+  readonly config: Config;
+  readonly projectRoot: string;
+  readonly currentDir: string;
+  readonly projectSlug: string;
+  readonly repositoryRoots: RepositoryRoots;
 }
 
-function parseCustomDirectMount(mount: string): ContainerDirectMount {
-  const parts = convertMountForDocker(mount).split(":");
+function parseMount(value: string): SandboxMount {
+  const parts = splitColonString(value);
+  const source = parts[0];
+  const target = parts[1];
+  if (!source || !target) throw new Error(`Invalid container mount: ${value}`);
   return {
-    containerPath: parts.slice(1, -1).join(":"),
-    mode: parts.at(-1) === "rw" ? "rw" : "ro",
+    type: "workspace",
+    sourcePath: source,
+    targetPath: windowsPathToDocker(target),
+    readOnly: parts[2] !== "rw",
   };
 }
 
-// ---------------------------------------------------------------------------
-// Logging helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Configure X11 forwarding for clipboard support
- */
-async function configureX11(
-  args: string[],
-  service: ContainerArgumentRuntime,
-): Promise<void> {
-  const logger = getLogger();
-  const x11Config = await detectX11();
-  if (x11Config.available) {
-    const display = getContainerDisplay(service, x11Config);
-    if (display) {
-      args.push("-e", `DISPLAY=${display}`);
-      args.push("-e", "X11_AVAILABLE=true");
-      logger.debug(`X11 forwarding enabled: DISPLAY=${display}`);
-
-      // Linux: mount X11 socket
-      if (x11Config.platform === "linux" && x11Config.socketPath) {
-        args.push("-v", `${x11Config.socketPath}:/tmp/.X11-unix:ro`);
-        logger.debug(`X11 socket mounted: ${x11Config.socketPath}`);
-      }
-    } else {
-      args.push("-e", "X11_AVAILABLE=false");
-      logger.debug("X11 detected but container display unavailable");
-    }
-  } else {
-    args.push("-e", "X11_AVAILABLE=false");
-    logger.debug("X11 not available");
+function parsePortRange(value: string): number[] {
+  const [firstText, lastText] = value.split("-", 2);
+  const first = Number(firstText);
+  const last = lastText ? Number(lastText) : first;
+  if (
+    !Number.isInteger(first) ||
+    !Number.isInteger(last) ||
+    first < 1 ||
+    last > 65_535 ||
+    first > last
+  ) {
+    throw new Error(`Invalid published port range: ${value}`);
   }
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
 }
 
-// ---------------------------------------------------------------------------
-// Internal shared builders
-// ---------------------------------------------------------------------------
+function parsePublishedPorts(value: string): PublishedPort[] {
+  const [mapping, protocolText] = value.split("/", 2);
+  const protocol = protocolText ?? "tcp";
+  if (protocol !== "tcp" && protocol !== "udp") {
+    throw new Error(`Invalid published port protocol: ${value}`);
+  }
+  const parts = mapping?.split(":") ?? [];
+  const containerRange = parsePortRange(parts.at(-1) ?? "");
+  const hostRange = parsePortRange(parts.at(-2) ?? parts.at(-1) ?? "");
+  if (hostRange.length !== containerRange.length) {
+    throw new Error(`Published port ranges must have equal lengths: ${value}`);
+  }
+  const hostAddress =
+    parts.length > 2 ? parts.slice(0, -2).join(":") : undefined;
+  return hostRange.map((hostPort, index) => ({
+    ...(hostAddress ? { hostAddress } : {}),
+    hostPort,
+    instancePort: containerRange[index] as number,
+    protocol,
+  }));
+}
 
-/**
- * Build structural args for container creation.
- *
- * Includes: project label, workspace mount, worktree mount, container env,
- * X11, firewall, persistent/settings mounts, cache, custom mounts, ports.
- *
- * Does NOT include: --name, --label sandbox.hash, image,
- * working directory (-w), passthrough env vars, SANDBOX_DEBUG.
- */
-async function buildStructuralArgs(
-  service: ContainerArgumentRuntime,
-  options: BuildContainerArgsOptions,
-): Promise<string[]> {
+export async function buildSandboxInstanceSpec(
+  runtime: SandboxInstanceSpecRuntime,
+  options: BuildSandboxInstanceSpecOptions,
+): Promise<SandboxInstanceSpec> {
   const { config, projectRoot, currentDir, projectSlug, repositoryRoots } =
     options;
   const logger = getLogger();
-  const args: string[] = [];
+  logger.startTiming("Build container specification");
 
-  // Project label
-  args.push("--label", `${SANDBOX_PROJECT_LABEL}=${projectSlug}`);
-  logger.debug(`Project label: ${SANDBOX_PROJECT_LABEL}=${projectSlug}`);
-
-  // Validate container path is safe
   validateMountPath(projectRoot);
-
-  // Ensure projectRoot is absolute (Docker requires absolute container paths)
-  if (!projectRoot.startsWith("/") && !/^[A-Za-z]:/.test(projectRoot)) {
+  if (!projectRoot.startsWith("/") && !/^[A-Za-z]:/u.test(projectRoot)) {
     throw new Error(
       `Project root must be an absolute path, got: "${projectRoot}".\n` +
         "This is a bug. Please report it with your project's git configuration.",
     );
   }
 
-  // Workspace mount
-  const workspaceMode = config.readonly ? "ro" : "rw";
-  const dockerProjectRoot = windowsPathToDocker(projectRoot);
-  args.push("-v", `${dockerProjectRoot}:${dockerProjectRoot}:${workspaceMode}`);
-  logger.debug(
-    `Workspace mount: ${dockerProjectRoot}:${dockerProjectRoot}:${workspaceMode}`,
-  );
-
-  // External worktree mount (if in a worktree outside main repo)
+  const targetProjectRoot = windowsPathToDocker(projectRoot);
+  const workspaceReadOnly = config.readonly;
+  const mounts: SandboxMount[] = [
+    {
+      type: "workspace",
+      sourcePath: projectRoot,
+      targetPath: targetProjectRoot,
+      readOnly: workspaceReadOnly,
+    },
+  ];
   const externalWorktree = await getExternalWorktreePath(
     currentDir,
     repositoryRoots,
   );
   if (externalWorktree) {
-    const dockerWorktreePath = windowsPathToDocker(externalWorktree);
-    args.push(
-      "-v",
-      `${dockerWorktreePath}:${dockerWorktreePath}:${workspaceMode}`,
-    );
-    logger.debug(
-      `External worktree mount: ${dockerWorktreePath}:${dockerWorktreePath}:${workspaceMode}`,
-    );
+    mounts.push({
+      type: "workspace",
+      sourcePath: externalWorktree,
+      targetPath: windowsPathToDocker(externalWorktree),
+      readOnly: workspaceReadOnly,
+    });
   }
 
-  // Fixed environment variables
-  args.push("-e", "SANDBOX=1");
+  const environment: Record<string, string> = {
+    SANDBOX: "1",
+    SANDBOX_RUNTIME: runtime.runtime,
+    SANDBOX_HOST_ACCESS_NAME: runtime.hostAccessName,
+  };
+  const idePort = addIdeBridgePortEnvironment([]);
+  if (idePort) environment.CLAUDE_CODE_SSE_PORT = idePort;
 
-  // User-defined environment variables from config
-  for (const env of config.env) {
-    args.push("-e", env);
-  }
+  const networkPolicy = {
+    enabled: true,
+    fullNetwork: config.fullNetwork,
+    noProxy: config.noProxy,
+    allowNetwork: config.allowNetwork,
+  };
+  environment.SANDBOX_FIREWALL = JSON.stringify(networkPolicy);
+  if (config.noProxy) environment.SANDBOX_NO_PROXY = "1";
 
-  // The host-selected bridge port is structural and must not be overridden by
-  // project configuration.
-  const idePort = addIdeBridgePortEnvironment(args);
-
-  // Log all container-level env vars
-  const allContainerEnv = [
-    "SANDBOX=1",
-    ...config.env,
-    ...(idePort ? [`CLAUDE_CODE_SSE_PORT=${idePort}`] : []),
-  ];
-  logEnvironmentVariables(allContainerEnv);
-
-  // X11 clipboard support
-  await configureX11(args, service);
-
-  // Runtime-specific flags (cap-add, sysctl, ulimit, dns, etc.)
-  const runtimeFlags = service.getRuntimeRunFlags({ shmSize: config.shmSize });
-  args.push(...runtimeFlags);
-
-  // Set SANDBOX_RUNTIME env var so entrypoint can detect the runtime
-  args.push("-e", `SANDBOX_RUNTIME=${service.runtime}`);
-
-  addNetworkArguments(args, config);
-
-  // Persistent and settings mounts
   logger.startTiming("Fetch mounts");
   const persistentResult = await getPersistentMounts(
     projectRoot,
@@ -203,89 +172,104 @@ async function buildStructuralArgs(
       containerPath: resolveContainerPath(entry.path, "/home/sandbox"),
       mode: "rw" as const,
     }));
-  const customMounts = config.mounts.map(parseCustomDirectMount);
+  const customMounts = config.mounts.map(parseMount);
   const preparedSettings = await getSandboxSettings().createContainerSetup({
     entries: config.settings,
     persistentMounts: persistentResult.mounts,
-    directMounts: [...namedVolumeMounts, ...customMounts],
+    directMounts: [
+      ...namedVolumeMounts,
+      ...customMounts.map((mount) => ({
+        containerPath: mount.targetPath,
+        mode: mount.readOnly ? ("ro" as const) : ("rw" as const),
+      })),
+      {
+        containerPath: options.runtimePackage.mount.containerPath,
+        mode: "ro",
+      },
+    ],
   });
   logger.endTiming("Fetch mounts");
 
-  for (const [name, value] of Object.entries(preparedSettings.environment)) {
-    args.push("-e", `${name}=${value}`);
-  }
-  logger.debug(`Settings entries: ${config.settings.length} defined`);
-  addPersistMounts(args, persistentResult);
+  validateProtectedMountPaths(options.runtimePackage.mount.containerPath, [
+    targetProjectRoot,
+    ...(externalWorktree ? [windowsPathToDocker(externalWorktree)] : []),
+    ...persistentResult.mounts.map((mount) => mount.containerPath),
+    ...preparedSettings.mounts.map((mount) => mount.containerPath),
+    ...namedVolumeMounts.map((mount) => mount.containerPath),
+    ...customMounts.map((mount) => mount.targetPath),
+  ]);
+  Object.assign(environment, preparedSettings.environment);
 
+  logMounts(persistentResult.mounts, "Persistent mounts");
+  mounts.push(
+    ...persistentResult.mounts.map((mount) => ({
+      type: "workspace" as const,
+      sourcePath: mount.hostPath,
+      targetPath: mount.containerPath,
+      readOnly: mount.mode === "ro",
+    })),
+  );
   logMounts([...preparedSettings.mounts], "Settings mounts");
-  for (const mount of preparedSettings.mounts) {
-    args.push("-v", mountToDockerArg(mount));
+  const cacheStorage = await ensureRuntimeStorage(runtime, {
+    key: CACHE_VOLUME,
+    scope: "global",
+  });
+  mounts.push(
+    ...preparedSettings.mounts.map((mount) => ({
+      type: "workspace" as const,
+      sourcePath: mount.hostPath,
+      targetPath: mount.containerPath,
+      readOnly: mount.mode === "ro",
+    })),
+    {
+      type: "storage",
+      storage: cacheStorage,
+      targetPath: "/var/cache",
+      readOnly: false,
+    },
+  );
+  for (const persistPath of config.persistPaths) {
+    if (!persistPath.useNamedVolume) continue;
+    const storage = await ensureRuntimeStorage(runtime, {
+      key: getNamedVolumeName(persistPath.useNamedVolume),
+      scope: "global",
+    });
+    mounts.push({
+      type: "storage",
+      storage,
+      targetPath: resolveContainerPath(persistPath.path, "/home/sandbox"),
+      readOnly: false,
+    });
   }
-
-  // Cache volume
-  args.push("-v", `${CACHE_VOLUME}:/var/cache`);
-  logger.debug(`Cache volume: ${CACHE_VOLUME}:/var/cache`);
-
-  // Named volumes from persist_paths with use_named_volume set
-  addNamedVolumeMounts(args, config);
-
-  // Custom mounts
   logCustomMounts(config.mounts, "Custom mounts");
-  for (const mount of config.mounts) {
-    const dockerMount = convertMountForDocker(mount);
-    args.push("-v", dockerMount);
-  }
-
-  // Port mappings
-  addPortArguments(args, config.ports);
-
-  return args;
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Result from buildContainerArgs, containing both the args array
- * and the resolved image name (avoiding fragile positional indexing).
- */
-interface ContainerArgsResult {
-  args: string[];
-  imageName: string;
-}
-
-/**
- * Build container creation args (`docker run -d`).
- *
- * Returns the body args (everything after `run -d`) WITHOUT:
- * - `--name` (added by findOrCreateContainer / createFreshContainer)
- * - `--label sandbox.hash=...` (added by findOrCreateContainer)
- *
- * Ends with: `<image>` (entrypoint handles PID 1 lifecycle)
- */
-export async function buildContainerArgs(
-  service: ContainerArgumentRuntime,
-  options: BuildContainerArgsOptions,
-): Promise<ContainerArgsResult> {
-  const { config, projectRoot, currentDir, projectSlug, repositoryRoots } =
-    options;
-  const logger = getLogger();
-
-  logger.startTiming("Build container args");
-
-  const structuralArgs = await buildStructuralArgs(service, {
-    config,
-    projectRoot,
-    currentDir,
-    projectSlug,
-    repositoryRoots,
+  mounts.push(...customMounts, {
+    type: "workspace",
+    sourcePath: options.runtimePackage.mount.hostPath,
+    targetPath: options.runtimePackage.mount.containerPath,
+    readOnly: true,
   });
 
-  // Final image (entrypoint's idle watcher is PID 1, CMD is unused)
-  const imageName = getFinalImage(projectRoot);
-  const args = [...structuralArgs, imageName];
-
-  logger.endTiming("Build container args");
-  return { args, imageName };
+  logEnvironmentVariables(
+    "Startup",
+    Object.entries(environment).map(([name, value]) => `${name}=${value}`),
+  );
+  const spec: SandboxInstanceSpec = {
+    name: "",
+    image: { reference: getFinalImage(projectRoot), digest: "" },
+    labels: {
+      [SANDBOX_PROJECT_LABEL]: projectSlug,
+      [SANDBOX_RUNTIME_LABEL]: options.runtimePackage.id,
+    },
+    environment,
+    mounts,
+    ports: config.ports.flatMap(parsePublishedPorts),
+    init: true,
+    removeOnExit: true,
+    resources: {
+      ...(config.shmSize ? { sharedMemorySize: config.shmSize } : {}),
+    },
+    security: { capabilities: ["NET_ADMIN"], nestedContainerRuntime: false },
+  };
+  logger.endTiming("Build container specification");
+  return spec;
 }

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import path from "node:path";
+import chalk from "chalk";
 import { type Clock, getClock } from "#platform/clock/index.js";
 import {
   getSandboxEnvironment,
@@ -13,6 +14,8 @@ import {
   type ProcessResult,
 } from "#platform/process/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
+import { executeContainerCommand } from "./command.js";
+import { restoreFirewall } from "./firewall.js";
 import { getTcpService, type TcpService } from "./tcp-service.js";
 
 type ManagedNetworkProcess = ManagedProcess<ProcessResult>;
@@ -33,6 +36,12 @@ export interface ContainerNetworkSystem {
   readonly applyFirewall: (
     commands: readonly (readonly string[])[],
   ) => Promise<void>;
+  readonly applyIpv6Firewall: (
+    commands: readonly (readonly string[])[],
+  ) => Promise<void>;
+  readonly applyHostMappings: (
+    mappings: readonly { readonly host: string; readonly address: string }[],
+  ) => Promise<void>;
   readonly discoverUpstreamDns: () => Promise<string>;
   readonly startDnsmasq: (options: {
     readonly config: string;
@@ -45,7 +54,8 @@ export interface ContainerNetworkSystem {
   readonly startNetworkTrace: () => Promise<void>;
 }
 
-const IPTABLES = "/usr/sbin/iptables";
+const IPTABLES = "/usr/sbin/iptables-restore";
+const IP6TABLES = "/usr/sbin/ip6tables-restore";
 const DNSMASQ = "/usr/sbin/dnsmasq";
 const SQUID = "/usr/sbin/squid";
 const TCPDUMP = "/usr/bin/tcpdump";
@@ -54,20 +64,6 @@ function containerPath(environment: SandboxEnvironment, absolutePath: string) {
   return path.join(
     environment.filesystemRoot,
     absolutePath.replace(/^\/+/, ""),
-  );
-}
-
-function commandError(command: string, result: ProcessResult): Error {
-  const detail = [result.stderr.trimEnd(), result.stdout.trimEnd()]
-    .filter(Boolean)
-    .join("\n");
-  return Object.assign(
-    new Error(
-      result.signal
-        ? `${command} terminated by signal ${result.signal}${detail ? `: ${detail}` : ""}`
-        : `${command} failed with exit code ${result.exitCode}${detail ? `: ${detail}` : ""}`,
-    ),
-    { exitCode: result.exitCode },
   );
 }
 
@@ -113,7 +109,8 @@ function managedProcessFailure(
   return new Error(`${name} exited with ${status}`);
 }
 
-const PORT_POLL_INTERVAL_MILLISECONDS = 50;
+const INITIAL_PORT_POLL_INTERVAL_MILLISECONDS = 5;
+const MAX_PORT_POLL_INTERVAL_MILLISECONDS = 50;
 const PORT_CONNECTION_TIMEOUT_MILLISECONDS = 250;
 
 async function waitForPort(
@@ -131,6 +128,7 @@ async function waitForPort(
 ): Promise<void> {
   const failure = childFailure(options.child, options.service);
   const deadline = clock.now() + options.startupTimeoutMilliseconds;
+  let pollInterval = INITIAL_PORT_POLL_INTERVAL_MILLISECONDS;
   while (clock.now() < deadline) {
     throwIfCancelled();
     const remainingMilliseconds = deadline - clock.now();
@@ -146,19 +144,102 @@ async function waitForPort(
     );
     if (connected) return;
     throwIfCancelled();
-    const delayMilliseconds = Math.min(
-      PORT_POLL_INTERVAL_MILLISECONDS,
-      deadline - clock.now(),
-    );
+    const delayMilliseconds = Math.min(pollInterval, deadline - clock.now());
     if (delayMilliseconds <= 0) break;
     const delay = clock.sleep(
       delayMilliseconds,
       signal ? { signal } : undefined,
     );
     await Promise.race([failure, delay]);
+    pollInterval = Math.min(
+      pollInterval * 2,
+      MAX_PORT_POLL_INTERVAL_MILLISECONDS,
+    );
   }
   throw new Error(
     `${options.service} failed to start on ${options.host}:${options.port}`,
+  );
+}
+
+function readUpstreamResolver(environment: SandboxEnvironment): string {
+  const resolverPath = containerPath(environment, "/etc/resolv.conf");
+  const resolver = fs.readFileSync(resolverPath, "utf8");
+  fs.copyFileSync(
+    resolverPath,
+    containerPath(environment, "/etc/resolv.conf.upstream"),
+  );
+  const upstream = resolver
+    .split(/\r?\n/u)
+    .map((line) => line.trim().match(/^nameserver\s+(\S+)/)?.[1])
+    .find((value): value is string => Boolean(value));
+  if (!upstream) throw new Error("No upstream DNS server found");
+  return upstream;
+}
+
+function isLinkLocalInterfaceReady(
+  environment: SandboxEnvironment,
+  interfaceName: string,
+): boolean {
+  const interfacesPath = containerPath(environment, "/proc/net/if_inet6");
+  const interfaces = fs.existsSync(interfacesPath)
+    ? fs.readFileSync(interfacesPath, "utf8")
+    : "";
+  return interfaces.split(/\r?\n/u).some((line) => {
+    const fields = line.trim().split(/\s+/u);
+    const flags = Number.parseInt(fields[4] ?? "", 16);
+    return (
+      fields[3] === "20" &&
+      fields[5] === interfaceName &&
+      Number.isFinite(flags) &&
+      (flags & 0x40) === 0
+    );
+  });
+}
+
+async function waitForScopedIpv6Resolver(options: {
+  readonly environment: SandboxEnvironment;
+  readonly tcp: TcpService;
+  readonly clock: Clock;
+  readonly signal?: AbortSignal;
+  readonly throwIfCancelled: () => void;
+  readonly upstream: string;
+}): Promise<void> {
+  const [address, interfaceName] = options.upstream.split("%", 2);
+  if (!address || !interfaceName) {
+    throw new Error(`Invalid scoped IPv6 DNS resolver: ${options.upstream}`);
+  }
+  const interfaceDeadline = options.clock.now() + 5_000;
+  while (options.clock.now() < interfaceDeadline) {
+    options.throwIfCancelled();
+    if (isLinkLocalInterfaceReady(options.environment, interfaceName)) break;
+    await options.clock.sleep(
+      100,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+  }
+  if (!isLinkLocalInterfaceReady(options.environment, interfaceName)) {
+    throw new Error(
+      `The Apple container IPv6 interface ${interfaceName} was not ready within 5 seconds.`,
+    );
+  }
+  const resolverDeadline = options.clock.now() + 5_000;
+  while (options.clock.now() < resolverDeadline) {
+    options.throwIfCancelled();
+    const connected = await options.tcp.canConnect(
+      { host: options.upstream, port: 53 },
+      {
+        timeoutMilliseconds: 250,
+        ...(options.signal ? { signal: options.signal } : {}),
+      },
+    );
+    if (connected) return;
+    await options.clock.sleep(
+      100,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+  }
+  throw new Error(
+    `The Apple host IPv6 DNS resolver on ${interfaceName} did not respond within 5 seconds.`,
   );
 }
 
@@ -221,6 +302,7 @@ async function prepareSquidFilesystem(
 
 function createNetworkInterface(
   environment: SandboxEnvironment,
+  processes: ProcessManager,
   tcp: TcpService,
   clock: Clock,
   signal: AbortSignal | undefined,
@@ -234,7 +316,6 @@ function createNetworkInterface(
     owner: string,
     recursive: boolean,
   ) => Promise<void>,
-  runCommand: (command: string, args: readonly string[]) => Promise<string>,
   spawnNetworkCommand: (options: {
     readonly name: string;
     readonly command: string;
@@ -247,46 +328,82 @@ function createNetworkInterface(
   return {
     failure,
     async applyFirewall(commands) {
-      for (const args of commands) {
-        debug(`iptables ${args.join(" ")}`);
-        await runCommand(IPTABLES, args);
-      }
-      debug("firewall configured");
+      debug(
+        `${chalk.cyan("iptables-restore")}: installing ${commands.length} commands`,
+      );
+      await restoreFirewall({
+        processes,
+        command: IPTABLES,
+        commands,
+        ...(signal ? { signal } : {}),
+      });
+      debug("IPv4 firewall configured");
+    },
+    async applyIpv6Firewall(commands) {
+      debug(
+        `${chalk.cyan("ip6tables-restore")}: installing ${commands.length} commands`,
+      );
+      await restoreFirewall({
+        processes,
+        command: IP6TABLES,
+        commands,
+        ...(signal ? { signal } : {}),
+      });
+      debug("IPv6 firewall configured");
+    },
+    async applyHostMappings(mappings) {
+      if (mappings.length === 0) return;
+      const hostsPath = containerPath(environment, "/etc/hosts");
+      const current = fs.readFileSync(hostsPath, "utf8");
+      const mappedHosts = new Set(mappings.map(({ host }) => host));
+      const retained = current
+        .split(/\r?\n/u)
+        .filter(
+          (line) => !line.split(/\s+/u).some((part) => mappedHosts.has(part)),
+        );
+      const records = mappings.map(
+        ({ host, address }) => `${address}\t${host}`,
+      );
+      fs.writeFileSync(
+        hostsPath,
+        `${retained.filter(Boolean).join("\n")}\n${records.join("\n")}\n`,
+      );
+      debug(`applied ${mappings.length} guest host mappings`);
     },
     async discoverUpstreamDns() {
       throwIfCancelled();
-      const resolverPath = containerPath(environment, "/etc/resolv.conf");
-      const resolver = fs.readFileSync(resolverPath, "utf8");
-      fs.copyFileSync(
-        resolverPath,
-        containerPath(environment, "/etc/resolv.conf.upstream"),
-      );
-      const upstream = resolver
-        .split(/\r?\n/)
-        .map((line) => line.trim().match(/^nameserver\s+(\S+)/)?.[1])
-        .find((value): value is string => Boolean(value));
-      if (!upstream) throw new Error("No upstream DNS server found");
+      const upstream = readUpstreamResolver(environment);
+      if (!upstream.includes(":")) return upstream;
+      await waitForScopedIpv6Resolver({
+        environment,
+        tcp,
+        clock,
+        ...(signal ? { signal } : {}),
+        throwIfCancelled,
+        upstream,
+      });
       return upstream;
     },
-    async startDnsmasq({ config }) {
+    startDnsmasq({ config }) {
       ensureDirectory("/etc/dnsmasq.d");
       writeFile("/etc/dnsmasq.d/sandbox.conf", config);
       const args = ["--keep-in-foreground", "--conf-dir=/etc/dnsmasq.d"];
       debug("starting managed dnsmasq");
+      writeFile("/etc/resolv.conf", "nameserver 127.0.0.1\n");
       const child = spawnNetworkCommand({
         name: "dnsmasq",
         command: DNSMASQ,
         args,
       });
-      writeFile("/etc/resolv.conf", "nameserver 127.0.0.1\n");
-      await waitForPort(tcp, clock, signal, throwIfCancelled, {
+      return waitForPort(tcp, clock, signal, throwIfCancelled, {
         service: "dnsmasq",
         host: "127.0.0.1",
         port: 53,
         startupTimeoutMilliseconds: 5_000,
         child,
+      }).then(() => {
+        debug("dnsmasq started");
       });
-      debug("dnsmasq started");
     },
     async startSquid({ config, domainAclGroups, blockedErrorPage }) {
       await prepareSquidFilesystem(
@@ -357,16 +474,11 @@ function createNetworkSystem(
     args: readonly string[],
   ): Promise<string> {
     throwIfCancelled();
-    const result = await processes.start({
+    return await executeContainerCommand(
       command,
       args,
-      lifetime: "application",
-      interaction: { mode: "non-interactive" },
-      ...(signal ? { signal } : {}),
-    }).result;
-    throwIfCancelled();
-    if (result.exitCode !== 0) throw commandError(command, result);
-    return result.stdout;
+      signal ? { signal } : {},
+    );
   }
 
   function writeFile(filePath: string, content: string): void {
@@ -444,6 +556,7 @@ function createNetworkSystem(
 
   return createNetworkInterface(
     environment,
+    processes,
     tcp,
     clock,
     signal,
@@ -453,7 +566,6 @@ function createNetworkSystem(
     ensureDirectory,
     touchFiles,
     setOwnership,
-    runCommand,
     spawnNetworkCommand,
     failure,
   );

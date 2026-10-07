@@ -51,9 +51,8 @@
   "files": {
     "includes": [
       "**",
-      "!**/.*",
+      "!!**/.agents/worktrees",
       "!dist",
-      "!docker/runtime",
       "!coverage",
       "!test-tmp",
       "!tmp",

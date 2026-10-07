@@ -126,7 +126,7 @@ Coverage thresholds are regression floors, not test-design goals. Start from a u
 
 Run `bun run coverage:check` for the repository gate. Bun runs the source tests with coverage and writes text and LCOV reports. The small `scripts/check-coverage.ts` script sums LCOV line totals and enforces 95% aggregate line coverage.
 
-`bun check` runs non-test validation tasks in parallel. It then runs `coverage:check` alone so Bun coverage does not overlap build tasks. The pre-commit hook formats and lints only the staged files. The pre-push hook runs the same gate as `bun check`. GitHub Actions uses `bun run check --verbose` as its validation entry. It retains `coverage/lcov.info` as an artifact.
+`bun check` runs non-test validation tasks in parallel. It then runs `coverage:check` alone so Bun coverage does not overlap build tasks. The pre-commit hook runs `bun check`. The pre-push hook runs the same gate as `bun check`. GitHub Actions uses `bun run check --verbose` as its validation entry. It retains `coverage/lcov.info` as an artifact.
 
 Architecture tests are the regression boundary for process ownership. They reject child-process imports and handles, child or PID signalling, liveness probing, unref, and Node process signal subscriptions outside `platform/process`. Review-time text searches may diagnose violations, but they are not the enforcement mechanism.
 

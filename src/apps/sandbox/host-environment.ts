@@ -1,12 +1,8 @@
 import chalk from "chalk";
+import { getContainerRuntimeDirectory } from "#modules/sandbox-runtime/index.js";
 import { getVersion } from "#modules/self-update/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
-
-/** @testonly */
-export const SANDBOX_CLI_MOUNT_PATH = "/opt/sandbox-cli";
-/** @testonly */
-export const SANDBOX_DOCS_PATH = "/opt/sandbox-cli/docs";
 
 class HostOnlyCommandError extends Error {
   readonly exitCode = 1;
@@ -29,6 +25,7 @@ export function requireHost(commandName: string): void {
 
 export function displaySandboxInfo(): void {
   const version = getVersion();
+  const runtimeDirectory = getContainerRuntimeDirectory();
 
   getTerminal().stdout.write(`
 ${chalk.bold("Sandbox")} - Docker-based isolation for AI coding agents
@@ -38,9 +35,9 @@ You are inside a sandboxed Docker container.
 The sandbox provides file isolation, network filtering, and state persistence.
 
 ${chalk.bold("Documentation:")}
-  ${chalk.dim("/opt/sandbox-cli/docs/")}                   Architecture and concepts
+  ${chalk.dim(`${runtimeDirectory}/docs/`)}                   Architecture and concepts
   ${chalk.cyan("sandbox config schema")}                     Config options reference
-  ${chalk.dim("/opt/sandbox-cli/README.md")}               Getting started & troubleshooting
+  ${chalk.dim(`${runtimeDirectory}/README.md`)}               Getting started & troubleshooting
 
 ${chalk.bold("Commands available inside the sandbox:")}
   ${chalk.cyan("sandbox --help")}              Show all commands and options
@@ -50,7 +47,7 @@ ${chalk.bold("Commands available inside the sandbox:")}
   ${chalk.cyan("sandbox assist [question]")}   Get AI-assisted help with sandbox setup
 
 ${chalk.bold("Troubleshooting:")}
-  See ${chalk.dim("/opt/sandbox-cli/README.md")} (search for "Troubleshooting")
+  See ${chalk.dim(`${runtimeDirectory}/README.md`)} (search for "Troubleshooting")
   Common issues: network blocks, permission errors, build failures, missing agents
 
 ${chalk.bold("Configuration")} is managed on the host. Key paths:

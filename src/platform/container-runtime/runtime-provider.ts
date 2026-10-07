@@ -8,11 +8,20 @@ import {
 } from "#platform/process/index.js";
 import type { RuntimeExecutor } from "./executor.js";
 import { createRuntimeService, resolveRuntime } from "./runtime.js";
-import type { ContainerRuntime } from "./types.js";
+import {
+  type ContainerRuntimeOptions,
+  DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+} from "./runtime-options.js";
+import type { SandboxRuntimeSelection } from "./sandbox-contract.js";
 
-/** @lintignore Public runtime-provider contract. */
+export interface RuntimeResolutionRequest {
+  readonly configuredRuntime?: string;
+  readonly options: ContainerRuntimeOptions;
+}
+
+/** Internal dependency container shape. */
 export interface ContainerRuntimeProvider {
-  resolve(configuredRuntime?: string): Promise<ContainerRuntime>;
+  resolve(request?: RuntimeResolutionRequest): Promise<SandboxRuntimeSelection>;
 }
 
 const runtimeProviderDependency = createDependency<ContainerRuntimeProvider>(
@@ -36,9 +45,13 @@ export function createProductionRuntimeProvider(
     executeProcessCommand(processes, command, args, execOptions);
 
   return {
-    async resolve(configuredRuntime) {
-      const runtime = await resolveRuntime(configuredRuntime, exec);
-      return createRuntimeService(runtime, exec);
+    async resolve(request) {
+      const runtime = await resolveRuntime(request?.configuredRuntime, exec);
+      return createRuntimeService(
+        runtime,
+        exec,
+        request?.options ?? DEFAULT_CONTAINER_RUNTIME_OPTIONS,
+      );
     },
   };
 }

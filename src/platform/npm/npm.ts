@@ -1,4 +1,10 @@
-import { ExecError, getProcessManager } from "#platform/process/index.js";
+import { getClock, waitWithTimeout } from "#platform/clock/index.js";
+import {
+  ExecError,
+  getProcessManager,
+  type ManagedProcess,
+  type ProcessResult,
+} from "#platform/process/index.js";
 
 import { getErrorMessage } from "#shared/errors/index.js";
 
@@ -9,18 +15,39 @@ const PERMISSION_HINT =
   "npm cannot update the global package because of insufficient permissions. " +
   "Fix npm global installation permissions or use a Node.js version manager, then retry the update.";
 
+async function boundedResult(
+  child: ManagedProcess<ProcessResult>,
+  timeout: number,
+): Promise<ProcessResult> {
+  const result = await waitWithTimeout(child.result, {
+    clock: getClock(),
+    milliseconds: timeout,
+  });
+  if (result.completed) return result.value;
+  await child.stop({
+    gracefulTimeoutMilliseconds: 1_000,
+    forceTimeoutMilliseconds: 1_000,
+  });
+  throw new Error("npm update check timed out");
+}
+
 async function executeNpm(options: {
   readonly command: string;
   readonly args: readonly string[];
   readonly interactive?: boolean;
+  readonly timeout?: number;
 }): Promise<string> {
-  const result = await getProcessManager().start({
+  await using child = getProcessManager().start({
     command: options.command,
     args: options.args,
     lifetime: "application",
     interaction: { mode: "non-interactive" },
     stdio: options.interactive ? "inherit" : "capture",
-  }).result;
+  });
+  const result =
+    options.timeout === undefined
+      ? await child.result
+      : await boundedResult(child, options.timeout);
   if (result.exitCode !== 0) {
     throw new ExecError(
       `${options.command} exited with code ${result.exitCode}`,
@@ -55,6 +82,7 @@ export async function fetchLatestVersion(packageName: string): Promise<string> {
       await executeNpm({
         command: "npm",
         args: ["view", packageName, "version"],
+        timeout: 15_000,
       })
     ).trim();
   } catch (error) {

@@ -66,7 +66,7 @@ describe("getImageHash", () => {
     cleanupTestDir(tmpDir);
   });
 
-  test("changes when scripts, configuration, or image-owned runtime files change", () => {
+  test("changes when scripts, configuration, or nested tool inputs change", () => {
     const tmpDir = createTestDir("docker-runtime-context");
     using cleanup = new DisposableStack();
     cleanup.defer(() => cleanupTestDir(tmpDir));
@@ -74,11 +74,10 @@ describe("getImageHash", () => {
       Dockerfile: "FROM scratch",
       "scripts/sandbox-container-tools": "exec node main.js",
       "configs/profile": "export LANG=en_US.UTF-8",
-      "runtime/dist/apps/sandbox/main.js": "console.log('host')",
-      "runtime/dist/apps/sandbox-container-tools/main.js":
-        "console.log('container')",
-      "runtime/package.json": '{"version":"1.0.0"}',
-      "runtime/templates/config.toml": 'runtime = "docker"',
+      "tools/node/install.sh": "echo node",
+      "tools/python/install.sh": "echo python",
+      "tools/package.json": '{"version":"1.0.0"}',
+      "tools/templates/config.toml": 'runtime = "docker"',
     };
     for (const [relativePath, content] of Object.entries(files)) {
       const filePath = path.join(tmpDir, relativePath);

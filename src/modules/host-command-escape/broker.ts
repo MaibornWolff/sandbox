@@ -1,5 +1,9 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
 import * as path from "node:path";
+import {
+  chunkHostBridgePayload,
+  type HostBridgeCapability,
+} from "#modules/host-bridge/index.js";
+import { getClock, waitWithTimeout } from "#platform/clock/index.js";
 import {
   getHostEnvironment,
   type HostEnvironment,
@@ -16,11 +20,9 @@ import {
   type ManagedStreamingProcess,
   type ProcessManager,
 } from "#platform/process/index.js";
-import {
-  getWebSocketService,
-  type WebSocketConnection,
-  type WebSocketMessage,
-  type WebSocketServer,
+import type {
+  WebSocketConnection,
+  WebSocketMessage,
 } from "#platform/websocket/index.js";
 import { isFileNotFoundError } from "#shared/errors/index.js";
 import {
@@ -34,42 +36,33 @@ import {
   decodeBinaryChannel,
   encodeBinaryChannel,
   encodeControlMessage,
-  HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE,
-  HOST_COMMAND_ESCAPE_MAX_MESSAGE_BYTES,
-  HOST_COMMAND_ESCAPE_PROTOCOL,
-  HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE,
-  HOST_COMMAND_ESCAPE_TOKEN_VARIABLE,
   parseClientControlMessage,
   STREAM_CHANNEL,
 } from "./protocol.js";
 
-export interface StartHostCommandEscapeSessionOptions {
+export interface CreateHostCommandCapabilityOptions {
   readonly commandRules: readonly CommandPattern[];
   readonly hostProjectRoot: string;
   readonly containerProjectRoot: string;
-  readonly containerHostName: string;
 }
 
-export interface HostCommandEscapeSession extends AsyncDisposable {
-  readonly clientEnvironment: Readonly<Record<string, string>>;
+export interface HostCommandCapability
+  extends HostBridgeCapability,
+    AsyncDisposable {
   forwardSignal(signal: NodeJS.Signals): Promise<boolean>;
 }
 
-class BrokerContext {
-  readonly children = new Set<ManagedStreamingProcess>();
-  readonly connections = new Set<WebSocketConnection>();
+type ActiveChild = ManagedStreamingProcess;
 
-  constructor(
-    readonly rules: readonly CompiledCommandPattern[],
-    readonly canonicalPatterns: readonly string[],
-    readonly hostProjectRoot: string,
-    readonly canonicalHostProjectRoot: string,
-    readonly containerProjectRoot: string,
-    readonly environment: HostEnvironment,
-    readonly processes: ProcessManager,
-    readonly logger: Logger,
-    readonly disposed: () => boolean,
-  ) {}
+interface BrokerContext {
+  readonly children: Set<ActiveChild>;
+  readonly connections: Set<WebSocketConnection>;
+  readonly rules: readonly CompiledCommandPattern[];
+  readonly canonicalPatterns: readonly string[];
+  readonly hostProjectRoot: string;
+  readonly canonicalHostProjectRoot: string;
+  readonly containerProjectRoot: string;
+  disposed: boolean;
 }
 
 function isWithin(
@@ -89,6 +82,7 @@ function isWithin(
 async function mapWorkingDirectory(
   context: BrokerContext,
   clientDirectory: string,
+  platform: string,
 ): Promise<string> {
   const containerPath = path.posix.resolve(
     context.containerProjectRoot,
@@ -101,8 +95,7 @@ async function mapWorkingDirectory(
     context.containerProjectRoot,
     containerPath,
   );
-  const pathApi =
-    context.environment.platform === "win32" ? path.win32 : path.posix;
+  const pathApi = platform === "win32" ? path.win32 : path.posix;
   const candidate = pathApi.resolve(
     context.hostProjectRoot,
     ...relative.split("/").filter((part) => part.length > 0),
@@ -157,7 +150,9 @@ async function forwardOutput(
   output: AsyncIterable<Uint8Array>,
 ): Promise<void> {
   for await (const chunk of output) {
-    await connection.sendBinary(encodeBinaryChannel(channel, chunk));
+    for (const frame of chunkHostBridgePayload(chunk, 1)) {
+      await connection.sendBinary(encodeBinaryChannel(channel, frame));
+    }
   }
 }
 
@@ -184,216 +179,255 @@ async function consumeProcessInput(
   }
 }
 
-async function reportProtocolFailure(
-  connection: WebSocketConnection,
-  context: BrokerContext,
-  child: ManagedStreamingProcess | undefined,
-  error: unknown,
-): Promise<void> {
-  context.logger.warn(
-    `Host command escape protocol failure: ${error instanceof Error ? error.message : "unknown error"}`,
-  );
-  await child?.stop().catch(() => undefined);
-  await connection
-    .sendText(
-      encodeControlMessage({
-        type: "error",
-        code: "PROTOCOL_ERROR",
-        message: "Host command escape protocol failed.",
-      }),
-    )
-    .catch(() => undefined);
-  await connection.close(1002, "protocol error").catch(() => undefined);
+interface CommandRequest {
+  readonly argv: readonly string[];
+  readonly cwd: string;
+  readonly signal: AbortSignal;
 }
 
-async function executeCommand(
-  connection: WebSocketConnection,
-  messages: WebSocketConnection["messages"],
-  context: BrokerContext,
-  request: { readonly argv: readonly string[]; readonly cwd: string },
-): Promise<void> {
-  const commandDisplay = request.argv.join(" ");
-  if (
-    !context.rules.some((rule) => evaluateCommandPattern(rule, request.argv))
-  ) {
-    context.logger.debug(
-      `Denied host command ${request.argv[0]} [arguments redacted]`,
+function createCommandRunner(
+  logger: Logger,
+  environment: HostEnvironment,
+  processes: ProcessManager,
+) {
+  async function reportProtocolFailure(
+    connection: WebSocketConnection,
+    child: ManagedStreamingProcess | undefined,
+    error: unknown,
+  ): Promise<void> {
+    logger.warn(
+      `Host command escape protocol failure: ${error instanceof Error ? error.message : "unknown error"}`,
     );
-    await denyExecution(
-      connection,
-      `sandbox escape: command is not allowed: ${commandDisplay}`,
-    );
-    return;
+    await child?.stop().catch(() => undefined);
+    await connection
+      .sendText(
+        encodeControlMessage({
+          type: "error",
+          code: "PROTOCOL_ERROR",
+          message: "Host command escape protocol failed.",
+        }),
+      )
+      .catch(() => undefined);
+    await connection.close(1002, "protocol error").catch(() => undefined);
   }
-  let cwd: string;
-  try {
-    cwd = await mapWorkingDirectory(context, request.cwd);
-  } catch {
-    context.logger.debug(
-      `Denied host command working directory for ${request.argv[0]} [arguments redacted]`,
-    );
-    await denyExecution(
-      connection,
-      `sandbox escape: working directory is not allowed: ${request.cwd}`,
-    );
-    return;
+
+  async function authorizeCommand(
+    connection: WebSocketConnection,
+    context: BrokerContext,
+    request: CommandRequest,
+  ): Promise<string | undefined> {
+    if (
+      !context.rules.some((rule) => evaluateCommandPattern(rule, request.argv))
+    ) {
+      const commandDisplay = request.argv.join(" ");
+      logger.debug(
+        `Denied host command ${request.argv[0]} [arguments redacted]`,
+      );
+      await denyExecution(
+        connection,
+        `sandbox escape: command is not allowed: ${commandDisplay}`,
+      );
+      return undefined;
+    }
+    try {
+      return await mapWorkingDirectory(
+        context,
+        request.cwd,
+        environment.platform,
+      );
+    } catch {
+      logger.debug(
+        `Denied host command working directory for ${request.argv[0]} [arguments redacted]`,
+      );
+      await denyExecution(
+        connection,
+        `sandbox escape: working directory is not allowed: ${request.cwd}`,
+      );
+      return undefined;
+    }
   }
-  if (context.disposed()) return;
-  context.logger.debug(
-    `Starting host command ${request.argv[0]} [arguments redacted]`,
-  );
-  const child = context.processes.start({
-    lifetime: "application",
-    interaction: { mode: "non-interactive" },
-    stdio: "stream",
-    command: request.argv[0] ?? "",
-    args: request.argv.slice(1),
-    cwd,
-    env: context.environment.variables,
-  });
-  context.children.add(child);
-  let complete = false;
-  const stopOnClose = connection.closed
-    .then(() => (complete ? undefined : child.stop()))
-    .catch(() => undefined);
-  try {
+
+  async function pipeProcess(
+    connection: WebSocketConnection,
+    messages: WebSocketConnection["messages"],
+    child: ManagedStreamingProcess,
+    argv: readonly string[],
+  ): Promise<void> {
     await connection.sendText(encodeControlMessage({ type: "ready" }));
     const input = consumeProcessInput(messages, child).catch((error: unknown) =>
-      reportProtocolFailure(connection, context, child, error),
+      reportProtocolFailure(connection, child, error),
     );
     const output = Promise.allSettled([
       forwardOutput(connection, STREAM_CHANNEL.stdout, child.stdout),
       forwardOutput(connection, STREAM_CHANNEL.stderr, child.stderr),
     ]);
     const result = await child.result;
-    const outputResults = await output;
-    const outputFailure = outputResults.find(
+    const outputFailure = (await output).find(
       (item): item is PromiseRejectedResult => item.status === "rejected",
     );
     if (outputFailure) throw outputFailure.reason;
-    complete = true;
-    context.logger.debug(
-      `Host command ${request.argv[0]} exited with code ${result.exitCode}`,
-    );
+    logger.debug(`Host command ${argv[0]} exited with code ${result.exitCode}`);
     await sendExit(
       connection,
       result.signal ? getExitCodeForSignal(result.signal) : result.exitCode,
     );
     await input;
-  } catch (error) {
-    complete = true;
-    if (isFileNotFoundError(error))
-      await sendExit(connection, 127).catch(() => undefined);
-    else await reportProtocolFailure(connection, context, child, error);
-  } finally {
-    context.children.delete(child);
-    await child.dispose().catch(() => undefined);
-    await stopOnClose;
   }
+
+  async function executeCommand(
+    connection: WebSocketConnection,
+    messages: WebSocketConnection["messages"],
+    context: BrokerContext,
+    request: CommandRequest,
+  ): Promise<void> {
+    const cwd = await authorizeCommand(connection, context, request);
+    if (cwd === undefined) return;
+    if (context.disposed || request.signal.aborted) return;
+    logger.debug(
+      `Starting host command ${request.argv[0]} [arguments redacted]`,
+    );
+    const child = processes.start({
+      lifetime: "application",
+      interaction: { mode: "non-interactive" },
+      stdio: "stream",
+      command: request.argv[0] ?? "",
+      args: request.argv.slice(1),
+      cwd,
+      env: environment.variables,
+    });
+    context.children.add(child);
+    let complete = false;
+    const stopOnClose = connection.closed
+      .then(() => (complete ? undefined : child.stop()))
+      .catch(() => undefined);
+    try {
+      await pipeProcess(connection, messages, child, request.argv);
+      complete = true;
+    } catch (error) {
+      complete = true;
+      if (isFileNotFoundError(error))
+        await sendExit(connection, 127).catch(() => undefined);
+      else await reportProtocolFailure(connection, child, error);
+    } finally {
+      context.children.delete(child);
+      await child.dispose().catch(() => undefined);
+      await stopOnClose;
+    }
+  }
+
+  return { executeCommand, reportProtocolFailure };
 }
 
-async function handleConnection(
-  connection: WebSocketConnection,
-  context: BrokerContext,
-): Promise<void> {
-  context.connections.add(connection);
-  try {
-    const iterator = connection.messages[Symbol.asyncIterator]();
-    const first = await iterator.next();
-    if (first.done || first.value.type !== "text") {
-      throw new Error("The first message must be a control operation.");
-    }
-    const operation = parseClientControlMessage(first.value.data);
-    if (operation.type === "list") {
-      await connection.sendText(
-        encodeControlMessage({
-          type: "allowed-commands",
-          patterns: context.canonicalPatterns,
-        }),
+function createSessionHandlers(
+  logger: Logger,
+  environment: HostEnvironment,
+  processes: ProcessManager,
+) {
+  const { executeCommand, reportProtocolFailure } = createCommandRunner(
+    logger,
+    environment,
+    processes,
+  );
+  async function handleConnection(
+    connection: WebSocketConnection,
+    context: BrokerContext,
+    signal: AbortSignal,
+  ): Promise<void> {
+    context.connections.add(connection);
+    try {
+      const iterator = connection.messages[Symbol.asyncIterator]();
+      const initial = await waitWithTimeout(iterator.next(), {
+        clock: getClock(),
+        milliseconds: 5000,
+      });
+      if (!initial.completed)
+        throw new Error("Host command request timed out.");
+      const first = initial.value;
+      if (first.done || first.value.type !== "text") {
+        throw new Error("The first message must be a control operation.");
+      }
+      const operation = parseClientControlMessage(first.value.data);
+      if (operation.type === "list") {
+        await connection.sendText(
+          encodeControlMessage({
+            type: "allowed-commands",
+            patterns: context.canonicalPatterns,
+          }),
+        );
+        await connection.close(1000, "complete");
+      } else if (operation.type === "execute") {
+        const remainingMessages: WebSocketConnection["messages"] = {
+          [Symbol.asyncIterator]: () => iterator,
+        };
+        await executeCommand(connection, remainingMessages, context, {
+          ...operation,
+          signal,
+        });
+      } else {
+        throw new Error("The first message must be list or execute.");
+      }
+    } catch (error) {
+      await reportProtocolFailure(connection, undefined, error);
+    } finally {
+      context.connections.delete(connection);
+      await Promise.resolve(connection[Symbol.asyncDispose]()).catch(
+        () => undefined,
       );
-      await connection.close(1000, "complete");
-    } else if (operation.type === "execute") {
-      const remainingMessages: WebSocketConnection["messages"] = {
-        [Symbol.asyncIterator]: () => iterator,
-      };
-      await executeCommand(connection, remainingMessages, context, operation);
-    } else {
-      throw new Error("The first message must be list or execute.");
     }
-  } catch (error) {
-    await reportProtocolFailure(connection, context, undefined, error);
-  } finally {
-    context.connections.delete(connection);
-    await Promise.resolve(connection[Symbol.asyncDispose]()).catch(
-      () => undefined,
-    );
   }
-}
 
-function tokenMatches(
-  header: string | readonly string[] | undefined,
-  token: string,
-): boolean {
-  const supplied =
-    typeof header === "string" && header.startsWith("Bearer ")
-      ? header.slice("Bearer ".length)
-      : "";
-  const suppliedBytes = Buffer.from(supplied);
-  const tokenBytes = Buffer.from(token);
-  return (
-    suppliedBytes.length === tokenBytes.length &&
-    timingSafeEqual(suppliedBytes, tokenBytes)
-  );
-}
-
-async function forwardSignalToChildren(
-  context: BrokerContext,
-  signal: NodeJS.Signals,
-): Promise<boolean> {
-  if (context.disposed()) return false;
-  const children = [...context.children];
-  if (children.length === 0) return false;
-  context.logger.debug(
-    `Forwarding ${signal} to active host command escape processes`,
-  );
-  const outcomes = await Promise.allSettled(
-    children.map((child) => child.stop({ signal })),
-  );
-  const failures = outcomes.filter(
-    (outcome) => outcome.status === "rejected",
-  ).length;
-  if (failures > 0) {
-    context.logger.warn(
-      `Failed to forward ${signal} to ${failures} host command escape process(es)`,
+  async function forwardSignalToChildren(
+    context: BrokerContext,
+    signal: NodeJS.Signals,
+  ): Promise<boolean> {
+    if (context.disposed) return false;
+    const children = [...context.children];
+    if (children.length === 0) return false;
+    logger.debug(
+      `Forwarding ${signal} to active host command escape processes`,
     );
+    const outcomes = await Promise.allSettled(
+      children.map((child) => child.stop({ signal })),
+    );
+    const failures = outcomes.filter(
+      (outcome) => outcome.status === "rejected",
+    ).length;
+    if (failures > 0) {
+      logger.warn(
+        `Failed to forward ${signal} to ${failures} host command escape process(es)`,
+      );
+    }
+    return failures < outcomes.length;
   }
-  return failures < outcomes.length;
+
+  async function disposeSession(context: BrokerContext): Promise<void> {
+    context.disposed = true;
+    logger.debug("Stopping host command escape session");
+    await Promise.allSettled(
+      [...context.children].map((child) => child.stop()),
+    );
+    await Promise.allSettled(
+      [...context.connections].map((connection) =>
+        connection[Symbol.asyncDispose](),
+      ),
+    );
+    await Promise.allSettled(
+      [...context.children].map((child) => child.dispose()),
+    );
+    logger.debug("Stopped host command escape session");
+  }
+
+  return { handleConnection, forwardSignalToChildren, disposeSession };
 }
 
-async function disposeSession(
-  server: WebSocketServer,
-  context: BrokerContext,
-  markDisposed: () => void,
-): Promise<void> {
-  markDisposed();
-  context.logger.debug("Stopping host command escape session");
-  await Promise.allSettled([...context.children].map((child) => child.stop()));
-  await Promise.allSettled(
-    [...context.connections].map((connection) =>
-      connection.close(1001, "session ended"),
-    ),
-  );
-  await server[Symbol.asyncDispose]();
-  await Promise.allSettled(
-    [...context.children].map((child) => child.dispose()),
-  );
-  context.logger.debug("Stopped host command escape session");
-}
-
-export async function startHostCommandEscapeSession(
-  options: StartHostCommandEscapeSessionOptions,
-): Promise<HostCommandEscapeSession> {
+export async function createHostCommandCapability(
+  options: CreateHostCommandCapabilityOptions,
+): Promise<HostCommandCapability> {
   const logger = getLogger();
+  const environment = getHostEnvironment();
+  const processes = getProcessManager();
+  const { handleConnection, forwardSignalToChildren, disposeSession } =
+    createSessionHandlers(logger, environment, processes);
   let rules: readonly CompiledCommandPattern[];
   try {
     rules = Object.freeze(options.commandRules.map(compileCommandPattern));
@@ -407,55 +441,35 @@ export async function startHostCommandEscapeSession(
   const canonicalPatterns = Object.freeze(
     options.commandRules.map(formatCommandPattern),
   );
-  const token = randomBytes(32).toString("base64url");
   const canonicalHostProjectRoot = await resolveRealPath(
     options.hostProjectRoot,
   );
-  const server = await getWebSocketService().startServer({
-    host: "0.0.0.0",
-    port: 0,
-    protocol: HOST_COMMAND_ESCAPE_PROTOCOL,
-    maxMessageBytes: HOST_COMMAND_ESCAPE_MAX_MESSAGE_BYTES,
-    authorizeUpgrade: ({ path: requestPath, headers }) => ({
-      accepted:
-        requestPath === "/session" &&
-        tokenMatches(headers.authorization, token),
-      statusCode: 401,
-      reason: "Unauthorized",
-    }),
-  });
-  let disposed = false;
-  const context = new BrokerContext(
+  const context: BrokerContext = {
+    children: new Set(),
+    connections: new Set(),
     rules,
     canonicalPatterns,
-    options.hostProjectRoot,
+    hostProjectRoot: options.hostProjectRoot,
     canonicalHostProjectRoot,
-    path.posix.resolve(options.containerProjectRoot),
-    getHostEnvironment(),
-    getProcessManager(),
-    logger,
-    () => disposed,
-  );
-  void (async () => {
-    for await (const connection of server.connections) {
-      void handleConnection(connection, context);
-    }
-  })();
-  context.logger.debug(
-    `Started host command escape session on port ${server.endpoint.port}`,
-  );
+    containerProjectRoot: path.posix.resolve(options.containerProjectRoot),
+    disposed: false,
+  };
   return {
-    clientEnvironment: Object.freeze({
-      [HOST_COMMAND_ESCAPE_ENDPOINT_VARIABLE]: `ws://${options.containerHostName}:${server.endpoint.port}/session`,
-      [HOST_COMMAND_ESCAPE_PROTOCOL_VARIABLE]: HOST_COMMAND_ESCAPE_PROTOCOL,
-      [HOST_COMMAND_ESCAPE_TOKEN_VARIABLE]: token,
-    }),
+    name: "host-command",
+    async handle(connection, { signal }) {
+      if (context.disposed || signal.aborted) return;
+      const cancel = () => {
+        void connection[Symbol.asyncDispose]();
+      };
+      signal.addEventListener("abort", cancel, { once: true });
+      using cleanup = new DisposableStack();
+      cleanup.defer(() => signal.removeEventListener("abort", cancel));
+      await handleConnection(connection, context, signal);
+    },
     forwardSignal: (signal) => forwardSignalToChildren(context, signal),
     async [Symbol.asyncDispose]() {
-      if (disposed) return;
-      await disposeSession(server, context, () => {
-        disposed = true;
-      });
+      if (context.disposed) return;
+      await disposeSession(context);
     },
   };
 }

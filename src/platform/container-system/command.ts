@@ -1,3 +1,4 @@
+import { addAbortListener } from "node:events";
 import {
   getProcessManager,
   type ProcessResult,
@@ -13,7 +14,7 @@ class ContainerCommandError extends Error {
   }
 }
 
-function createCommandError(
+export function createCommandError(
   command: string,
   result: ProcessResult,
 ): ContainerCommandError {
@@ -31,13 +32,26 @@ function createCommandError(
 export async function executeContainerCommand(
   command: string,
   args: readonly string[] = [],
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<string> {
-  const result = await getProcessManager().start({
+  options.signal?.throwIfAborted();
+  await using child = getProcessManager().start({
     command,
     args,
     lifetime: "application",
     interaction: { mode: "non-interactive" },
-  }).result;
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+  const { signal } = options;
+  let rejectCancellation: (reason: unknown) => void = () => undefined;
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject;
+  });
+  using _cancellation = signal
+    ? addAbortListener(signal, () => rejectCancellation(signal.reason))
+    : undefined;
+  const result = await Promise.race([child.result, cancelled]);
+  signal?.throwIfAborted();
   if (result.exitCode === 0) return result.stdout;
   throw createCommandError(command, result);
 }

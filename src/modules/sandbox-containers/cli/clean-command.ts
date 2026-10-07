@@ -2,15 +2,18 @@ import {
   getConfigurationService,
   type PersistPath,
 } from "#modules/configuration/index.js";
-import { removeDanglingImages } from "#modules/sandbox-images/index.js";
+import { removeUnusedManagedImages } from "#modules/sandbox-images/index.js";
 import {
   CACHE_VOLUME,
   getNamedVolumeName,
+  removeRuntimeStorage,
 } from "#modules/sandbox-resources/index.js";
+import { cleanupCurrentSandboxRuntimeCache } from "#modules/sandbox-runtime/index.js";
 import { getProjectPersistDir } from "#modules/storage/index.js";
 import {
-  type ContainerRuntime,
   getRuntimeProvider,
+  type SandboxRuntime,
+  type SandboxRuntimeSelection,
 } from "#platform/container-runtime/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { pathExists, removeDirectory } from "#platform/filesystem/index.js";
@@ -25,13 +28,13 @@ import type { CleanOptions } from "../sandbox-options.js";
  * Remove containers by IDs
  */
 async function removeContainers(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerIds: string[],
 ): Promise<void> {
   const logger = getLogger();
   for (const id of containerIds) {
     try {
-      await service.removeContainer(id, true);
+      await service.instances.remove(id, { force: true });
       logger.success(`Removed container: ${id.substring(0, 12)}`);
     } catch (err) {
       logger.error(`Failed to remove container ${id}: ${getErrorMessage(err)}`);
@@ -39,33 +42,34 @@ async function removeContainers(
   }
 }
 
-/**
- * Remove Docker volumes
- */
 async function removeVolumes(
-  service: ContainerRuntime,
-  persistPaths: PersistPath[],
+  runtime: SandboxRuntime,
+  persistPaths: readonly PersistPath[],
 ): Promise<void> {
-  const namedVols = persistPaths
-    .filter((p) => p.useNamedVolume)
-    .map((p) => getNamedVolumeName(p.useNamedVolume as string));
-  const volumes = [CACHE_VOLUME, ...namedVols];
+  const namedStorage = persistPaths.flatMap((persistPath) =>
+    persistPath.useNamedVolume
+      ? [
+          {
+            key: getNamedVolumeName(persistPath.useNamedVolume),
+            scope: "global" as const,
+          },
+        ]
+      : [],
+  );
+  const storageSpecs = [
+    { key: CACHE_VOLUME, scope: "global" as const },
+    ...namedStorage,
+  ];
   const logger = getLogger();
 
-  for (const vol of volumes) {
+  for (const spec of storageSpecs) {
     try {
-      await service.removeVolume(vol);
-      logger.success(`Removed volume: ${vol}`);
-    } catch (err) {
-      const errMessage = getErrorMessage(err);
-      if (
-        errMessage.includes("No such volume") ||
-        errMessage.includes("no such volume")
-      ) {
-        logger.info(`Volume ${vol} not found (already removed)`);
-      } else {
-        logger.error(`Failed to remove volume ${vol}: ${errMessage}`);
-      }
+      const removed = await removeRuntimeStorage(runtime, spec);
+      if (removed) logger.success(`Removed volume: ${spec.key}`);
+      else logger.info(`Volume ${spec.key} not found (already removed)`);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      logger.error(`Failed to remove volume ${spec.key}: ${message}`);
     }
   }
 }
@@ -73,10 +77,7 @@ async function removeVolumes(
 /**
  * Remove persistent data directory for current project
  */
-async function removePersistentData(): Promise<void> {
-  const projectRoot = await getRepoRootPath(
-    getHostEnvironment().currentWorkingDirectory,
-  );
+async function removePersistentData(projectRoot: string): Promise<void> {
   const persistPath = getProjectPersistDir(projectRoot);
   const logger = getLogger();
 
@@ -120,16 +121,18 @@ export async function buildConfirmationMessage(
 /**
  * Clean dangling images from previous builds
  */
-async function cleanDanglingImages(service: ContainerRuntime): Promise<void> {
-  const stats = await removeDanglingImages(service);
+async function cleanUnusedManagedImages(
+  services: SandboxRuntimeSelection,
+): Promise<void> {
+  const stats = await removeUnusedManagedImages(services);
   const logger = getLogger();
 
   if (stats.removed === 0) {
-    logger.info("No dangling images to clean");
+    logger.info("No unused managed images to clean");
     return;
   }
 
-  logger.success(`Removed ${stats.removed} dangling images`);
+  logger.success(`Removed ${stats.removed} unused managed images`);
   logger.info(`Freed: ${stats.freedSpace}`);
 }
 
@@ -137,9 +140,10 @@ async function cleanDanglingImages(service: ContainerRuntime): Promise<void> {
  * Main clean command with full functionality
  */
 export async function cleanCommand(options: CleanOptions): Promise<void> {
-  const { configuredRuntime, config } =
+  const { runtimeResolution, config, projectRoot } =
     await getConfigurationService().load(options);
-  const service = await getRuntimeProvider().resolve(configuredRuntime);
+  const services = await getRuntimeProvider().resolve(runtimeResolution);
+  const { runtime } = services;
   const logger = getLogger();
 
   if (shouldPromptForConfirmation(options)) {
@@ -153,7 +157,7 @@ export async function cleanCommand(options: CleanOptions): Promise<void> {
   }
 
   const status = options.all ? "all" : "exited";
-  const containers = await findSandboxContainers(service, { status });
+  const containers = await findSandboxContainers(runtime, { status });
 
   if (containers.length > 0) {
     logger.info(
@@ -162,7 +166,7 @@ export async function cleanCommand(options: CleanOptions): Promise<void> {
         : "Removing stopped sandbox containers...",
     );
     await removeContainers(
-      service,
+      runtime,
       containers.map((container) => container.id),
     );
   } else {
@@ -171,12 +175,13 @@ export async function cleanCommand(options: CleanOptions): Promise<void> {
 
   if (options.data) {
     logger.info("Removing volumes...");
-    await removeVolumes(service, config.persistPaths);
+    await removeVolumes(runtime, config.persistPaths);
 
     logger.info("Removing persistent data...");
-    await removePersistentData();
+    await removePersistentData(projectRoot);
   }
 
+  await cleanupCurrentSandboxRuntimeCache(runtime);
   logger.success("Cleanup complete!");
-  await cleanDanglingImages(service);
+  await cleanUnusedManagedImages(services);
 }

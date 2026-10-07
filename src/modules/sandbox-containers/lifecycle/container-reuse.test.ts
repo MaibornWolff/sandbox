@@ -1,207 +1,171 @@
 import { describe, expect, test } from "bun:test";
 import type { Clock } from "#platform/clock/index.js";
+import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
 import {
-  createStatefulContainerRuntimeHarness,
-  type StatefulContainerRuntimeHarness,
-} from "#platform/container-runtime/__test__/index.js";
+  SandboxInstanceNameConflictError,
+  type SandboxInstanceSpec,
+} from "#platform/container-runtime/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
-import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
 import {
   createFreshContainer,
   findOrCreateContainer,
-  waitForReady,
 } from "./container-reuse.js";
+import { prepareContainerSession } from "./container-session.js";
 
-function runInLifecycleScope<T>(
-  callback: () => Promise<T> | T,
-): Promise<T> | T {
-  return runWithTestLogger(callback);
+function createSpec(): SandboxInstanceSpec {
+  return {
+    name: "",
+    image: { reference: "sha256:image", digest: "sha256:image" },
+    labels: { "sandbox.project": "project" },
+    environment: { SANDBOX: "1" },
+    mounts: [],
+    ports: [],
+    init: true,
+    removeOnExit: true,
+    resources: {},
+    security: { capabilities: ["NET_ADMIN"], nestedContainerRuntime: false },
+  };
 }
 
-async function runtimeService(runtime: StatefulContainerRuntimeHarness) {
-  return runtime.provider.resolve();
-}
+describe("container reuse", () => {
+  test.each(["reuse", "fresh"])(
+    "uses one safe snapshot for %s creation",
+    async (mode) => {
+      const harness = createStatefulContainerRuntimeHarness();
+      for (const status of ["exited", "dead", "paused", "created"] as const) {
+        harness.instances.create({
+          name: `sandbox-project-${status}`,
+          image: "sandbox-project:latest",
+          labels: { "sandbox.project": "project" },
+          status,
+        });
+      }
+      const runtime = (await harness.provider.resolve()).runtime;
+      await runWithTestLogger(() =>
+        mode === "reuse"
+          ? findOrCreateContainer(runtime, "project", "expected", createSpec())
+          : createFreshContainer(runtime, "project", createSpec()),
+      );
+      expect(
+        harness.events().filter((event) => event.type === "container.list"),
+      ).toHaveLength(1);
+      expect(harness.instances.find("sandbox-project-exited")).toBeUndefined();
+      expect(harness.instances.find("sandbox-project-dead")).toBeUndefined();
+      expect(harness.instances.find("sandbox-project-paused")?.status).toBe(
+        "paused",
+      );
+      expect(harness.instances.find("sandbox-project-created")?.status).toBe(
+        "created",
+      );
+    },
+  );
 
-describe("findOrCreateContainer", () => {
-  test("creates a detached managed container with the requested hash", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const service = await runtimeService(runtime);
-    const result = await runInLifecycleScope(() =>
-      findOrCreateContainer(
-        service,
-        "project-a1b2",
-        "hash-1",
-        ["-e", "SANDBOX=1", "sandbox-base:latest"],
-        "sandbox-base:latest",
+  test("does not create or remove containers when the snapshot fails", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.system.fail("container.list", new Error("snapshot unavailable"));
+    const runtime = (await harness.provider.resolve()).runtime;
+    await expect(
+      runWithTestLogger(() =>
+        findOrCreateContainer(runtime, "project", "expected", createSpec()),
       ),
+    ).rejects.toThrow("snapshot unavailable");
+    expect(
+      harness
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.create" ||
+            event.type === "container.remove",
+        ),
+    ).toHaveLength(0);
+  });
+  test("does not delete another caller's instance before it starts", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
+      status: "created",
+    });
+    const runtime = (await harness.provider.resolve()).runtime;
+    await runWithTestLogger(() =>
+      createFreshContainer(runtime, "project", createSpec()),
     );
-
-    expect(result).toEqual({
-      containerName: "sandbox-project-a1b2",
-      created: true,
-    });
-    expect(runtime.containers.find(result.containerName)).toMatchObject({
-      labels: { [SANDBOX_HASH_LABEL]: "hash-1" },
-      status: "running",
-    });
-    const creation = runtime
-      .events()
-      .find((event) => event.type === "container.create");
-    expect(creation).toMatchObject({
-      type: "container.create",
-      options: {
-        image: "sandbox-base:latest",
-        extraArgs: ["-e", "SANDBOX=1"],
-      },
-    });
+    expect(harness.instances.find("sandbox-project")?.status).toBe("created");
   });
 
-  test("reuses a healthy matching container and preserves mismatched sessions", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const matching = runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: {
-        "sandbox.project": "project-a1b2",
-        [SANDBOX_HASH_LABEL]: "match",
-      },
+  test("reuses a running container with the same hash", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
       status: "running",
     });
-    runtime.containers.create({
-      name: "sandbox-project-a1b2-2",
-      image: "sandbox-base:latest",
-      labels: {
-        "sandbox.project": "project-a1b2",
-        [SANDBOX_HASH_LABEL]: "other",
-      },
-      status: "running",
-      sessions: [{ pid: "42", command: "zsh" }],
-    });
-    const service = await runtimeService(runtime);
-    const result = await runInLifecycleScope(() =>
-      findOrCreateContainer(
-        service,
-        "project-a1b2",
-        "match",
-        ["sandbox-base:latest"],
-        "sandbox-base:latest",
-      ),
+    const runtime = (await harness.provider.resolve()).runtime;
+    const result = await runWithTestLogger(() =>
+      findOrCreateContainer(runtime, "project", "expected", createSpec()),
     );
-
     expect(result).toEqual({
-      containerName: matching.snapshot().name,
+      containerName: "sandbox-project",
       created: false,
     });
-    expect(runtime.containers.all()).toHaveLength(2);
-    expect(
-      runtime.events().some((event) => event.type === "container.label"),
-    ).toBe(false);
+    expect(harness.instances.all()).toHaveLength(1);
   });
 
-  test("removes an obsolete container when it has no active sessions", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const obsolete = runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: {
-        "sandbox.project": "project-a1b2",
-        [SANDBOX_HASH_LABEL]: "old-hash",
-      },
+  test("shares a matching instance while another caller starts it", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
+      status: "created",
+    });
+    const runtime = (await harness.provider.resolve()).runtime;
+    const result = await runWithTestLogger(() =>
+      findOrCreateContainer(runtime, "project", "expected", createSpec()),
+    );
+    expect(result).toEqual({ containerName: "sandbox-project", created: true });
+    expect(harness.instances.all()).toHaveLength(1);
+  });
+
+  test("removes an idle obsolete container before replacement", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "old" },
       status: "running",
     });
-    const service = await runtimeService(runtime);
-
-    const result = await runInLifecycleScope(() =>
-      findOrCreateContainer(
-        service,
-        "project-a1b2",
-        "new-hash",
-        ["sandbox-base:latest"],
-        "sandbox-base:latest",
-      ),
+    const runtime = (await harness.provider.resolve()).runtime;
+    const result = await runWithTestLogger(() =>
+      findOrCreateContainer(runtime, "project", "new", createSpec()),
     );
-
-    expect(obsolete.snapshot().status).toBe("removed");
-    expect(result.containerName).toBe("sandbox-project-a1b2");
-  });
-
-  test("keeps an obsolete container when removal fails", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: {
-        "sandbox.project": "project-a1b2",
-        [SANDBOX_HASH_LABEL]: "old-hash",
-      },
-      status: "running",
-    });
-    runtime.system.fail("container.remove", new Error("container changed"));
-    const service = await runtimeService(runtime);
-
-    const result = await runInLifecycleScope(() =>
-      findOrCreateContainer(
-        service,
-        "project-a1b2",
-        "new-hash",
-        ["sandbox-base:latest"],
-        "sandbox-base:latest",
-      ),
-    );
-
-    expect(result.containerName).toBe("sandbox-project-a1b2-2");
-  });
-
-  test("removes stopped containers before choosing an available name", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: { "sandbox.project": "project-a1b2" },
-      status: "exited",
-    });
-    const service = await runtimeService(runtime);
-    const result = await runInLifecycleScope(() =>
-      findOrCreateContainer(
-        service,
-        "project-a1b2",
-        "new-hash",
-        ["sandbox-base:latest"],
-        "sandbox-base:latest",
-      ),
-    );
-
-    expect(result.containerName).toBe("sandbox-project-a1b2");
+    expect(result.created).toBe(true);
     expect(
-      runtime.events().some((event) => event.type === "container.remove"),
-    ).toBe(true);
+      harness.instances.all().filter((entry) => entry.status === "running"),
+    ).toHaveLength(1);
   });
 
   test("waits for a concurrently created container to become visible", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const competing = runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: {
-        "sandbox.project": "project-a1b2",
-        [SANDBOX_HASH_LABEL]: "hash",
-      },
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "expected" },
       status: "running",
     });
-    const service = await runtimeService(runtime);
-    const listContainers = service.listContainers.bind(service);
-    let runningQueries = 0;
-    service.listContainers = async (options) => {
-      const containers = await listContainers(options);
-      if (options?.statusFilter?.includes("running")) {
-        runningQueries++;
-        if (runningQueries <= 4) return [];
-      }
-      return containers;
+    const runtime = (await harness.provider.resolve()).runtime;
+    const list = runtime.instances.list.bind(runtime.instances);
+    let queries = 0;
+    runtime.instances.list = async (query) => {
+      const instances = await list(query);
+      if (query?.labels?.["sandbox.project"] === "project" && ++queries <= 4)
+        return [];
+      return instances;
     };
-    service.createContainer = async () => {
-      throw new Error("container name is taken");
-    };
+    runtime.instances.startDetached = () =>
+      Promise.reject(new SandboxInstanceNameConflictError("sandbox-project"));
     const sleepDurations: number[] = [];
     const clock: Clock = {
       now: () => 0,
@@ -210,131 +174,90 @@ describe("findOrCreateContainer", () => {
         return Promise.resolve();
       },
     };
-
     const result = await runWithTestLogger(
-      () =>
-        findOrCreateContainer(
-          service,
-          "project-a1b2",
-          "hash",
-          ["sandbox-base:latest"],
-          "sandbox-base:latest",
-        ),
+      () => findOrCreateContainer(runtime, "project", "expected", createSpec()),
       { clock },
     );
-
     expect(result).toEqual({
-      containerName: competing.snapshot().name,
+      containerName: "sandbox-project",
       created: false,
     });
     expect(sleepDurations).toEqual([250, 250, 250, 250]);
   });
 
-  test("preserves non-conflict creation failures", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    runtime.system.fail("container.create", new Error("daemon offline"));
-    const service = await runtimeService(runtime);
-    await expect(
-      runInLifecycleScope(() =>
-        findOrCreateContainer(
-          service,
-          "project-a1b2",
-          "hash",
-          ["sandbox-base:latest"],
-          "sandbox-base:latest",
-        ),
-      ),
-    ).rejects.toThrow("daemon offline");
-  });
-});
-
-describe("createFreshContainer", () => {
-  test("uses a suffix when another project container is running", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    runtime.containers.create({
-      name: "sandbox-project-a1b2",
-      image: "sandbox-base:latest",
-      labels: { "sandbox.project": "project-a1b2" },
+  test("keeps an obsolete container with active sessions", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project", "sandbox.hash": "old" },
       status: "running",
+      sessions: [{ pid: "123", command: "zsh" }],
     });
-    const service = await runtimeService(runtime);
-    const name = await runInLifecycleScope(() =>
-      createFreshContainer(
-        service,
-        "project-a1b2",
-        ["-e", "SANDBOX=1", "sandbox-base:latest"],
-        "sandbox-base:latest",
-      ),
+    const runtime = (await harness.provider.resolve()).runtime;
+    const result = await runWithTestLogger(() =>
+      findOrCreateContainer(runtime, "project", "new", createSpec()),
     );
-    expect(name).toBe("sandbox-project-a1b2-2");
-  });
-});
-
-describe("waitForReady", () => {
-  test("returns immediately for a ready container", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const container = runtime.containers.create({
-      name: "ready",
-      image: "sandbox-base:latest",
-      labels: {},
-      status: "running",
+    expect(result).toEqual({
+      containerName: "sandbox-project-2",
+      created: true,
     });
-    const service = await runtimeService(runtime);
-    await runInLifecycleScope(() => waitForReady(service, container.id));
-    expect(container.snapshot().readinessAttempts).toBe(1);
-  });
-
-  test("uses one runtime wait until readiness", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const container = runtime.containers.create({
-      name: "delayed",
-      image: "sandbox-base:latest",
-      labels: {},
-      status: "running",
-      readyAfterAttempts: 2,
-    });
-    const service = await runtimeService(runtime);
-    await runInLifecycleScope(() => waitForReady(service, container.id, 5_000));
-    expect(container.snapshot().readinessAttempts).toBe(3);
     expect(
-      runtime.events().filter((event) => event.type === "container.wait-ready"),
-    ).toHaveLength(1);
+      harness.instances.all().filter((entry) => entry.status === "running"),
+    ).toHaveLength(2);
   });
 
-  test("times out deterministically and reports managed logs", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const container = runtime.containers.create({
-      name: "never-ready",
-      image: "sandbox-base:latest",
-      labels: {},
-      status: "running",
-      readyAfterAttempts: 10,
-      logs: "entrypoint waiting",
-    });
-    const service = await runtimeService(runtime);
-    const execution = runInLifecycleScope(() =>
-      waitForReady(service, container.id, 200),
+  test("creates a fresh container with no hash label", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    const runtime = (await harness.provider.resolve()).runtime;
+    const name = await runWithTestLogger(() =>
+      createFreshContainer(runtime, "project", createSpec()),
     );
-    await expect(execution).rejects.toThrow(
-      "did not become ready within 200ms",
+    expect(name).toBe("sandbox-project");
+    expect(harness.instances.find(name)?.labels).not.toHaveProperty(
+      "sandbox.hash",
     );
-    expect(
-      runtime.events().some((event) => event.type === "container.logs"),
-    ).toBe(true);
   });
 
-  test("detects a stopped-container race without waiting for timeout", async () => {
-    const runtime = createStatefulContainerRuntimeHarness();
-    const container = runtime.containers.create({
-      name: "stops",
-      image: "sandbox-base:latest",
-      labels: {},
+  test("waits for the Sandbox readiness marker", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project" },
       status: "running",
+      readyAfterAttempts: 0,
     });
-    container.givenStopsOnReadinessAttempt(1);
-    const service = await runtimeService(runtime);
+    const runtime = (await harness.provider.resolve()).runtime;
     await expect(
-      runInLifecycleScope(() => waitForReady(service, container.id)),
-    ).rejects.toThrow("crashed during startup");
+      runWithTestLogger(async () => {
+        await using _session = await prepareContainerSession({
+          containers: runtime.instances,
+          containerId: "sandbox-project",
+          timeoutMs: 500,
+        });
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test("reports bounded logs when readiness fails", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    harness.instances.create({
+      name: "sandbox-project",
+      image: "sandbox-project:latest",
+      labels: { "sandbox.project": "project" },
+      status: "exited",
+      logs: "startup failed",
+    });
+    const runtime = (await harness.provider.resolve()).runtime;
+    await expect(
+      runWithTestLogger(() =>
+        prepareContainerSession({
+          containers: runtime.instances,
+          containerId: "sandbox-project",
+          timeoutMs: 50,
+        }),
+      ),
+    ).rejects.toThrow("container state is exited");
   });
 });

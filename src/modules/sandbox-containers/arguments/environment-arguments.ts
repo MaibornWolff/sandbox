@@ -1,10 +1,37 @@
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 
-export function logEnvironmentVariables(env: string[]): void {
+function isStartupOwnedEnvironmentName(name: string): boolean {
+  return (
+    name === "SANDBOX" ||
+    name.startsWith("SANDBOX_") ||
+    name === "CLAUDE_CODE_SSE_PORT" ||
+    name === "DISPLAY" ||
+    name === "XAUTHORITY" ||
+    name === "WAYLAND_DISPLAY" ||
+    name === "WAYLAND_SOCKET" ||
+    name === "X11_AVAILABLE"
+  );
+}
+
+export function validateConfiguredEnvironment(
+  environment: readonly string[],
+): void {
+  for (const assignment of environment) {
+    const name = assignment.slice(0, assignment.indexOf("="));
+    if (isStartupOwnedEnvironmentName(name)) {
+      throw new Error(`Environment variable ${name} is reserved for Sandbox`);
+    }
+  }
+}
+
+export function logEnvironmentVariables(
+  scope: "Startup" | "Session",
+  env: readonly string[],
+): void {
   if (env.length === 0) return;
   const logger = getLogger();
-  logger.debug(`Environment variables (${env.length}):`);
+  logger.debug(`${scope} environment variables (${env.length}):`);
   for (const entry of env) {
     const [key] = entry.split("=", 1);
     const suffix = entry.includes("=") ? "<set>" : "<passthrough>";

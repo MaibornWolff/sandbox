@@ -9,10 +9,15 @@ export {
 } from "./allowed-network-formatting.js";
 /** @lintignore Public container network bootstrap API. */
 export { parseNetworkBootstrapRequest } from "./bootstrap/bootstrap-request-parsing.js";
+/** @lintignore Public generic guest host-mapping API. */
+export {
+  type GuestHostMapping,
+  parseGuestHostMappings,
+} from "./bootstrap/guest-host-mappings.js";
 /** @lintignore Public container network bootstrap API. */
 export {
   type ContainerNetworkLifecycle,
-  startContainerNetwork,
+  installContainerNetworkSecurity,
 } from "./bootstrap/network-bootstrap.js";
 /** @lintignore Public network policy API. */
 export {

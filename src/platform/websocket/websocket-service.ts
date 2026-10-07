@@ -15,7 +15,6 @@ export interface WebSocketUpgradeMetadata {
   readonly headers: Readonly<
     Record<string, string | readonly string[] | undefined>
   >;
-  readonly remoteAddress?: string;
 }
 
 /** @lintignore Public WebSocket upgrade decision. */
@@ -47,6 +46,7 @@ export interface WebSocketSendOptions {
 /** @lintignore Public WebSocket connection resource. */
 export interface WebSocketConnection extends AsyncDisposable {
   readonly protocol: string;
+  readonly path?: string;
   readonly messages: AsyncIterable<WebSocketMessage>;
   readonly closed: Promise<WebSocketCloseDetails>;
   sendText(message: string, options?: WebSocketSendOptions): Promise<void>;
@@ -60,6 +60,7 @@ export interface WebSocketConnection extends AsyncDisposable {
 /** @lintignore Public WebSocket server resource. */
 export interface WebSocketServer extends AsyncDisposable {
   readonly endpoint: WebSocketEndpoint;
+  readonly certificate: string;
   readonly connections: AsyncIterable<WebSocketConnection>;
 }
 
@@ -67,9 +68,9 @@ export interface WebSocketServer extends AsyncDisposable {
 export interface StartWebSocketServerOptions {
   readonly host: string;
   readonly port: number;
+  readonly maxConnections?: number;
   readonly protocol: string;
   readonly maxMessageBytes: number;
-  readonly signal?: AbortSignal;
   readonly authorizeUpgrade: (
     metadata: WebSocketUpgradeMetadata,
   ) => WebSocketUpgradeDecision | Promise<WebSocketUpgradeDecision>;
@@ -78,6 +79,7 @@ export interface StartWebSocketServerOptions {
 /** @lintignore Public WebSocket client options. */
 export interface ConnectWebSocketOptions {
   readonly url: string;
+  readonly pinnedCertificate: string;
   readonly protocol: string;
   readonly maxMessageBytes: number;
   readonly headers?: Readonly<Record<string, string>>;

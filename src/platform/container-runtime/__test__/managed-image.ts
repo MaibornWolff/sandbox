@@ -1,4 +1,4 @@
-import type { ImageBuildOptions } from "../index.js";
+import type { ImageBuildSpec } from "../image-contract.js";
 
 export interface ManagedImageValues {
   readonly id?: string;
@@ -46,7 +46,7 @@ export interface ManagedBuildResult {
 }
 
 export interface ManagedBuildRecord {
-  readonly options: ImageBuildOptions;
+  readonly options: ImageBuildSpec;
   readonly imageId?: string;
   readonly stdout: readonly string[];
   readonly stderr: readonly string[];

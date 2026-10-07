@@ -1,32 +1,58 @@
 import { describe, expect, it } from "bun:test";
+import { provideRuntimeProvider } from "#platform/container-runtime/index.js";
+import { runWithDependencies } from "#platform/dependency-injection/index.js";
+import { createTestTerminal } from "#platform/terminal/__test__/index.js";
+import { provideTerminal } from "#platform/terminal/index.js";
 import {
-  type EnvironmentStatus,
+  type DockerStatus,
+  displayEnvironmentCheck,
   renderEnvironmentStatus,
 } from "./environment-check.js";
 
-function status(overrides: Partial<EnvironmentStatus>): EnvironmentStatus {
+function status(overrides: Partial<DockerStatus>): DockerStatus {
   return {
-    docker: {
-      available: false,
-      runtime: null,
-      memoryOk: false,
-      memoryGB: null,
-    },
-    x11: { available: false, display: null, xhostConfigured: false },
+    available: false,
+    runtime: null,
+    memoryOk: false,
+    memoryGB: null,
+    memoryScope: "unknown",
     ...overrides,
   };
 }
+
+describe("displayEnvironmentCheck", () => {
+  it("checks the runtime without host or native clipboard dependencies", async () => {
+    await using cleanup = new AsyncDisposableStack();
+    const terminal = createTestTerminal();
+    cleanup.defer(() => terminal.dispose());
+    let resolutions = 0;
+    await runWithDependencies(
+      [
+        provideTerminal(terminal.io),
+        provideRuntimeProvider({
+          resolve: async () => {
+            resolutions += 1;
+            throw new Error("No runtime installed");
+          },
+        }),
+      ],
+      () => displayEnvironmentCheck(),
+    );
+    expect(resolutions).toBe(1);
+    expect(terminal.stdout()).toContain("Not available");
+    expect(terminal.stderr()).toBe("");
+  });
+});
 
 describe("renderEnvironmentStatus", () => {
   it("renders an available runtime and memory", () => {
     const output = renderEnvironmentStatus(
       status({
-        docker: {
-          available: true,
-          runtime: "docker",
-          memoryOk: true,
-          memoryGB: 8,
-        },
+        available: true,
+        runtime: "docker",
+        memoryOk: true,
+        memoryGB: 8,
+        memoryScope: "shared-runtime-vm",
       }),
     );
     expect(output).toContain("docker");
@@ -37,32 +63,14 @@ describe("renderEnvironmentStatus", () => {
     expect(renderEnvironmentStatus(status({}))).toContain("Not available");
     const output = renderEnvironmentStatus(
       status({
-        docker: {
-          available: true,
-          runtime: "podman",
-          memoryOk: false,
-          memoryGB: 2,
-        },
+        available: true,
+        runtime: "podman",
+        memoryOk: false,
+        memoryGB: 2,
+        memoryScope: "shared-runtime-vm",
       }),
     );
     expect(output).toContain("2.0 GB");
     expect(output).toContain("recommended");
-  });
-
-  it("renders configured and unconfigured X11", () => {
-    expect(
-      renderEnvironmentStatus(
-        status({
-          x11: { available: true, display: ":0", xhostConfigured: true },
-        }),
-      ),
-    ).toContain(":0");
-    expect(
-      renderEnvironmentStatus(
-        status({
-          x11: { available: true, display: ":0", xhostConfigured: false },
-        }),
-      ),
-    ).toContain("setup-x11");
   });
 });

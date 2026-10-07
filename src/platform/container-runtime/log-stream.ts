@@ -8,7 +8,10 @@ import {
   ProcessShutdownError,
 } from "#platform/process/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
-import type { ContainerRuntime } from "./types.js";
+import type {
+  LogFollowRequest,
+  LogSubscription,
+} from "./container-contract.js";
 
 interface ContainerLogStream {
   reportFailure(): void;
@@ -23,6 +26,41 @@ interface LineForwarder {
 const MAX_FORWARDED_LINE_LENGTH = 16_384;
 const LOG_TAIL_LINES = 200;
 const STOP_TIMEOUT_MILLISECONDS = 1_000;
+
+export function followContainerLogs(
+  command: string,
+  args: readonly string[],
+  request: LogFollowRequest,
+): LogSubscription {
+  const child = getProcessManager().start({
+    command,
+    args,
+    lifetime: "application",
+    interaction: { mode: "non-interactive" },
+    stdio: "ignore",
+    stdin: "ignore",
+    onStdout: request.onOutput,
+    onStderr: request.onError,
+    name: "container log subscription",
+  });
+  let stopPromise: Promise<void> | undefined;
+  const stop = (): Promise<void> => {
+    stopPromise ??= child
+      .stop({
+        gracefulTimeoutMilliseconds: STOP_TIMEOUT_MILLISECONDS,
+        forceTimeoutMilliseconds: STOP_TIMEOUT_MILLISECONDS,
+      })
+      .then(() => undefined);
+    return stopPromise;
+  };
+  return {
+    completion: child.result,
+    stop,
+    async [Symbol.asyncDispose]() {
+      await stop();
+    },
+  };
+}
 
 function createLineForwarder(writeLine: (line: string) => void): LineForwarder {
   const decoder = new StringDecoder("utf8");
@@ -73,8 +111,12 @@ function createLineForwarder(writeLine: (line: string) => void): LineForwarder {
   };
 }
 
+/** @testonly */
 export function startContainerLogStream(
-  runtime: Pick<ContainerRuntime, "binaryName">,
+  runtime: {
+    readonly binaryName: string;
+    readonly runtime: "apple-container" | "docker" | "podman";
+  },
   containerName: string,
 ): ContainerLogStream {
   const logger = getLogger();
@@ -92,13 +134,16 @@ export function startContainerLogStream(
   try {
     child = getProcessManager().start({
       command: runtime.binaryName,
-      args: [
-        "logs",
-        "--follow",
-        "--tail",
-        String(LOG_TAIL_LINES),
-        containerName,
-      ],
+      args:
+        runtime.runtime === "apple-container"
+          ? ["logs", "--follow", "-n", String(LOG_TAIL_LINES), containerName]
+          : [
+              "logs",
+              "--follow",
+              "--tail",
+              String(LOG_TAIL_LINES),
+              containerName,
+            ],
       lifetime: "application",
       interaction: { mode: "non-interactive" },
       stdio: "ignore",

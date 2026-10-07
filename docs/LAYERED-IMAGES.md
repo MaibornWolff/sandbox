@@ -17,9 +17,17 @@ The base layer provides the operating system and common development tools. Sandb
 
 It includes shells, source-control tools, runtime installation tools, build tools, network tools, and clipboard tools.
 
-The image also owns the Sandbox CLI, container tools, and support files at `/opt/sandbox-cli`. The package build prepares these files in the Docker build context. The container runtime receives them during the image build, so the host npm installation directory does not need to be shared with its VM. Container startup does not mount that directory.
+The base image provides system Node and small Sandbox launchers. The Sandbox CLI, container tools, and support files are delivered separately at container startup.
 
-Runtime package changes are part of the base-layer content hash. They trigger a rebuild of the base layer and its dependent layers. Existing running containers keep their image-owned runtime files until they stop.
+### Runtime package
+
+The package build prepares the runtime under `dist/runtime/`, outside all image build contexts. The host copies it into the Sandbox data directory and mounts the cached directory read-only at `/opt/sandbox-cli`. The container runtime does not need access to the host npm installation directory.
+
+Each cache directory uses the full package version and a content hash, such as `1.70.0-<sha256>`. Runtime-only changes do not rebuild the base, user, or project images. Development edits work without a package version change. New sessions select a container with the matching runtime identity. Active sessions retain their old runtime files.
+
+Sandbox runtime commands are available after startup through Sandbox, not during Dockerfile `RUN` steps or a direct container-runtime command without the runtime cache mount. Dockerfiles must install tools without invoking the Sandbox CLI or container tools.
+
+After a session ends, scheduled cleanup removes old cache directories that no container references. Cleanup runs at most once per day and always retains the current runtime. `sandbox clean` applies the same policy immediately. System package and launcher changes still require image rebuilds.
 
 ### User layer
 
@@ -56,11 +64,16 @@ Sandbox tracks the content of each layer. It rebuilds a layer when its build con
 
 | Change | Rebuilt layers |
 | --- | --- |
+| Runtime package only | None. Prepare a host runtime cache instead |
 | Base layer | Base, user, and project |
 | User layer | User and project |
 | Project layer | Project only |
 
 Normal builds use the container runtime cache. Upgrade commands request fresh package installation.
+
+Sandbox adds the `sandbox.managed=true` label to each image that it builds. Cleanup finds historical images by this label. It removes a candidate only when the image is untagged and no container uses it. Cleanup stops if a runtime check fails. It does not run a global image prune.
+
+Build secrets use the container runtime secret transport. Sandbox does not put secret values in build arguments or command logs.
 
 ## Build Commands
 

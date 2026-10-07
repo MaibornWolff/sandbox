@@ -117,13 +117,16 @@ export interface IdeBridgeLifecycle {
   readonly failure: Promise<Error>;
 }
 
-export function startIdeBridge(port: number): IdeBridgeLifecycle {
+export function startIdeBridge(
+  port: number,
+  hostAccessName: string,
+): IdeBridgeLifecycle {
   const child = getProcessManager().start({
     name: "ide-bridge",
     command: "/usr/bin/socat",
     args: [
       `TCP-LISTEN:${port},bind=127.0.0.1,fork,reuseaddr`,
-      `TCP:host.docker.internal:${port}`,
+      `TCP:${hostAccessName}:${port}`,
     ],
     lifetime: "application",
     interaction: { mode: "non-interactive" },
@@ -250,18 +253,20 @@ export async function terminateContainerSessions(
 
 async function runSettingsCommandAsSandbox(
   command: "apply" | "sync",
+  signal?: AbortSignal,
 ): Promise<void> {
-  const output = await executeContainerCommand("/usr/sbin/gosu", [
-    "sandbox",
-    "/usr/local/bin/sandbox-container-tools",
-    "settings",
-    command,
-  ]);
+  const output = await executeContainerCommand(
+    "/usr/sbin/gosu",
+    ["sandbox", "/usr/local/bin/sandbox-container-tools", "settings", command],
+    signal ? { signal } : {},
+  );
   if (output.trim()) getTerminal().stdout.write(`${output.trimEnd()}\n`);
 }
 
-export async function runSettingsApplyAsSandbox(): Promise<void> {
-  await runSettingsCommandAsSandbox("apply");
+export async function runSettingsApplyAsSandbox(
+  signal: AbortSignal,
+): Promise<void> {
+  await runSettingsCommandAsSandbox("apply", signal);
 }
 
 export async function runSettingsSyncAsSandbox(): Promise<void> {

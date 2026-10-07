@@ -149,7 +149,11 @@ function createResult(options: {
   });
 }
 
-function probePid(pid: number): ProcessIdentityStatus {
+export function getCurrentPid(): number {
+  return process.pid;
+}
+
+export function probePid(pid: number): ProcessIdentityStatus {
   try {
     process.kill(pid, 0);
     return "running";

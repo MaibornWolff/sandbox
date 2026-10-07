@@ -52,6 +52,13 @@ export async function applyTomlConfig(
     getLogger().debug(`  Runtime: ${toml.runtime}`);
   }
 
+  // Runtime-specific options (override supplied values)
+  const appleContainerOptions = toml.runtimes?.["apple-container"];
+  if (appleContainerOptions?.dns !== undefined) {
+    config.runtimes["apple-container"] = { dns: appleContainerOptions.dns };
+    getLogger().debug(`  Apple container DNS: ${appleContainerOptions.dns}`);
+  }
+
   // Mounts (accumulate)
   if (toml.mounts !== undefined) {
     const mounts = resolveExistingMounts(
@@ -76,7 +83,6 @@ export async function applyTomlConfig(
     getLogger().debug(`  Readonly mode: ${toml.readonly}`);
   }
 
-  // Clipboard (override)
   if (toml.clipboard !== undefined) {
     config.clipboard = toml.clipboard;
     getLogger().debug(`  Clipboard: ${toml.clipboard}`);

@@ -28,6 +28,7 @@ interface InputModifiers {
 
 export interface TestTerminalUser {
   inputChunks(...chunks: string[]): Promise<void>;
+  endInput(finalChunk?: string): void;
   type(text: string): Promise<void>;
   enter(count?: number): Promise<void>;
   space(count?: number): Promise<void>;
@@ -286,6 +287,9 @@ export function createTestTerminal(
         input.write(chunk);
         await waitForImmediate();
       }
+    },
+    endInput(finalChunk) {
+      input.end(finalChunk);
     },
     type: send,
     enter: (count) => send(repeat("\r", count)),

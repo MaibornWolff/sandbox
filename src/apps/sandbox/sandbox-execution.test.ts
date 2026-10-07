@@ -1,4 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import {
+  HOST_BRIDGE_ENDPOINT_VARIABLE,
+  openHostBridgeConnection,
+} from "#modules/host-bridge/index.js";
+import { runWithDependencies } from "#platform/dependency-injection/index.js";
+import {
+  createNodeWebSocketService,
+  provideWebSocketService,
+} from "#platform/websocket/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
@@ -6,6 +15,14 @@ function interactiveRequest(
   app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
 ) {
   return app.processes.requests.find((request) => request.stdio === "inherit");
+}
+
+function attachedExecution(
+  app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
+) {
+  return app.runtime
+    .events()
+    .findLast((event) => event.type === "container.exec-attached");
 }
 
 function givenSuccessfulInteractiveProcess(
@@ -17,6 +34,167 @@ function givenSuccessfulInteractiveProcess(
 }
 
 describe("sandbox shell and run", () => {
+  test("fails host validation without checking a host display", async () => {
+    await using app = await setupSandboxAppTest({
+      platform: "darwin",
+      runtimeBoundary: "process",
+    });
+    app.global.writeConfig('runtime = "docker"\n');
+    app.processes
+      .expectStart({ match: { command: "docker", args: ["--version"] } })
+      .resolveResult({ exitCode: 1, stdout: "", stderr: "offline" });
+    const result = await app.cli.run("--no-build", "run", "true");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Docker daemon is not running");
+    expect(
+      app.processes.requests.some((request) => request.command === "pgrep"),
+    ).toBe(false);
+  });
+
+  test.each(["--clipboard", "-c"])(
+    "rejects removed option %s",
+    async (flag) => {
+      await using app = await setupSandboxAppTest();
+      const result = await app.cli.run(flag, "disabled", "run", "true");
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("unknown option");
+      expect(attachedExecution(app)).toBeUndefined();
+    },
+  );
+  test.each(["global", "project"] as const)(
+    "disables host clipboard access from %s settings without disabling host commands",
+    async (source) => {
+      await using app = await setupSandboxAppTest({
+        variables: { DISPLAY: "host:0", WAYLAND_DISPLAY: "wayland-0" },
+      });
+      if (source === "global") {
+        app.global.writeConfig('clipboard = "disabled"\n');
+      } else {
+        app.global.writeConfig('clipboard = "enabled"\n');
+        app.project.writeConfig('clipboard = "disabled"\n', { trusted: true });
+      }
+      const user = app.processes.expectStart({ match: { stdio: "inherit" } });
+      const execution = app.cli.run("--verbose", "run", "true");
+      await Promise.race([
+        user.waitForStart(),
+        execution.then((result) => expect(result.exitCode).toBe(0)),
+      ]);
+      const environment = attachedExecution(app)?.spec.environment ?? {};
+      expect(environment).not.toHaveProperty("DISPLAY");
+      expect(environment).not.toHaveProperty("XAUTHORITY");
+      expect(environment).not.toHaveProperty("WAYLAND_DISPLAY");
+      expect(app.clipboardSession.sessions).toHaveLength(0);
+      const endpoint = new URL(
+        environment[HOST_BRIDGE_ENDPOINT_VARIABLE] ?? "",
+      );
+      endpoint.hostname = "127.0.0.1";
+      const bridgeEnvironment = {
+        ...environment,
+        [HOST_BRIDGE_ENDPOINT_VARIABLE]: endpoint.href,
+      };
+      await runWithDependencies(
+        [provideWebSocketService(createNodeWebSocketService())],
+        async () => {
+          for (const capability of ["clipboard-read", "clipboard-write"]) {
+            await expect(
+              openHostBridgeConnection({
+                capability,
+                environment: bridgeEnvironment,
+              }),
+            ).rejects.toThrow("404");
+          }
+          await using commands = await openHostBridgeConnection({
+            capability: "host-command",
+            environment: bridgeEnvironment,
+          });
+          await commands.sendText(JSON.stringify({ type: "list" }));
+          for await (const message of commands.messages) {
+            expect(message).toMatchObject({
+              type: "text",
+              data: JSON.stringify({ type: "allowed-commands", patterns: [] }),
+            });
+            break;
+          }
+        },
+      );
+      user.resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+      const result = await execution;
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("Clipboard access is disabled");
+      expect(app.clipboard.publications).toHaveLength(0);
+    },
+  );
+
+  test("waits for private display readiness and reports an unexpected proxy exit", async () => {
+    await using app = await setupSandboxAppTest({
+      variables: { DISPLAY: "host:0", WAYLAND_DISPLAY: "wayland-0" },
+    });
+    app.clipboardSession.holdReadiness();
+    const user = app.processes.expectStart({ match: { stdio: "inherit" } });
+    const execution = app.cli.run("run", "true");
+    const proxy = await app.clipboardSession.waitForStart();
+    expect(attachedExecution(app)).toBeUndefined();
+    proxy.emitStdout(
+      '{"type":"clipboard-ready","display":":456","authority":"/tmp/private/auth"}\n',
+    );
+    await user.waitForStart();
+    expect(attachedExecution(app)?.spec.environment).toMatchObject({
+      DISPLAY: ":456",
+      XAUTHORITY: "/tmp/private/auth",
+      WAYLAND_DISPLAY: "",
+    });
+    expect(app.clipboard.publications).toHaveLength(0);
+    proxy.emitStdout(
+      '{"type":"clipboard-operation-failed","code":"transfer-timeout"}\n',
+    );
+    app.clipboardSession.exitUnexpectedly();
+    user.resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+    const result = await execution;
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("Private clipboard proxy stopped");
+    expect(result.stderr).toContain(
+      "Clipboard transfer failed: transfer-timeout",
+    );
+  });
+
+  test("keeps the command usable after private clipboard startup failure", async () => {
+    await using app = await setupSandboxAppTest({
+      variables: { DISPLAY: "host:0" },
+    });
+    app.clipboardSession.failStartup();
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "Clipboard is unavailable: display: display-executable-unavailable",
+    );
+    expect(result.stderr).not.toContain("private raw failure");
+    expect(attachedExecution(app)?.spec.environment).not.toHaveProperty(
+      "DISPLAY",
+    );
+    expect(attachedExecution(app)?.spec.environment).not.toHaveProperty(
+      "XAUTHORITY",
+    );
+  });
+
+  test("uses a versioned runtime cache and schedules cleanup after the session", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+
+    const container = app.runtime.instances.all()[0];
+    const runtimeId = container?.labels["sandbox.runtime"];
+    expect(runtimeId).toMatch(/^\d+\.\d+\.\d+[^/]*-[a-f0-9]{64}$/);
+    expect(
+      app.workspace.dataFileExists(
+        `sandbox/runtime/${runtimeId}/dist/apps/sandbox/main.js`,
+      ),
+    ).toBe(true);
+    expect(app.workspace.dataFileExists("sandbox/runtime/.last-cleanup")).toBe(
+      true,
+    );
+  });
   test("executes the root shell through Commander and managed runtime state", async () => {
     await using app = await setupSandboxAppTest({
       variables: { TERM: "xterm-256color" },
@@ -28,14 +206,16 @@ describe("sandbox shell and run", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Creating sandbox container");
     expect(result.stderr).toContain("Starting sandbox shell");
-    const request = interactiveRequest(app);
-    expect(request).toMatchObject({ command: "docker", stdio: "inherit" });
-    expect(request?.args).toContain("-it");
-    expect(request?.args?.slice(-2)).toEqual([
+    const execution = attachedExecution(app);
+    expect(execution?.spec.command).toEqual([
       "/usr/local/bin/exec-entrypoint.sh",
       "zsh",
     ]);
-    expect(app.runtime.containers.all()).toHaveLength(1);
+    expect(execution?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: true,
+    });
+    expect(app.runtime.instances.all()).toHaveLength(1);
   });
 
   test("preserves root shell child exit codes", async () => {
@@ -48,7 +228,7 @@ describe("sandbox shell and run", () => {
 
     expect(result.exitCode).toBe(37);
     expect(result.stderr).not.toContain("Error:");
-    expect(result.stderr).toContain("Stopped host command escape session");
+    expect(result.stderr).toContain("Stopped host bridge session");
   });
 
   test("attaches non-terminal stdin to the root shell without allocating a TTY", async () => {
@@ -58,14 +238,10 @@ describe("sandbox shell and run", () => {
     const result = await app.cli.run();
 
     expect(result.exitCode).toBe(0);
-    const args = interactiveRequest(app)?.args ?? [];
-    expect(args).toContain("-i");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-t");
-    expect(args.slice(-2)).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "zsh",
-    ]);
+    expect(attachedExecution(app)?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: false,
+    });
   });
 
   test("shows container information and rejects unknown root commands", async () => {
@@ -93,21 +269,20 @@ describe("sandbox shell and run", () => {
     expect(
       (await interactive.cli.run("run", "--", "sh", "-c", "echo ok")).exitCode,
     ).toBe(0);
-    const interactiveArgs = interactiveRequest(interactive)?.args ?? [];
-    expect(interactiveArgs).toContain("-it");
-    expect(interactiveArgs.slice(-4)).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "sh",
-      "-c",
-      "echo ok",
-    ]);
+    expect(attachedExecution(interactive)).toMatchObject({
+      spec: {
+        command: ["/usr/local/bin/exec-entrypoint.sh", "sh", "-c", "echo ok"],
+      },
+      session: { attachStdin: true, allocateTerminal: true },
+    });
 
     await using piped = await setupSandboxAppTest({ interactive: false });
     givenSuccessfulInteractiveProcess(piped);
     expect((await piped.cli.run("run", "node", "script.js")).exitCode).toBe(0);
-    const pipedArgs = interactiveRequest(piped)?.args ?? [];
-    expect(pipedArgs).toContain("-i");
-    expect(pipedArgs).not.toContain("-it");
+    expect(attachedExecution(piped)?.session).toMatchObject({
+      attachStdin: true,
+      allocateTerminal: false,
+    });
   });
 
   test("preserves silent validation, child exit codes, and title restoration", async () => {
@@ -137,13 +312,18 @@ describe("sandbox shell and run", () => {
   });
 
   test("reports configuration and runtime failures without spawning", async () => {
-    await using malformed = await setupSandboxAppTest();
+    await using malformed = await setupSandboxAppTest({ platform: "darwin" });
     const configFailure = await malformed.cli.run("--no-proxy", "run", "zsh");
     expect(configFailure.exitCode).toBe(1);
     expect(configFailure.stderr).toContain(
       "--no-proxy requires --full-network to be enabled",
     );
     expect(interactiveRequest(malformed)).toBeUndefined();
+    expect(
+      malformed.processes.requests.some(
+        (request) => request.command === "pgrep",
+      ),
+    ).toBe(false);
 
     await using runtimeFailure = await setupSandboxAppTest();
     runtimeFailure.runtime.system.fail("resolve", new Error("daemon offline"));
@@ -166,26 +346,19 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     const result = await app.cli.run("--verbose");
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Load config completed");
-    expect(result.stderr).toContain("Started host command escape session");
+    expect(result.stderr).toContain("Started encrypted host bridge");
     expect(result.stderr.indexOf("Total startup completed")).toBeGreaterThan(
-      result.stderr.indexOf("Started host command escape session"),
+      result.stderr.indexOf("Started encrypted host bridge"),
     );
-    expect(result.stderr).toContain("Stopped host command escape session");
-    expect(result.stderr).toContain("Exec command:");
-    const execArgs = interactiveRequest(app)?.args ?? [];
-    const tokenAssignment = execArgs.find((argument) =>
-      argument.startsWith("SANDBOX_HOST_COMMAND_ESCAPE_TOKEN="),
-    );
-    expect(tokenAssignment).toBeDefined();
-    expect(execArgs).toEqual(
-      expect.arrayContaining([
-        "SANDBOX_HOST_COMMAND_ESCAPE_PROTOCOL=sandbox-host-command-escape.v1",
-      ]),
-    );
-    expect(result.stderr).not.toContain(tokenAssignment?.split("=")[1] ?? "");
-    expect(result.stderr).toContain(
-      "SANDBOX_HOST_COMMAND_ESCAPE_TOKEN=<redacted>",
-    );
+    expect(result.stderr).toContain("Stopped host bridge session");
+    expect(result.stderr).toContain("Exec mode:");
+    const executionEnvironment = attachedExecution(app)?.spec.environment;
+    const token = executionEnvironment?.SANDBOX_HOST_BRIDGE_TOKEN;
+    expect(token).toBeDefined();
+    expect(executionEnvironment).toMatchObject({
+      SANDBOX_HOST_BRIDGE_ENDPOINT: expect.stringMatching(/^wss:\/\//u),
+    });
+    expect(result.stderr).not.toContain(token ?? "");
     expect(
       app.processes
         .actions()
@@ -197,7 +370,6 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     ).toMatchObject({
       type: "start",
       request: {
-        args: expect.arrayContaining(["logs", "--follow", "--tail", "200"]),
         stdio: "ignore",
         stdin: "ignore",
         onStdout: expect.any(Function),
@@ -211,8 +383,9 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     const result = await app.cli.run("--no-build", "run", "zsh");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "Image sandbox-base:latest is not available",
+      "No complete image record exists for sandbox-base:latest",
     );
+    expect(result.stderr).toContain("Run sandbox build first");
   });
 
   test("reuses healthy containers and creates fresh containers when reuse is disabled", async () => {
@@ -235,7 +408,209 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     givenSuccessfulInteractiveProcess(app);
     const second = await app.cli.run("--no-container-reuse", "run", "zsh");
     expect(second.exitCode).toBe(0);
-    expect(app.runtime.containers.all()).toHaveLength(2);
+    expect(app.runtime.instances.all()).toHaveLength(2);
+  });
+
+  test("prepares new and reused sessions before execution", async () => {
+    await using app = await setupSandboxAppTest();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const start = app.runtime.events().length;
+      givenSuccessfulInteractiveProcess(app);
+      expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+      const events = app.runtime.events().slice(start);
+      const attached = events.findIndex(
+        (event) => event.type === "container.exec-attached",
+      );
+      expect(attached).toBeGreaterThan(0);
+      const preparation = events
+        .slice(0, attached)
+        .filter((event) => event.type === "container.exec");
+      expect(preparation).toHaveLength(1);
+      expect(
+        events
+          .slice(attached)
+          .filter((event) => event.type === "container.exec"),
+      ).toHaveLength(1);
+    }
+  });
+
+  test("recovers when a reused container stops during readiness", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    const previous = app.runtime.instances.all()[0];
+    expect(previous).toBeDefined();
+    if (!previous) throw new Error("Missing initial container");
+    const runtime = (await app.runtime.provider.resolve()).runtime;
+    await runtime.instances.remove(previous.id, { force: true });
+    const reused = app.runtime.instances.create({
+      name: previous.name,
+      image: previous.image,
+      labels: previous.labels,
+      status: "running",
+    });
+    reused.givenStopsOnReadinessAttempt(1);
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    expect(reused.snapshot().status).toBe("removed");
+    const attached = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached");
+    expect(attached).toHaveLength(2);
+    expect(attached[1]?.containerId).not.toBe(reused.id);
+  });
+
+  test.each([
+    { runtime: "docker" as const, entry: [] },
+    { runtime: "docker" as const, entry: ["run", "true"] },
+    { runtime: "podman" as const, entry: [] },
+    { runtime: "podman" as const, entry: ["run", "true"] },
+    { runtime: "apple-container" as const, entry: [] },
+    { runtime: "apple-container" as const, entry: ["run", "true"] },
+  ])(
+    "reuses $runtime containers for session-only changes through $entry",
+    async ({ runtime, entry }) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      app.global.writeConfig(
+        `runtime = "${runtime}"\nenv = ["SESSION_VALUE=global", "GLOBAL_VALUE=global"]\n`,
+      );
+      app.project.writeConfig('env = ["SESSION_VALUE=project"]\n', {
+        trusted: true,
+      });
+      givenSuccessfulInteractiveProcess(app);
+      const first = await app.cli.run(
+        "--verbose",
+        "--env",
+        "SESSION_VALUE=first-secret",
+        ...entry,
+      );
+      expect(first.exitCode).toBe(0);
+      const builds = app.runtime
+        .events()
+        .filter((event) => event.type === "image.build").length;
+      expect(builds).toBeGreaterThan(0);
+      givenSuccessfulInteractiveProcess(app);
+      expect(
+        (await app.cli.run("--env", "SESSION_VALUE=second-secret", ...entry))
+          .exitCode,
+      ).toBe(0);
+      app.global.writeConfig(`runtime = "${runtime}"\n`);
+      app.project.writeConfig("", { trusted: true });
+      givenSuccessfulInteractiveProcess(app);
+      expect((await app.cli.run(...entry)).exitCode).toBe(0);
+
+      const executions = app.runtime
+        .events()
+        .filter((event) => event.type === "container.exec-attached");
+      expect(executions).toHaveLength(3);
+      expect(executions[0]?.spec.environment).toMatchObject({
+        SESSION_VALUE: "first-secret",
+        GLOBAL_VALUE: "global",
+      });
+      expect(executions[1]?.spec.environment).toMatchObject({
+        SESSION_VALUE: "second-secret",
+        GLOBAL_VALUE: "global",
+      });
+      expect(executions[2]?.spec.environment).not.toHaveProperty(
+        "SESSION_VALUE",
+      );
+      expect(executions[2]?.spec.environment).not.toHaveProperty(
+        "GLOBAL_VALUE",
+      );
+      const creations = app.runtime
+        .events()
+        .filter((event) => event.type === "container.create");
+      expect(creations).toHaveLength(1);
+      expect(creations[0]?.options.environment).not.toHaveProperty(
+        "SESSION_VALUE",
+      );
+      expect(creations[0]?.options.environment).not.toHaveProperty(
+        "GLOBAL_VALUE",
+      );
+      expect(
+        app.runtime.events().filter((event) => event.type === "image.build"),
+      ).toHaveLength(builds);
+      expect(first.stderr).toContain("Startup environment variables");
+      expect(first.stderr).toContain("Session environment variables");
+      expect(first.stderr).not.toContain("first-secret");
+    },
+  );
+
+  test.each([
+    "SANDBOX",
+    "SANDBOX_DEBUG",
+    "SANDBOX_SETTINGS",
+    "SANDBOX_CUSTOM",
+    "CLAUDE_CODE_SSE_PORT",
+    "DISPLAY",
+    "XAUTHORITY",
+    "WAYLAND_DISPLAY",
+    "WAYLAND_SOCKET",
+    "X11_AVAILABLE",
+  ])(
+    "rejects reserved name %s before image preparation without exposing its value",
+    async (name) => {
+      await using app = await setupSandboxAppTest();
+      const result = await app.cli.run(
+        "--verbose",
+        "--env",
+        `${name}=confidential-value`,
+        "run",
+        "true",
+      );
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        `Environment variable ${name} is reserved for Sandbox`,
+      );
+      expect(result.stderr).not.toContain("confidential-value");
+      expect(
+        app.runtime
+          .events()
+          .filter(
+            (event) =>
+              event.type === "image.build" || event.type === "container.create",
+          ),
+      ).toEqual([]);
+      expect(interactiveRequest(app)).toBeUndefined();
+    },
+  );
+
+  test("validates reserved names in global and trusted project configuration", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('env = ["SANDBOX_RUNTIME=global-secret"]\n');
+    expect((await app.cli.run()).stderr).toContain(
+      "Environment variable SANDBOX_RUNTIME is reserved for Sandbox",
+    );
+    app.global.writeConfig("");
+    app.project.writeConfig('env = ["DISPLAY=project-secret"]\n', {
+      trusted: true,
+    });
+    const result = await app.cli.run("container", "start");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Environment variable DISPLAY is reserved for Sandbox",
+    );
+    expect(result.stderr).not.toContain("project-secret");
+    expect(
+      app.runtime.events().filter((event) => event.type === "image.build"),
+    ).toEqual([]);
+  });
+
+  test("structural changes still select a new container", async () => {
+    await using app = await setupSandboxAppTest();
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    givenSuccessfulInteractiveProcess(app);
+    expect(await app.cli.run("--readonly", "run", "true")).toMatchObject({
+      exitCode: 0,
+    });
+    const creations = app.runtime
+      .events()
+      .filter((event) => event.type === "container.create");
+    expect(creations).toHaveLength(2);
+    expect(creations[0]?.options.labels?.["sandbox.hash"]).not.toBe(
+      creations[1]?.options.labels?.["sandbox.hash"],
+    );
   });
 
   test("uses a new broker token for each execution in a reused container", async () => {
@@ -245,34 +620,44 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     givenSuccessfulInteractiveProcess(app);
     expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
 
-    const tokens = app.processes.requests
-      .filter((request) => request.stdio === "inherit")
-      .map((request) =>
-        request.args?.find((argument) =>
-          argument.startsWith("SANDBOX_HOST_COMMAND_ESCAPE_TOKEN="),
-        ),
-      );
+    const tokens = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached")
+      .map((event) => event.spec.environment?.SANDBOX_HOST_BRIDGE_TOKEN);
     expect(tokens).toHaveLength(2);
     expect(tokens[0]).toBeDefined();
     expect(tokens[1]).toBeDefined();
     expect(tokens[0]).not.toBe(tokens[1]);
+    const displays = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-attached")
+      .map((event) => event.spec.environment?.DISPLAY);
+    expect(displays[0]).toMatch(/^:[0-9]+$/u);
+    expect(displays[0]).not.toBe(displays[1]);
+    expect(app.clipboardSession.sessions).toHaveLength(2);
+    for (const proxy of app.clipboardSession.sessions)
+      await proxy.waitForInputEnd();
+    expect(app.clipboard.publications).toHaveLength(0);
   });
 
-  test("uses the runtime-specific broker host name", async () => {
-    await using app = await setupSandboxAppTest({ runtime: "podman" });
-    await app.project.givenConfig({ allowNetwork: [], runtime: "podman" });
-    givenSuccessfulInteractiveProcess(app);
+  test.each([
+    ["docker", "host.docker.internal"],
+    ["podman", "host.containers.internal"],
+    ["apple-container", "host.container.internal"],
+  ] as const)(
+    "uses the resolved %s host name for the host-command broker",
+    async (runtime, hostAccessName) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      await app.project.givenConfig({ allowNetwork: [], runtime });
+      givenSuccessfulInteractiveProcess(app);
 
-    expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
+      expect((await app.cli.run("run", "zsh")).exitCode).toBe(0);
 
-    expect(interactiveRequest(app)?.args).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(
-          /^SANDBOX_HOST_COMMAND_ESCAPE_ENDPOINT=ws:\/\/host\.containers\.internal:/u,
-        ),
-      ]),
-    );
-  });
+      expect(
+        attachedExecution(app)?.spec.environment?.SANDBOX_HOST_BRIDGE_ENDPOINT,
+      ).toStartWith(`wss://${hostAccessName}:`);
+    },
+  );
 
   test("confirms home-root safety and suppresses its display in silent mode", async () => {
     await using rejected = await setupSandboxAppTest({ workspaceAtHome: true });
@@ -305,6 +690,31 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
 });
 
 describe("sandbox container start and stop", () => {
+  test("foreground startup excludes configured session values and warns", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('env = ["SESSION_VALUE=private-value"]\n');
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run(
+      "--env",
+      "CLI_VALUE=private-cli",
+      "container",
+      "start",
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "does not start a session and does not apply env",
+    );
+    const creation = app.runtime
+      .events()
+      .find((event) => event.type === "container.create");
+    expect(creation?.options.environment.SANDBOX).toBe("1");
+    expect(creation?.options.environment).not.toHaveProperty("SESSION_VALUE");
+    expect(creation?.options.environment).not.toHaveProperty("CLI_VALUE");
+    expect(attachedExecution(app)).toBeUndefined();
+    expect(result.stderr).not.toContain("private-value");
+    expect(result.stderr).not.toContain("private-cli");
+  });
+
   test("runs container start in the foreground with preserved guidance and exits", async () => {
     await using app = await setupSandboxAppTest();
     app.processes
@@ -316,20 +726,8 @@ describe("sandbox container start and stop", () => {
     expect(result.stdout).toContain("Starting container");
     expect(result.stdout).toContain("in foreground (Ctrl+C to stop)");
     expect(result.stdout).toContain("Container stopped. Inspect with:");
-    const args = interactiveRequest(app)?.args ?? [];
-    expect(args.slice(0, 4)).toEqual([
-      "run",
-      "--init",
-      "--name",
-      expect.any(String),
-    ]);
-    expect(args).not.toContain("exec");
-    expect(args).not.toContain("-i");
-    expect(args).not.toContain("-it");
-    expect(args).not.toContain("-t");
-    expect(
-      args.some((argument) => argument.includes("HOST_COMMAND_ESCAPE")),
-    ).toBe(false);
+    expect(app.runtime.instances.all()).toHaveLength(1);
+    expect(attachedExecution(app)).toBeUndefined();
     expect(result.stderr).not.toContain("host command escape session");
 
     await using existing = await setupSandboxAppTest();
@@ -337,6 +735,8 @@ describe("sandbox container start and stop", () => {
       id: "sha256:base",
       references: ["sandbox-base:latest"],
     });
+    existing.runtime.images.givenNextBuild({ id: `sha256:${"a".repeat(64)}` });
+    expect((await existing.cli.run("build")).exitCode).toBe(0);
     givenSuccessfulInteractiveProcess(existing);
     expect(
       (await existing.cli.run("--no-build", "container", "start")).exitCode,
@@ -364,7 +764,7 @@ describe("sandbox container start and stop", () => {
       state: "running",
       sessions: [{ pid: "42", command: "zsh" }],
     });
-    confirmed.runtime.containers.create({
+    confirmed.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
       labels: { "sandbox.project": "other-project" },
@@ -375,19 +775,19 @@ describe("sandbox container start and stop", () => {
     await confirmed.tui.user.type("y");
     expect((await execution).exitCode).toBe(0);
     expect(
-      confirmed.runtime.containers
+      confirmed.runtime.instances
         .all()
         .find((container) => container.id === own.id)?.status,
     ).toBe("removed");
     expect(
-      confirmed.runtime.containers.find("sandbox-other-project")?.status,
+      confirmed.runtime.instances.find("sandbox-other-project")?.status,
     ).toBe("running");
 
     await using forced = await setupSandboxAppTest({ runtime: "podman" });
     forced.global.writeConfig('runtime = "podman"\n');
     await forced.project.givenConfig({ allowNetwork: [] });
     forced.project.givenContainer({ state: "running" });
-    forced.runtime.containers.create({
+    forced.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
       labels: { "sandbox.project": "other-project" },
@@ -411,7 +811,7 @@ describe("sandbox container start and stop", () => {
     const result = await execution;
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Cancelled");
-    expect(app.runtime.containers.find(container.id)?.status).toBe("running");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
   });
 
   test("settles stop confirmation when the user presses Ctrl-C", async () => {
@@ -426,7 +826,7 @@ describe("sandbox container start and stop", () => {
     const result = await execution;
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("Cancelled");
-    expect(app.runtime.containers.find(container.id)?.status).toBe("running");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
   });
 });
 
@@ -449,8 +849,8 @@ test("overlapping host executions isolate runtime, process manager, terminal, cl
   await first.clock.advanceBy(500);
   expect(first.clock.currentTime()).not.toBe(second.clock.currentTime());
   expect(first.project.root).not.toBe(second.project.root);
-  expect(first.runtime.containers.all()).toHaveLength(1);
-  expect(second.runtime.containers.all()).toHaveLength(1);
+  expect(first.runtime.instances.all()).toHaveLength(1);
+  expect(second.runtime.instances.all()).toHaveLength(1);
   expect(first.tui.output()).not.toBe("");
   expect(second.tui.output()).not.toBe("");
 

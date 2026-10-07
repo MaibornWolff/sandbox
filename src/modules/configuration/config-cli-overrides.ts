@@ -43,8 +43,6 @@ export function applyCliOptions(
 
   // Override options
   if (cliOptions.readonly !== undefined) config.readonly = cliOptions.readonly;
-  if (cliOptions.clipboard !== undefined)
-    config.clipboard = cliOptions.clipboard;
   if (cliOptions.fullNetwork !== undefined)
     config.fullNetwork = cliOptions.fullNetwork;
   if (cliOptions.proxy !== undefined) config.noProxy = !cliOptions.proxy;

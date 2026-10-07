@@ -1,9 +1,53 @@
-const IGNORED_SANDBOX_OUTPUT = [
-  "X11 clipboard not available",
-  "Run `sandbox setup-x11` for setup instructions",
-  "Terminal text clipboard may work via OSC 52 passthrough",
-  "Creating sandbox container...",
-];
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  parse,
+  stringify,
+  type TomlTableWithoutBigInt,
+  type TomlValueWithoutBigInt,
+} from "smol-toml";
+
+function configTable(
+  value: TomlValueWithoutBigInt | undefined,
+): TomlTableWithoutBigInt {
+  if (value === undefined) return {};
+  if (
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Date)
+  )
+    return value;
+  throw new Error("E2E runtime settings must be TOML tables.");
+}
+
+export function createE2eGlobalConfig(options: {
+  readonly templatePath: string;
+  readonly configPath: string;
+  readonly runtime?: string;
+  readonly appleDns?: string;
+}): void {
+  const template = parse(readFileSync(options.templatePath, "utf8"), {
+    integersAsBigInt: false,
+  });
+  const runtimes = configTable(template.runtimes);
+  const config = {
+    ...template,
+    ...(options.runtime === undefined ? {} : { runtime: options.runtime }),
+    ...(options.appleDns === undefined
+      ? {}
+      : {
+          runtimes: {
+            ...runtimes,
+            "apple-container": {
+              ...configTable(runtimes["apple-container"]),
+              dns: options.appleDns,
+            },
+          },
+        }),
+  };
+  writeFileSync(options.configPath, stringify(config), "utf8");
+}
+
+const IGNORED_SANDBOX_OUTPUT = ["Creating sandbox container..."];
 
 export interface SandboxResult {
   readonly command: readonly string[];

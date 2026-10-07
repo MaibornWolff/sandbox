@@ -8,6 +8,7 @@ export interface NetworkPolicy {
   noProxy: boolean;
 }
 
+/** @testonly */
 export function normalizeNetworkPolicy(config: Config): NetworkPolicy {
   return {
     enabled: true,

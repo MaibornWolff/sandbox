@@ -1,7 +1,6 @@
 export { splitColonString } from "./colon-separated.js";
 export { resolveContainerPath } from "./container-path.js";
 export {
-  isWindowsDrivePath,
   normalizePath,
   safeResolve,
   windowsPathToDocker,
@@ -13,4 +12,3 @@ export {
   redactEnvValue,
 } from "./redaction.js";
 export { shellQuote } from "./shell-quote.js";
-export { parseSizeToBytes } from "./size.js";

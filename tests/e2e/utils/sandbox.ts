@@ -1,16 +1,10 @@
 import { spawn } from "node:child_process";
-import {
-  appendFileSync,
-  copyFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { getExitCodeForSignal } from "#platform/process/index.js";
 import {
   buildTerminalCommandArgs,
+  createE2eGlobalConfig,
   type SandboxResult,
   sanitizeSandboxOutput,
 } from "#test/e2e-sandbox-helpers.js";
@@ -25,6 +19,7 @@ const SANDBOX_BIN = resolve(
 );
 
 interface SandboxOptions {
+  binary?: string;
   cwd?: string;
   timeoutSeconds?: number;
   env?: Readonly<Record<string, string>>;
@@ -33,6 +28,7 @@ interface SandboxOptions {
 interface SandboxExecOptions {
   stdin?: string;
   timeoutSeconds?: number;
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 interface SandboxCommandInteraction {
@@ -129,6 +125,7 @@ function spawnCapturedProcess(options: {
 }
 
 function startSandboxCommand(options: {
+  readonly binary: string;
   readonly args: string[];
   readonly cwd: string;
   readonly configDir: string;
@@ -143,11 +140,12 @@ function startSandboxCommand(options: {
   );
   const startedAt = performance.now();
   const proc = spawnCapturedProcess({
-    command: [SANDBOX_BIN, ...options.args],
+    command: [options.binary, ...options.args],
     cwd: options.cwd,
     env: {
       ...process.env,
       ...options.env,
+      ...options.execOptions.env,
       SANDBOX_TRUST_ALL: "1",
       SANDBOX_CONFIG_DIR: options.configDir,
     },
@@ -243,7 +241,6 @@ export function createSandbox(opts?: SandboxOptions) {
   const cwd = opts?.cwd ?? process.cwd();
   const defaultTimeout = opts?.timeoutSeconds ?? DEFAULT_TIMEOUT;
 
-  // Isolate from user-level config so tests always use docker with defaults
   // Keep bind-mounted fixtures under the E2E project. Colima shares
   // project paths but does not necessarily share the host OS temp directory.
   const configDir = mkdtempSync(join(cwd, ".sandbox-test-config-"));
@@ -253,17 +250,15 @@ export function createSandbox(opts?: SandboxOptions) {
     process.env.DOCKER_CONFIG ??
     (process.env.HOME ? join(process.env.HOME, ".docker") : undefined);
 
-  // Copy default config template so tests get proper defaults (e.g. MISE_TRUSTED_CONFIG_PATHS)
   const templateConfigPath = process.env.SANDBOX_RUNTIME_ROOT
     ? resolve(process.env.SANDBOX_RUNTIME_ROOT, "templates/config.toml")
     : resolve(__dirname, "../../../templates/config.toml");
-  copyFileSync(templateConfigPath, join(configDir, "config.toml"));
-  if (process.env.SANDBOX_TEST_RUNTIME) {
-    appendFileSync(
-      join(configDir, "config.toml"),
-      `\nruntime = "${process.env.SANDBOX_TEST_RUNTIME}"\n`,
-    );
-  }
+  createE2eGlobalConfig({
+    templatePath: templateConfigPath,
+    configPath: join(configDir, "config.toml"),
+    runtime: process.env.SANDBOX_TEST_RUNTIME,
+    appleDns: process.env.SANDBOX_TEST_APPLE_DNS,
+  });
 
   async function execute(
     args: string[],
@@ -272,12 +267,14 @@ export function createSandbox(opts?: SandboxOptions) {
   ): Promise<SandboxResult> {
     const timeout = execOptions.timeoutSeconds ?? defaultTimeout;
     const sandboxArgs = [...args];
-    const commandArgs = [
-      timeoutBin,
+    const commandArgs = [timeoutBin];
+    // Keep interactive children in the terminal's foreground process group.
+    if (terminal) commandArgs.push("--foreground");
+    commandArgs.push(
       String(timeout),
-      SANDBOX_BIN,
+      opts?.binary ?? SANDBOX_BIN,
       ...sandboxArgs,
-    ];
+    );
     const allArgs = terminal
       ? buildTerminalCommandArgs({
           scriptPath: resolveTerminalBin(),
@@ -297,6 +294,7 @@ export function createSandbox(opts?: SandboxOptions) {
       env: {
         ...process.env,
         ...opts?.env,
+        ...execOptions.env,
         ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
         HOME: homeDir,
         SANDBOX_TRUST_ALL: "1",
@@ -342,6 +340,7 @@ export function createSandbox(opts?: SandboxOptions) {
     execOptions: SandboxExecOptions = {},
   ): SandboxCommandInteraction {
     return startSandboxCommand({
+      binary: opts?.binary ?? SANDBOX_BIN,
       args,
       cwd,
       configDir,

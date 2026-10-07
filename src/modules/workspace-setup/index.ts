@@ -1,6 +1,7 @@
 /** @lintignore Public workspace setup agent configuration model. */
 export type { DetectedConfig } from "./agent-config-copying.js";
 /** @lintignore Public workspace setup command API. */
+/** @lintignore Public workspace setup command API. */
 export { configUpdateCommand } from "./config-update-command.js";
 /** @lintignore Public workspace setup template update API. */
 export {

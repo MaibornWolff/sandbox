@@ -4,7 +4,6 @@ import {
   createDependency,
   type DependencyBinding,
 } from "#platform/dependency-injection/index.js";
-import type { X11Config } from "./x11-config.js";
 
 export interface HostEnvironment {
   readonly currentWorkingDirectory: string;
@@ -17,37 +16,17 @@ export interface HostEnvironment {
   readonly interactive: boolean;
 }
 
-interface HostEnvironmentExecution {
-  readonly environment: HostEnvironment;
-  detectX11(
-    detection: (environment: HostEnvironment) => Promise<X11Config>,
-  ): Promise<X11Config>;
-}
-
 const hostEnvironmentDependency =
-  createDependency<HostEnvironmentExecution>("host environment");
+  createDependency<HostEnvironment>("host environment");
 
 export function provideHostEnvironment(
   environment: HostEnvironment,
 ): DependencyBinding {
-  let x11Detection: Promise<X11Config> | undefined;
-  return hostEnvironmentDependency.provide({
-    environment,
-    detectX11(detection) {
-      x11Detection ??= detection(environment);
-      return x11Detection;
-    },
-  });
+  return hostEnvironmentDependency.provide(environment);
 }
 
 export function getHostEnvironment(): HostEnvironment {
-  return hostEnvironmentDependency.get().environment;
-}
-
-export function detectX11ForHostExecution(
-  detection: (environment: HostEnvironment) => Promise<X11Config>,
-): Promise<X11Config> {
-  return hostEnvironmentDependency.get().detectX11(detection);
+  return hostEnvironmentDependency.get();
 }
 
 interface HostEnvironmentValues {

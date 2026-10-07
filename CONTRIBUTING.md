@@ -22,7 +22,7 @@ Run the complete local check before you submit a pull request:
 bun check
 ```
 
-`bun install` installs Git hooks. The pre-commit hook formats and lints the staged files. The pre-push hook runs `bun check`. Continuous integration (CI) runs `bun check`, the shell script tests, and the end-to-end tests, and it fails when a check changes a tracked file.
+`bun install` installs Git hooks. The pre-commit hook runs `bun check`. The pre-push hook runs `bun check`. Continuous integration (CI) runs `bun check`, the shell script tests, and the end-to-end tests, and it fails when a check changes a tracked file.
 
 Run the shell script tests when your change affects files in `docker/`. They need `sh`, `bash`, and `zsh` on the host:
 

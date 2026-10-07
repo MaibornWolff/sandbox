@@ -2,7 +2,6 @@ import type { Command } from "commander";
 import {
   displayEnvironmentCheck,
   doctorCommand,
-  setupX11Command,
 } from "#modules/diagnostics/index.js";
 import {
   cleanCommand,
@@ -10,7 +9,6 @@ import {
   stopCommand,
 } from "#modules/sandbox-containers/index.js";
 import { buildCommand, upgradeCommand } from "#modules/sandbox-images/index.js";
-import { migrateCommand } from "#modules/sandbox-resources/index.js";
 import { updateCommand } from "#modules/self-update/index.js";
 import { initCommand } from "#modules/workspace-setup/index.js";
 import { requireHost } from "../host-environment.js";
@@ -38,17 +36,6 @@ export function registerLifecycleCommands(program: Command): void {
       requireHost("upgrade");
       const globalOpts = cmd.parent.opts();
       await upgradeCommand(mergeCliOptions(globalOpts, options));
-    });
-
-  program
-    .command("migrate")
-    .description(
-      "Migrate legacy sandbox image, container, volume, and Dockerfile names",
-    )
-    .action(async (_options, cmd) => {
-      requireHost("migrate");
-      const globalOpts = cmd.parent.opts();
-      await migrateCommand(globalOpts);
     });
 
   program
@@ -104,14 +91,6 @@ export function registerLifecycleCommands(program: Command): void {
       const merged = { ...globalOpts, ...options };
 
       await cleanCommand(merged);
-    });
-
-  program
-    .command("setup-x11")
-    .description("Setup and validate X11 clipboard support")
-    .action(async () => {
-      requireHost("setup-x11");
-      await setupX11Command();
     });
 
   program

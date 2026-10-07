@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
-import { createFile, ensureDirectory, ensurePath, exists } from "./file.js";
+import {
+  createFile,
+  ensureDirectory,
+  ensurePath,
+  exists,
+  removeOwnedDirectory,
+  setPathModifiedTime,
+} from "./file.js";
 
 let testDir: string;
 
@@ -12,6 +19,37 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanupTestDir(testDir);
+});
+
+describe("removeOwnedDirectory", () => {
+  it("removes read-only owned trees without changing symbolic-link targets", () => {
+    const external = path.join(testDir, "external.txt");
+    const owned = path.join(testDir, "owned");
+    const nested = path.join(owned, "readonly");
+    fs.writeFileSync(external, "outside", { mode: 0o444 });
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(nested, "data"), "inside", { mode: 0o444 });
+    fs.symlinkSync(external, path.join(owned, "external"), "file");
+    fs.chmodSync(nested, 0o555);
+    const externalMode = fs.statSync(external).mode;
+    removeOwnedDirectory(owned);
+    expect(fs.existsSync(owned)).toBe(false);
+    expect(fs.readFileSync(external, "utf8")).toBe("outside");
+    expect(fs.statSync(external).mode).toBe(externalMode);
+    removeOwnedDirectory(owned);
+  });
+});
+
+describe("setPathModifiedTime", () => {
+  it("sets the modification time supplied by the caller", () => {
+    const filePath = path.join(testDir, "timestamped");
+    fs.writeFileSync(filePath, "content");
+    const modifiedAt = Date.UTC(2026, 0, 1);
+
+    setPathModifiedTime(filePath, modifiedAt);
+
+    expect(fs.statSync(filePath).mtimeMs).toBe(modifiedAt);
+  });
 });
 
 describe("ensureDirectory", () => {

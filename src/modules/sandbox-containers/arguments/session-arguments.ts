@@ -1,4 +1,8 @@
 import { getNetworkSessionEnvironment } from "#modules/network/index.js";
+import type {
+  SandboxExecSpec,
+  TerminalSessionOptions,
+} from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { windowsPathToDocker } from "#shared/text/index.js";
 import {
@@ -6,62 +10,59 @@ import {
   logEnvironmentVariables,
 } from "./environment-arguments.js";
 
-interface BuildExecArgsOptions {
-  containerName: string;
-  currentDir: string;
-  command: string[];
-  stdin: boolean;
-  tty: boolean;
-  proxyEnabled: boolean;
-  hostCommandEscapeEnvironment?: Readonly<Record<string, string>>;
-  verbose?: boolean;
+interface BuildSandboxExecSpecOptions {
+  readonly currentDir: string;
+  readonly command: readonly string[];
+  readonly stdin: boolean;
+  readonly tty: boolean;
+  readonly environment: readonly string[];
+  readonly proxyEnabled: boolean;
+  readonly sessionEnvironment?: Readonly<Record<string, string>>;
+  readonly verbose?: boolean;
 }
 
-function buildSessionArgs(options: {
-  currentDir: string;
-  proxyEnabled: boolean;
-  hostCommandEscapeEnvironment?: Readonly<Record<string, string>>;
-  verbose?: boolean;
-}): string[] {
-  const { currentDir, proxyEnabled, verbose } = options;
-  const logger = getLogger();
-  const args = ["-w", windowsPathToDocker(currentDir)];
-  logger.debug(`Working directory: ${windowsPathToDocker(currentDir)}`);
-
-  const passthroughVars = getSessionEnvironmentVariables();
-  for (const { name, value } of passthroughVars) {
-    if (value) args.push("-e", `${name}=${value}`);
+export function buildSandboxExecSpec(options: BuildSandboxExecSpecOptions): {
+  readonly spec: SandboxExecSpec;
+  readonly session: TerminalSessionOptions;
+} {
+  const environment: Record<string, string> = {};
+  for (const assignment of options.environment) {
+    const separator = assignment.indexOf("=");
+    environment[assignment.slice(0, separator)] = assignment.slice(
+      separator + 1,
+    );
   }
-  for (const [name, value] of Object.entries(
-    getNetworkSessionEnvironment(proxyEnabled),
-  )) {
-    args.push("-e", `${name}=${value}`);
+  const passthroughVariables = getSessionEnvironmentVariables().filter(
+    (entry): entry is { name: string; value: string } =>
+      entry.value !== undefined && entry.value !== "",
+  );
+  for (const { name, value } of passthroughVariables) {
+    environment[name] = value;
   }
-  for (const [name, value] of Object.entries(
-    options.hostCommandEscapeEnvironment ?? {},
-  )) {
-    args.push("-e", `${name}=${value}`);
-  }
+  Object.assign(
+    environment,
+    getNetworkSessionEnvironment(options.proxyEnabled),
+    options.sessionEnvironment ?? {},
+  );
+  if (options.verbose) environment.SANDBOX_DEBUG = "1";
   logEnvironmentVariables(
-    passthroughVars
-      .filter(({ value }) => value)
-      .map(({ name, value }) => `${name}=${value}`),
+    "Session",
+    Object.entries(environment).map(([name, value]) => `${name}=${value}`),
   );
-  if (verbose) args.push("-e", "SANDBOX_DEBUG=1");
-  return args;
-}
-
-export function buildExecArgs(options: BuildExecArgsOptions): string[] {
-  const { containerName, command, stdin, tty } = options;
-  const logger = getLogger();
-  const args: string[] = [];
-  if (stdin && tty) args.push("-it");
-  else if (stdin) args.push("-i");
-  else if (tty) args.push("-t");
-  logger.debug(
-    `Exec mode: stdin=${stdin ? "attached" : "detached"}, tty=${tty}`,
+  const workingDirectory = windowsPathToDocker(options.currentDir);
+  getLogger().debug(`Working directory: ${workingDirectory}`);
+  getLogger().debug(
+    `Exec mode: stdin=${options.stdin ? "attached" : "detached"}, tty=${options.tty}`,
   );
-  args.push(...buildSessionArgs(options));
-  args.push(containerName, "/usr/local/bin/exec-entrypoint.sh", ...command);
-  return args;
+  return {
+    spec: {
+      command: ["/usr/local/bin/exec-entrypoint.sh", ...options.command],
+      environment,
+      workingDirectory,
+    },
+    session: {
+      attachStdin: options.stdin,
+      allocateTerminal: options.tty,
+    },
+  };
 }

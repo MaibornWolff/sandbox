@@ -36,12 +36,8 @@ function registerCommands(program: Command): void {
       displaySandboxInfo();
       return;
     }
-    const updateCheck = warnIfUpdateAvailable();
-    try {
-      await runShell(normalizeCliOptions(options));
-    } finally {
-      await updateCheck;
-    }
+    warnIfUpdateAvailable();
+    await runShell(normalizeCliOptions(options));
   });
 
   program
@@ -59,7 +55,6 @@ function registerCommands(program: Command): void {
 Examples:
   $ sandbox run claude
   $ sandbox run --no-build claude
-  $ sandbox --clipboard disabled run codex
   $ sandbox run -- sh -c 'echo "$HOME"'
   $ sandbox run -- curl -fsS https://example.com
 
@@ -75,14 +70,8 @@ Note:
       if (mergedOptions.silent) {
         getLogger().setSilent(true);
       }
-      const updateCheck = mergedOptions.silent
-        ? Promise.resolve()
-        : warnIfUpdateAvailable();
-      try {
-        await runCommand(command, mergedOptions);
-      } finally {
-        await updateCheck;
-      }
+      if (!mergedOptions.silent) warnIfUpdateAvailable();
+      await runCommand(command, mergedOptions);
     });
 
   registerEscapeCommand(program);
@@ -101,7 +90,7 @@ export function createProgram(): Command {
 
   program
     .name("sandbox")
-    .description("Docker sandbox CLI for coding agents")
+    .description("Container sandbox CLI for coding agents")
     .version(getVersion())
     .allowExcessArguments();
   program.configureHelp({ showGlobalOptions: true });

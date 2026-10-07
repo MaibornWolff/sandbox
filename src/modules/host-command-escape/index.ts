@@ -1,4 +1,9 @@
 export {
+  type CreateHostCommandCapabilityOptions,
+  createHostCommandCapability,
+  type HostCommandCapability,
+} from "./broker.js";
+export {
   type RunHostCommandEscapeOptions,
   runHostCommandEscape,
 } from "./client.js";
@@ -29,8 +34,3 @@ export {
   type RepeatMatcher,
   RepeatMatcherSchema,
 } from "./matchers.js";
-export {
-  type HostCommandEscapeSession,
-  type StartHostCommandEscapeSessionOptions,
-  startHostCommandEscapeSession,
-} from "./session.js";

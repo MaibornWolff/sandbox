@@ -6,7 +6,7 @@ import {
   type SandboxContainer,
 } from "#modules/sandbox-containers/index.js";
 import { getClock } from "#platform/clock/index.js";
-import type { ContainerRuntime } from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
@@ -49,13 +49,22 @@ async function collectDiagnostic(
 }
 
 function readContainerDiagnostic(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
   command: string[],
 ): Promise<NetworkDiagnostic> {
-  return collectDiagnostic(() =>
-    service.execInContainer(containerId, command, { user: "root" }),
-  );
+  return collectDiagnostic(async () => {
+    const result = await service.instances.exec(containerId, {
+      command,
+      user: "root",
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Container diagnostic failed with exit code ${result.exitCode}: ${result.stderr}`,
+      );
+    }
+    return result.stdout;
+  });
 }
 
 function formatStatus(status: NetworkConnectionStatus): string {
@@ -138,12 +147,14 @@ function renderRawLogs(
 }
 
 async function collectRawSections(
-  service: ContainerRuntime,
+  service: SandboxRuntime,
   containerId: string,
 ): Promise<readonly RawDiagnosticSection[]> {
   const [runtimeLog, networkState, firewall, dns, proxyAccess, proxyCache] =
     await Promise.all([
-      collectDiagnostic(() => service.getContainerLogs(containerId, 200)),
+      collectDiagnostic(() =>
+        service.instances.readLogs(containerId, { tail: 200 }),
+      ),
       readContainerDiagnostic(
         service,
         containerId,
@@ -188,9 +199,9 @@ export async function networkBlockedCommand(
   const logger = getLogger();
   const terminal = getTerminal();
   const clock = getClock();
-  const { projectRoot, configuredRuntime } = await configuration.load(options);
-  const runtimeService = await runtimeProvider.resolve(configuredRuntime);
-  const containers = await findSandboxContainers(runtimeService, {
+  const { projectRoot, runtimeResolution } = await configuration.load(options);
+  const { runtime } = await runtimeProvider.resolve(runtimeResolution);
+  const containers = await findSandboxContainers(runtime, {
     status: "running",
     projectSlug: generateProjectSlug(projectRoot),
   });
@@ -206,7 +217,7 @@ export async function networkBlockedCommand(
         `Collecting raw network diagnostics from ${chalk.cyan(container.id.substring(0, 12))}`,
       );
       terminal.stdout.write(
-        `${renderRawLogs(container, await collectRawSections(runtimeService, container.id))}\n`,
+        `${renderRawLogs(container, await collectRawSections(runtime, container.id))}\n`,
       );
     }
     return;
@@ -216,7 +227,7 @@ export async function networkBlockedCommand(
   for (const container of containers) {
     allEntries.push(
       ...(await collectContainerEntries(
-        runtimeService,
+        runtime,
         container,
         options.resolve !== false,
         clock.now(),

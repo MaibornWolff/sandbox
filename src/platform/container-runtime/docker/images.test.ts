@@ -26,6 +26,37 @@ function imageJson(options: {
   ]);
 }
 
+function absenceCommand(binary: "docker" | "podman", reference: string) {
+  return {
+    command: binary,
+    args:
+      binary === "podman"
+        ? ["image", "exists", reference]
+        : [
+            "image",
+            "ls",
+            "--all",
+            "--digests",
+            "--no-trunc",
+            "--format",
+            "{{json .}}",
+          ],
+  };
+}
+
+function givenImageAbsence(
+  commands: ReturnType<typeof createStatefulRuntimeCommandExecutor>,
+  binary: "docker" | "podman",
+  reference: string,
+): void {
+  const command = absenceCommand(binary, reference);
+  if (binary === "podman") {
+    commands.givenFailure(command, new ExecError("", 1));
+  } else {
+    commands.givenOutput(command, "");
+  }
+}
+
 function buildSpec(): ImageBuildSpec {
   return {
     contextDirectory: "/tmp/context",
@@ -127,6 +158,7 @@ for (const runtimeCase of runtimes) {
         labels: { "sandbox.managed": "true", other: "value" },
         sizeBytes: 1_500,
       });
+      expect(commands.events()).toHaveLength(1);
     });
 
     test("returns null only for a missing image", async () => {
@@ -136,8 +168,11 @@ for (const runtimeCase of runtimes) {
           command: runtimeCase.binary,
           args: ["image", "inspect", "missing"],
         },
-        new ExecError("No such image", 1, { stderr: "No such image" }),
+        new ExecError("image lookup failed", 125, {
+          stderr: "Error: sandbox-base:latest: image not known",
+        }),
       );
+      givenImageAbsence(missing, runtimeCase.binary, "missing");
       await expect(
         runtimeCase.create(missing.executor).images.inspect("missing"),
       ).resolves.toBeNull();
@@ -151,6 +186,10 @@ for (const runtimeCase of runtimes) {
           command: runtimeCase.binary,
           args: ["image", "inspect", "image"],
         },
+        failure,
+      );
+      unavailable.givenFailure(
+        absenceCommand(runtimeCase.binary, "image"),
         failure,
       );
       await expect(
@@ -168,6 +207,32 @@ for (const runtimeCase of runtimes) {
       await expect(
         runtimeCase.create(malformed.executor).images.inspect("image"),
       ).rejects.toThrow("invalid image inspection JSON");
+    });
+
+    test("preserves inspection errors for an image confirmed present", async () => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      const failure = new ExecError("permission denied: image not found", 125);
+      commands.givenFailure(
+        {
+          command: runtimeCase.binary,
+          args: ["image", "inspect", "image:latest"],
+        },
+        failure,
+      );
+      commands.givenOutput(
+        absenceCommand(runtimeCase.binary, "image:latest"),
+        runtimeCase.binary === "podman"
+          ? ""
+          : JSON.stringify({
+              ID: "sha256:abcd",
+              Repository: "image",
+              Tag: "latest",
+              Digest: "<none>",
+            }),
+      );
+      await expect(
+        runtimeCase.create(commands.executor).images.inspect("image:latest"),
+      ).rejects.toBe(failure);
     });
 
     test("builds with typed policy and adapter-owned secret transport", async () => {
@@ -264,6 +329,7 @@ for (const runtimeCase of runtimes) {
         },
         new ExecError("No such image", 1, { stderr: "No such image" }),
       );
+      givenImageAbsence(commands, runtimeCase.binary, "missing");
       for (const candidate of candidates.slice(1)) {
         commands.givenOutput(
           {
@@ -404,3 +470,61 @@ for (const runtimeCase of runtimes) {
     });
   });
 }
+
+describe("Docker image inventory fallback", () => {
+  test.each([
+    ["not-json", "invalid image list JSON"],
+    ["null", "invalid image list data"],
+    ["{}", "missing identity or reference data"],
+  ])(
+    "does not treat an invalid list as absence: %s",
+    async (output, message) => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenFailure(
+        { command: "docker", args: ["image", "inspect", "missing"] },
+        new ExecError("lookup failed", 1),
+      );
+      commands.givenOutput(absenceCommand("docker", "missing"), output);
+      const images = createDockerImageOperations("docker", commands.executor, {
+        loadResult: true,
+        environment: {},
+      });
+      await expect(images.inspect("missing")).rejects.toThrow(message);
+    },
+  );
+
+  test("matches repository digests and untagged full identities in JSON lines", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    const id = `sha256:${"a".repeat(64)}`;
+    const digest = `sha256:${"b".repeat(64)}`;
+    const failure = new ExecError("inspection denied", 1);
+    commands.givenOutput(
+      absenceCommand("docker", id),
+      [
+        JSON.stringify({
+          ID: id,
+          Repository: "<none>",
+          Tag: "<none>",
+          Digest: "<none>",
+        }),
+        JSON.stringify({
+          ID: "sha256:other",
+          Repository: "alpine",
+          Tag: "latest",
+          Digest: digest,
+        }),
+      ].join("\r\n"),
+    );
+    const images = createDockerImageOperations("docker", commands.executor, {
+      loadResult: true,
+      environment: {},
+    });
+    for (const reference of [id, `alpine@${digest}`]) {
+      commands.givenFailure(
+        { command: "docker", args: ["image", "inspect", reference] },
+        failure,
+      );
+      await expect(images.inspect(reference)).rejects.toBe(failure);
+    }
+  });
+});

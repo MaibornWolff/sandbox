@@ -1,3 +1,4 @@
+import { ExecError } from "#platform/process/index.js";
 import type {
   ImageBuildSpec,
   ImageCleanupRemoval,
@@ -7,6 +8,22 @@ import type {
   ImageCleanupSkipReason,
   ImageDetails,
 } from "./image-contract.js";
+
+export async function inspectImage(options: {
+  readonly read: () => Promise<string>;
+  readonly exists: () => Promise<boolean>;
+  readonly parse: (output: string) => ImageDetails;
+}): Promise<ImageDetails | null> {
+  let output: string;
+  try {
+    output = await options.read();
+  } catch (error) {
+    if (!(error instanceof ExecError)) throw error;
+    if (await options.exists()) throw error;
+    return null;
+  }
+  return options.parse(output);
+}
 
 export function buildImageArguments(
   spec: ImageBuildSpec,

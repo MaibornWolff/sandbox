@@ -122,6 +122,7 @@ describe("Apple container 1.4.1 image operations", () => {
       },
       sizeBytes: 1900,
     });
+    expect(commands.events()).toHaveLength(1);
   });
 
   test("rejects malformed, empty, incomplete, and unsupported-platform output", async () => {
@@ -158,9 +159,11 @@ describe("Apple container 1.4.1 image operations", () => {
     const missing = createStatefulRuntimeCommandExecutor();
     missing.givenFailure(
       { command: "container", args: ["image", "inspect", "missing"] },
-      new ExecError("image not found", 1, {
-        stderr: "Error: image not found: missing",
-      }),
+      new ExecError("unknown lookup failure", 1),
+    );
+    missing.givenOutput(
+      { command: "container", args: ["image", "list", "--format", "json"] },
+      "[]",
     );
     await expect(
       createImages(missing.executor).inspect("missing"),
@@ -172,10 +175,58 @@ describe("Apple container 1.4.1 image operations", () => {
       { command: "container", args: ["image", "inspect", "image"] },
       failure,
     );
+    failed.givenFailure(
+      { command: "container", args: ["image", "list", "--format", "json"] },
+      failure,
+    );
     await expect(createImages(failed.executor).inspect("image")).rejects.toBe(
       failure,
     );
   });
+
+  test.each(["image", "image:latest", "sha256:abcd", "image@sha256:abcd"])(
+    "preserves inspection failures for an existing reference: %s",
+    async (reference) => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      const failure = new ExecError(
+        "permission denied: image not found: image",
+        1,
+      );
+      commands.givenFailure(
+        { command: "container", args: ["image", "inspect", reference] },
+        failure,
+      );
+      commands.givenOutput(
+        { command: "container", args: ["image", "list", "--format", "json"] },
+        imageFixture({ id: "sha256:abcd", name: "image:latest" }),
+      );
+      await expect(
+        createImages(commands.executor).inspect(reference),
+      ).rejects.toBe(failure);
+    },
+  );
+
+  test.each([
+    ["not-json", "invalid image list JSON"],
+    ["[null]", "invalid image list data"],
+    ["[{}]", "missing identity or reference data"],
+  ])(
+    "does not treat an invalid image list as absence: %s",
+    async (output, message) => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenFailure(
+        { command: "container", args: ["image", "inspect", "missing"] },
+        new ExecError("lookup failed", 1),
+      );
+      commands.givenOutput(
+        { command: "container", args: ["image", "list", "--format", "json"] },
+        output,
+      );
+      await expect(
+        createImages(commands.executor).inspect("missing"),
+      ).rejects.toThrow(message);
+    },
+  );
 
   test("encodes all supported build behavior without Docker-only flags or secrets", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
@@ -342,6 +393,7 @@ describe("Apple container 1.4.1 image operations", () => {
             labels: { "sandbox.managed": "true" },
           });
         }
+        if (args[0] === "image" && args[1] === "list") throw failure;
         if (args[0] === "list") {
           if (stage === "list") throw failure;
           return "[]";

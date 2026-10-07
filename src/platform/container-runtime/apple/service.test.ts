@@ -699,6 +699,10 @@ describe("AppleContainerService", () => {
         stderr: "Error: image not found: missing",
       }),
     );
+    commands.givenOutput(
+      { command: "container", args: ["image", "list", "--format", "json"] },
+      "[]",
+    );
     await expect(createImages(commands).inspect("missing")).resolves.toBeNull();
   });
 
@@ -709,6 +713,10 @@ describe("AppleContainerService", () => {
       new ExecError("service unavailable", 1, {
         stderr: "service unavailable",
       }),
+    );
+    commands.givenFailure(
+      { command: "container", args: ["image", "list", "--format", "json"] },
+      new ExecError("service unavailable", 1),
     );
     await expect(createImages(commands).inspect("image")).rejects.toThrow(
       "service unavailable",

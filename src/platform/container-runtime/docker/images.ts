@@ -6,8 +6,10 @@ import type { ImageDetails, ImageOperations } from "../image-contract.js";
 import {
   buildImageArguments,
   inspectBuiltImage,
+  inspectImage,
   removeUnusedImages,
 } from "../image-operations.js";
+import { matchesImageReference } from "../image-reference.js";
 import { parseRuntimeJsonArray } from "../json-parsing.js";
 
 interface DockerImageBuildConfig {
@@ -21,13 +23,68 @@ function validateLabelKey(key: string): void {
   }
 }
 
-function isMissingImage(error: unknown): boolean {
-  return (
-    error instanceof ExecError &&
-    /no such image|no such object|not found|does not exist/iu.test(
-      `${error.stderr}\n${error.stdout}\n${error.message}`,
-    )
-  );
+function listedImageIdentity(value: unknown): {
+  readonly id: string;
+  readonly references: readonly string[];
+} {
+  if (!value || typeof value !== "object") {
+    throw new Error("Docker returned invalid image list data.");
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  if (
+    typeof record.ID !== "string" ||
+    typeof record.Repository !== "string" ||
+    typeof record.Tag !== "string" ||
+    typeof record.Digest !== "string" ||
+    !record.ID ||
+    !record.Repository ||
+    !record.Tag ||
+    !record.Digest
+  ) {
+    throw new Error("Docker image list is missing identity or reference data.");
+  }
+  const references: string[] = [];
+  if (record.Repository !== "<none>") {
+    if (record.Tag !== "<none>")
+      references.push(`${record.Repository}:${record.Tag}`);
+    if (record.Digest !== "<none>")
+      references.push(`${record.Repository}@${record.Digest}`);
+  }
+  return { id: record.ID, references };
+}
+
+async function dockerImageExists(
+  exec: RuntimeExecutor,
+  reference: string,
+): Promise<boolean> {
+  const output = await exec("docker", [
+    "image",
+    "ls",
+    "--all",
+    "--digests",
+    "--no-trunc",
+    "--format",
+    "{{json .}}",
+  ]);
+  const entries = parseRuntimeJsonArray<unknown>(
+    `[${output.trim().split(/\r?\n/u).join(",")}]`,
+    "Docker returned invalid image list JSON.",
+    "Docker returned invalid image list data.",
+  ).map(listedImageIdentity);
+  return entries.some((image) => matchesImageReference(reference, image));
+}
+
+async function podmanImageExists(
+  exec: RuntimeExecutor,
+  reference: string,
+): Promise<boolean> {
+  try {
+    await exec("podman", ["image", "exists", reference]);
+    return true;
+  } catch (error) {
+    if (error instanceof ExecError && error.exitCode === 1) return false;
+    throw error;
+  }
 }
 
 function parseStringRecord(
@@ -104,15 +161,15 @@ export function createDockerImageOperations(
   exec: RuntimeExecutor,
   buildConfig: DockerImageBuildConfig,
 ): ImageOperations {
-  const inspect = async (reference: string): Promise<ImageDetails | null> => {
-    try {
-      const output = await exec(binaryName, ["image", "inspect", reference]);
-      return parseImageInspection(output, reference);
-    } catch (error) {
-      if (isMissingImage(error)) return null;
-      throw error;
-    }
-  };
+  const inspect = (reference: string): Promise<ImageDetails | null> =>
+    inspectImage({
+      read: () => exec(binaryName, ["image", "inspect", reference]),
+      exists: () =>
+        binaryName === "podman"
+          ? podmanImageExists(exec, reference)
+          : dockerImageExists(exec, reference),
+      parse: (output) => parseImageInspection(output, reference),
+    });
 
   const containersUsing = async (id: string): Promise<string[]> => {
     const output = await exec(binaryName, [

@@ -5,13 +5,14 @@ import type { ImageDetails, ImageOperations } from "../image-contract.js";
 import {
   buildImageArguments,
   inspectBuiltImage,
+  inspectImage,
   removeUnusedImages,
 } from "../image-operations.js";
+import { matchesImageReference } from "../image-reference.js";
 import { parseRuntimeJsonArray } from "../json-parsing.js";
 import type { AppleNetworkOperations } from "./networking.js";
 import {
   type AppleContainerJson,
-  isMissingAppleResource,
   parseAppleContainerArray,
 } from "./parsing.js";
 
@@ -116,6 +117,19 @@ function parseSingleImage(output: string, reference: string): ImageDetails {
   return parseAppleImage(images[0], reference);
 }
 
+function listedImageIdentity(image: AppleImageJson): {
+  readonly id: string;
+  readonly references: readonly string[];
+} {
+  const id = image.configuration?.descriptor?.digest;
+  const name = image.configuration?.name;
+  if (typeof id !== "string" || !id || typeof name !== "string" || !name) {
+    throw new Error("Apple image list is missing identity or reference data.");
+  }
+  const repository = name.replace(/@.*$/u, "").replace(/:[^/]+$/u, "");
+  return { id, references: [name, `${repository}@${id}`] };
+}
+
 function containerUsesImage(
   container: AppleContainerJson,
   image: ImageDetails,
@@ -132,17 +146,20 @@ export function createAppleImageOperations(
   exec: RuntimeExecutor,
   networking: AppleNetworkOperations,
 ): ImageOperations {
-  const inspect = async (reference: string): Promise<ImageDetails | null> => {
-    try {
-      return parseSingleImage(
-        await exec(BINARY_NAME, ["image", "inspect", reference]),
-        reference,
-      );
-    } catch (error) {
-      if (isMissingAppleResource(error)) return null;
-      throw error;
-    }
+  const exists = async (reference: string): Promise<boolean> => {
+    const images = parseImageArray(
+      await exec(BINARY_NAME, ["image", "list", "--format", "json"]),
+      "image list",
+    );
+    const identities = images.map(listedImageIdentity);
+    return identities.some((image) => matchesImageReference(reference, image));
   };
+  const inspect = (reference: string): Promise<ImageDetails | null> =>
+    inspectImage({
+      read: () => exec(BINARY_NAME, ["image", "inspect", reference]),
+      exists: () => exists(reference),
+      parse: (output) => parseSingleImage(output, reference),
+    });
 
   const containersUsing = async (image: ImageDetails): Promise<string[]> => {
     const containers = parseAppleContainerArray(

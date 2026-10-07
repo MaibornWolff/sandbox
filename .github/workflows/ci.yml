@@ -35,6 +35,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes zsh
       - name: Run checks
         run: bun run check --verbose
+      - name: Run shell script tests
+        run: bun run test:shell
       - name: Check for generated changes
         run: git diff --exit-code
       - name: Upload coverage

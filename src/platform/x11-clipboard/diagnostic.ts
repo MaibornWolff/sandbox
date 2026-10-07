@@ -1,5 +1,6 @@
 import { getSandboxEnvironment } from "#platform/environment/index.js";
 import { getProcessManager } from "#platform/process/index.js";
+import { isFileNotFoundError } from "#shared/errors/index.js";
 
 interface ContainerX11Diagnostic {
   readonly exitCode: number;
@@ -38,10 +39,7 @@ export async function diagnoseContainerX11(): Promise<ContainerX11Diagnostic> {
       output: `✅ X11 connection successful\n   Display: ${display}\n${screenDetails}`,
     };
   } catch (error) {
-    if (
-      "code" in Object(error) &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    if (isFileNotFoundError(error)) {
       return { exitCode: 1, output: "❌ xdpyinfo not installed\n" };
     }
     return {

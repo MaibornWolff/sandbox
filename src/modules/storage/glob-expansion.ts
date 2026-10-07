@@ -1,6 +1,8 @@
 import fg from "fast-glob";
 import { getLogger } from "#platform/logging/index.js";
 
+import { getErrorMessage } from "#shared/errors/index.js";
+
 /**
  * Directories to not recurse INTO (but can still match them).
  * These are common heavy directories that would slow down glob traversal.
@@ -60,7 +62,7 @@ export async function expandGlob(opts: ExpandGlobOptions): Promise<string[]> {
       ignore: GLOB_IGNORE_PATTERNS,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     logger.warn(`Glob "${pattern}" failed: ${message}`);
     logger.endTiming(`Glob expand: ${pattern}`);
     return [];

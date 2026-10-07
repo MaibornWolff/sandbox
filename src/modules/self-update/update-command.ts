@@ -15,7 +15,7 @@ import {
   promptSelectionConfirmation,
   writeStandardOutput,
 } from "#platform/terminal/index.js";
-import { isPromptCancellation } from "#shared/errors/index.js";
+import { getErrorMessage, isPromptCancellation } from "#shared/errors/index.js";
 import { getVersion, isNewerVersion } from "./package-version.js";
 import { updateInstalledTemplates } from "./template-updating.js";
 
@@ -48,7 +48,7 @@ async function checkForUpdate(): Promise<{
   try {
     latestVersion = await fetchLatestVersion(PACKAGE_NAME);
   } catch (error) {
-    logger.error(error instanceof Error ? error.message : String(error));
+    logger.error(getErrorMessage(error));
     return null;
   }
 
@@ -70,7 +70,7 @@ async function performUpdate(): Promise<boolean> {
     return true;
   } catch (error) {
     writeStandardOutput();
-    logger.error(error instanceof Error ? error.message : String(error));
+    logger.error(getErrorMessage(error));
     return false;
   }
 }

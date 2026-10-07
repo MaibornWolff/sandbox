@@ -10,8 +10,6 @@
 
 A terminal device (TTY) boundary requires a real pseudo-terminal. Process identifier 1 (PID 1) behavior requires a real container process.
 
-The checked-in [host command behavior matrix](./agents/host-command-behavior-matrix.md) and [container-tools command behavior matrix](./agents/container-tools-command-behavior-matrix.md) map each real route to its application and focused behavior coverage.
-
 ## Host Application Harness
 
 Use `await using` to settle pending prompts and executions. It also removes temporary roots after a test failure:
@@ -128,9 +126,13 @@ Coverage thresholds are regression floors, not test-design goals. Start from a u
 
 Run `bun run coverage:check` for the repository gate. Bun runs the source tests with coverage and writes text and LCOV reports. The small `scripts/check-coverage.ts` script sums LCOV line totals and enforces 95% aggregate line coverage.
 
-`bun check` runs non-test validation tasks in parallel. It then runs `coverage:check` alone so Bun coverage does not overlap build tasks. The pre-commit path runs lint-staged first and then the same gate. GitHub Actions uses `bun run check --verbose` as its validation entry. It retains `coverage/lcov.info` as an artifact.
+`bun check` runs non-test validation tasks in parallel. It then runs `coverage:check` alone so Bun coverage does not overlap build tasks. The pre-commit hook runs `bun check`. The pre-push hook runs the same gate as `bun check`. GitHub Actions uses `bun run check --verbose` as its validation entry. It retains `coverage/lcov.info` as an artifact.
 
 Architecture tests are the regression boundary for process ownership. They reject child-process imports and handles, child or PID signalling, liveness probing, unref, and Node process signal subscriptions outside `platform/process`. Review-time text searches may diagnose violations, but they are not the enforcement mechanism.
+
+## Shell Script Boundaries
+
+The shell scripts and shell configuration files in `docker/` run inside the container image. Tests for them live in `tests/shell/` and execute the scripts with the host `sh`, `bash`, and `zsh` binaries. They are not part of `bun check` because Windows hosts have no POSIX shells. Run them with `bun run test:shell` on a host that has all three shells. GitHub Actions runs them on Linux.
 
 ## Targeted End-to-End Boundaries
 

@@ -13,6 +13,7 @@ import {
   type ProcessManager,
   type ProcessResult,
 } from "#platform/process/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { executeContainerCommand } from "./command.js";
 import { restoreFirewall } from "./firewall.js";
 import { getTcpService, type TcpService } from "./tcp-service.js";
@@ -291,9 +292,7 @@ async function prepareSquidFilesystem(
       { recursive: true, force: true },
     );
   } catch (error) {
-    debug(
-      `default Squid error pages unavailable: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    debug(`default Squid error pages unavailable: ${getErrorMessage(error)}`);
   }
   writeFile(
     "/usr/share/squid/errors/custom/ERR_SANDBOX_BLOCKED",

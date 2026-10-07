@@ -2,6 +2,9 @@ import { getConfigurationService } from "#modules/configuration/index.js";
 import { getClock } from "#platform/clock/index.js";
 import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import { buildSessionDetailsCommand } from "#platform/container-system/index.js";
+import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { getContainerHash } from "../container-hashing.js";
 import type { SandboxOptions } from "../sandbox-options.js";
@@ -81,23 +84,14 @@ export async function getSessionDetails(
 ): Promise<SessionInfo[]> {
   try {
     const result = await service.instances.exec(containerName, {
-      command: [
-        "sh",
-        "-c",
-        [
-          "for f in /tmp/sandbox-sessions/*; do",
-          '  [ -f "$f" ] || continue;',
-          '  pid=$(basename "$f");',
-          '  kill -0 "$pid" 2>/dev/null || { rm -f "$f"; continue; };',
-          '  cmd=$(tr "\\0" " " < /proc/$pid/cmdline 2>/dev/null | head -c 200);',
-          '  echo "$pid|$cmd";',
-          "done",
-        ].join(" "),
-      ],
+      command: buildSessionDetailsCommand(),
     });
 
     return result.exitCode === 0 ? parseSessionDetails(result.stdout) : [];
-  } catch {
+  } catch (error) {
+    getLogger().debug(
+      `Could not read sessions of ${containerName}: ${getErrorMessage(error)}`,
+    );
     return [];
   }
 }

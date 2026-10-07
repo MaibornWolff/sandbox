@@ -10,6 +10,7 @@ import {
   selectCheckbox,
   writeStandardOutput,
 } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import {
   applyBypassSettings,
   canAddBypass,
@@ -83,7 +84,7 @@ function copyAgentConfig(
     }
   } catch (err) {
     result.success = false;
-    result.error = err instanceof Error ? err.message : String(err);
+    result.error = getErrorMessage(err);
   }
 
   return result;

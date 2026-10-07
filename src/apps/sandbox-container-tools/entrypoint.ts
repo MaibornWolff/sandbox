@@ -28,6 +28,8 @@ import {
   type ProcessManager,
 } from "#platform/process/index.js";
 
+import { getErrorMessage } from "#shared/errors/index.js";
+
 function idleTimeoutMilliseconds(value: string | undefined): number {
   if (value === undefined) return 5_000;
   const seconds = Number(value);
@@ -123,7 +125,7 @@ export async function runContainerEntrypoint(
           await runSettingsSyncAsSandbox();
         } catch (error) {
           logger.debug(
-            `settings sync failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+            `settings sync failed (non-fatal): ${getErrorMessage(error)}`,
           );
         }
       }
@@ -192,7 +194,7 @@ async function shutdownManagedChildren(
     await processes.stopAll({ signal: receivedSignal ?? "SIGTERM" });
   } catch (error) {
     if (receivedSignal === undefined) throw error;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     getLogger().error(message);
   }
 }
@@ -204,9 +206,7 @@ async function settleNetworkStartup(
   try {
     await startup;
   } catch (error) {
-    getLogger().debug(
-      `${failureContext}: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    getLogger().debug(`${failureContext}: ${getErrorMessage(error)}`);
   }
 }
 

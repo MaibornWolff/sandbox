@@ -5,6 +5,7 @@ import {
 } from "#modules/host-command-escape/index.js";
 import { readTextFile } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage, isFileNotFoundError } from "#shared/errors/index.js";
 import { validateConfig } from "./config-validation.js";
 import { type TomlConfig, tomlConfigSchema } from "./toml-config-schema.js";
 
@@ -16,7 +17,7 @@ export function parseTomlDocument(
   try {
     return parseToml(content, { integersAsBigInt: false });
   } catch (error) {
-    const details = error instanceof Error ? error.message : String(error);
+    const details = getErrorMessage(error);
     throw new Error(`Failed to parse config at ${configPath}: ${details}`, {
       cause: error,
     });
@@ -78,11 +79,11 @@ export function loadTomlConfig(configPath: string): TomlConfig | null {
   try {
     content = readTextFile(configPath);
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isFileNotFoundError(error)) {
       logger.debug(`Config file not found: ${configPath}`);
       return null;
     }
-    const details = error instanceof Error ? error.message : String(error);
+    const details = getErrorMessage(error);
     throw new Error(`Failed to read config at ${configPath}: ${details}`, {
       cause: error,
     });

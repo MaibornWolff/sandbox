@@ -246,16 +246,7 @@ function createProjectFixture(options: {
         ...(containerOptions.uptime ? { uptime: containerOptions.uptime } : {}),
       });
       if (containerOptions.sessions) {
-        container.givenExecResult(
-          [
-            "sh",
-            "-c",
-            'for f in /tmp/sandbox-sessions/*; do   [ -f "$f" ] || continue;   pid=$(basename "$f");   kill -0 "$pid" 2>/dev/null || { rm -f "$f"; continue; };   cmd=$(tr "\\0" " " < /proc/$pid/cmdline 2>/dev/null | head -c 200);   echo "$pid|$cmd"; done',
-          ],
-          containerOptions.sessions
-            .map((session) => `${session.pid}|${session.command}`)
-            .join("\n"),
-        );
+        container.givenSessions(containerOptions.sessions);
       }
       return {
         id: container.id,

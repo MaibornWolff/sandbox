@@ -4,6 +4,7 @@ import { hasGlobChars } from "#modules/configuration/index.js";
 import type { Mount } from "#modules/storage/index.js";
 import { exists, resolveRealPath } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { getSettingsDir } from "./settings-paths.js";
 
 const CONTAINER_HOME = "/home/sandbox";
@@ -69,7 +70,7 @@ async function expandPattern(
         followSymbolicLinks: true,
       });
     } catch (error) {
-      getLogger().debug(`Glob "${pattern}" failed: ${error}`);
+      getLogger().debug(`Glob "${pattern}" failed: ${getErrorMessage(error)}`);
       return [];
     }
   }

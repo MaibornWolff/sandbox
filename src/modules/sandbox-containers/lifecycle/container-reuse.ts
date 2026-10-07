@@ -5,7 +5,9 @@ import type {
   SandboxRuntime,
 } from "#platform/container-runtime/index.js";
 import { SandboxInstanceNameConflictError } from "#platform/container-runtime/index.js";
+import { buildSessionIdleCommand } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 import { getContainerBaseName } from "../container-naming.js";
@@ -39,7 +41,7 @@ async function queryRetainedContainers(
     });
   } catch (error) {
     logger.warn(
-      `Could not establish stopped-container cleanup safety: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not establish stopped-container cleanup safety: ${getErrorMessage(error)}`,
     );
     throw error;
   }
@@ -60,7 +62,7 @@ async function queryRetainedContainers(
       logger.debug(`Removed stopped container: ${entry.id}`);
     } catch (error) {
       logger.warn(
-        `Could not remove stopped container ${entry.id}: ${error instanceof Error ? error.message : String(error)}`,
+        `Could not remove stopped container ${entry.id}: ${getErrorMessage(error)}`,
       );
       retained.push(container);
     }
@@ -77,11 +79,7 @@ async function isContainerIdle(
   containerName: string,
 ): Promise<boolean> {
   const result = await service.instances.exec(containerName, {
-    command: [
-      "sh",
-      "-c",
-      'for f in /tmp/sandbox-sessions/*; do [ -f "$f" ] || continue; kill -0 "$(basename "$f")" 2>/dev/null || rm -f "$f"; done; [ -z "$(ls /tmp/sandbox-sessions/ 2>/dev/null)" ]',
-    ],
+    command: buildSessionIdleCommand(),
   });
   return result.exitCode === 0;
 }
@@ -106,7 +104,7 @@ async function removeIdleObsoleteContainer(
     return null;
   } catch (error) {
     logger.warn(
-      `Could not remove idle obsolete container ${container.name}: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not remove idle obsolete container ${container.name}: ${getErrorMessage(error)}`,
     );
     return container;
   }

@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { formatErrorDiagnostics, getLogger } from "#platform/logging/index.js";
 import { getTerminal, type Terminal } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { createContainerToolsProgram } from "./create-program.js";
 
 function isCommanderError(error: unknown): error is { readonly code: string } {
@@ -54,9 +55,7 @@ export async function runContainerToolsApplication(
   } catch (error) {
     if (!isCommanderError(error)) {
       getLogger().debug(formatErrorDiagnostics(error));
-      terminal.stderr.write(
-        `${error instanceof Error ? error.message : String(error)}\n`,
-      );
+      terminal.stderr.write(`${getErrorMessage(error)}\n`);
     }
     return getErrorExitCode(error);
   }

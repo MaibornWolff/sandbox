@@ -14,7 +14,7 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { formatErrorDiagnostics, getLogger } from "#platform/logging/index.js";
 import { getProcessManager } from "#platform/process/index.js";
 import { getTerminal, type Terminal } from "#platform/terminal/index.js";
-import { getErrorExitCode } from "#shared/errors/index.js";
+import { getErrorExitCode, getErrorMessage } from "#shared/errors/index.js";
 import { createProgram } from "./create-program.js";
 
 interface SandboxApplication {
@@ -60,7 +60,7 @@ function reportError(
 ): void {
   if (isCommanderError(error) || isReportedError(error)) return;
 
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getErrorMessage(error);
   getLogger().debug(formatErrorDiagnostics(error));
   terminal.stderr.write(
     `${message.includes("\n") ? message : `Error: ${message}`}\n`,

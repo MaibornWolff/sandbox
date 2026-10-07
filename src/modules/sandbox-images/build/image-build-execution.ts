@@ -8,6 +8,7 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { listFilesRecursively } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { readState, writeState } from "#platform/state/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { warnIfNoSpaceError } from "../disk-space-diagnostics.js";
 import type {
   BuildImagesOptions,
@@ -51,7 +52,7 @@ function getBuildExitCode(error: unknown): number {
 }
 
 function createBuildFailure(err: unknown, imageName: string): ImageBuildError {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = getErrorMessage(err);
   return new ImageBuildError(
     `Failed to build ${imageName}\n${message}`,
     getBuildExitCode(err),
@@ -84,7 +85,7 @@ async function buildFromDockerfilePath(
       );
     }
   } catch (err) {
-    logger.debug(`Could not list build context: ${err}`);
+    logger.debug(`Could not list build context: ${getErrorMessage(err)}`);
   }
 
   const buildArgs: Record<string, string> = {};

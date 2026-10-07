@@ -102,7 +102,7 @@ async function runExecEntrypoint(
   };
 }
 
-describe.skipIf(process.platform === "win32")("exec-entrypoint.sh", () => {
+describe("exec-entrypoint.sh", () => {
   test("loads the login shell and forwards exact command arguments through gosu", async () => {
     const result = await runExecEntrypoint(0);
 

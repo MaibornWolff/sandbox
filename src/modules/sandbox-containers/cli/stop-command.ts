@@ -6,6 +6,7 @@ import {
 } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { confirmDestruction } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import type { SandboxContainer } from "../lifecycle/container-discovery.js";
 import { findSandboxContainers } from "../lifecycle/container-discovery.js";
@@ -91,7 +92,7 @@ export async function stopContainers(
       await cancelContainerSessions(service, container.id, sessions);
     } catch (error) {
       logger.warn(
-        `Failed to cancel sessions in ${container.name} before stopping it: ${error}`,
+        `Failed to cancel sessions in ${container.name} before stopping it: ${getErrorMessage(error)}`,
       );
     }
     try {
@@ -99,7 +100,9 @@ export async function stopContainers(
       logger.success(`Stopped container: ${container.name}`);
       removed++;
     } catch (error) {
-      logger.error(`Failed to stop container ${container.name}: ${error}`);
+      logger.error(
+        `Failed to stop container ${container.name}: ${getErrorMessage(error)}`,
+      );
     }
   }
   return removed;

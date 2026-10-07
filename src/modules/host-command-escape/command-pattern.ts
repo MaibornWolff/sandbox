@@ -1,4 +1,5 @@
 import { RE2 } from "re2-wasm";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type { CommandPattern, HostCommandRule, Matcher } from "./matchers.js";
 
 export const COMMAND_PATTERN_LIMITS = Object.freeze({
@@ -104,7 +105,7 @@ function compileRegex(
       expression: new RE2(`^(?:${value.regex})$`, `${flags}u`),
     });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = getErrorMessage(error);
     fail(`${path}.regex`, `is not supported by the RE2 engine: ${detail}`);
   }
 }

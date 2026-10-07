@@ -6,6 +6,8 @@ import {
   type ProcessResult,
 } from "#platform/process/index.js";
 
+import { getErrorMessage } from "#shared/errors/index.js";
+
 const REGISTRY_HINT =
   "Check your network connection and configured npm registry.";
 
@@ -60,7 +62,7 @@ function errorDetail(error: unknown): string {
   if (error instanceof ExecError) {
     return error.stderr || error.stdout || error.message;
   }
-  return error instanceof Error ? error.message : String(error);
+  return getErrorMessage(error);
 }
 
 function classifiedError(message: string, cause: unknown): Error {

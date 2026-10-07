@@ -2,6 +2,10 @@ import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import chalk from "chalk";
+import { getLogger } from "#platform/logging/index.js";
+
+import { getErrorMessage, isFileNotFoundError } from "#shared/errors/index.js";
 
 export function pathExists(filePath: string): boolean {
   return fs.existsSync(filePath);
@@ -20,7 +24,10 @@ export function readJsonRecord(filePath: string): Record<string, unknown> {
 
   try {
     return JSON.parse(readTextFile(filePath)) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    getLogger().warn(
+      `Ignoring invalid JSON in ${chalk.dim(filePath)}: ${getErrorMessage(error)}`,
+    );
     return {};
   }
 }
@@ -35,7 +42,7 @@ export function getPathType(filePath: string): PathType | null {
     if (stats.isFile()) return "file";
     return "other";
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isFileNotFoundError(error)) {
       return null;
     }
     throw error;
@@ -260,7 +267,7 @@ export function validateSymlinkWithin(
       throw new Error(`Symlink ${linkPath} escapes project directory`);
     }
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isFileNotFoundError(error)) {
       return;
     }
     throw error;
@@ -321,7 +328,7 @@ export function createFile(
       created: false,
       overwritten: false,
       skipped: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: getErrorMessage(err),
     };
   }
 }
@@ -346,7 +353,7 @@ export async function isSymbolicLink(filePath: string): Promise<boolean> {
   try {
     return (await fsPromises.lstat(filePath)).isSymbolicLink();
   } catch (error: unknown) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isFileNotFoundError(error)) {
       return false;
     }
     throw error;

@@ -73,7 +73,7 @@ async function prepareNodeWrapper(
 
 const wrappers = ["sandbox-container-tools", "sandbox-wrapper.sh"] as const;
 
-describe.skipIf(process.platform === "win32")("container Node wrappers", () => {
+describe("container Node wrappers", () => {
   for (const wrapperName of wrappers) {
     test(`${wrapperName} reports an incomplete image`, async () => {
       const fixture = await prepareNodeWrapper(wrapperName);

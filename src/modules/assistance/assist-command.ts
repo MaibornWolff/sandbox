@@ -10,6 +10,7 @@ import {
   getTerminal,
   launchInteractiveAgent,
 } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import type { AssistContextFile } from "./agents/agent-definition.js";
 import { resolveAgent } from "./agents/agent-detection.js";
 import {
@@ -40,7 +41,7 @@ async function cleanupContextFile(
     await removeFile(contextFile.path);
   } catch (error) {
     getLogger().debug(
-      `Could not remove assist context file ${contextFile.path}: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not remove assist context file ${contextFile.path}: ${getErrorMessage(error)}`,
     );
   }
 
@@ -48,7 +49,7 @@ async function cleanupContextFile(
     removeDirectory(path.dirname(contextFile.path));
   } catch (error) {
     getLogger().debug(
-      `Could not remove assist context directory ${path.dirname(contextFile.path)}: ${error instanceof Error ? error.message : String(error)}`,
+      `Could not remove assist context directory ${path.dirname(contextFile.path)}: ${getErrorMessage(error)}`,
     );
   }
 }
@@ -98,7 +99,7 @@ export async function assistCommand(options: AssistOptions): Promise<number> {
       exitCode = await launchInteractiveAgent(launchSpec.cmd, launchSpec.args);
     } catch (error) {
       terminal.stderr.write(
-        `Failed to launch ${chalk.cyan(agent.name)}: ${error instanceof Error ? error.message : String(error)}\n`,
+        `Failed to launch ${chalk.cyan(agent.name)}: ${getErrorMessage(error)}\n`,
       );
       exitCode = 1;
     }

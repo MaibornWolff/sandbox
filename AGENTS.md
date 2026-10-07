@@ -15,6 +15,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - **Lint/Format:** `bun run lint`
 - **Test:** `bun run test`
 - **Build:** `bun run build`
+- **Shell script tests:** `bun run test:shell` (needs `sh`, `bash`, and `zsh` on the host, runs in CI on Linux)
 - **E2E tests:** `bun run test:e2e`
   - When running inside Sandbox, run focused host E2E tests with `sandbox escape -- bun test <test-file>`.
   - When running inside Sandbox, run all host E2E tests with `sandbox escape -- bun test:e2e`.

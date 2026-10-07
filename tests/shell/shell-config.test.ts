@@ -102,7 +102,7 @@ async function getProfileLocalMarker(): Promise<string> {
   return result.stdout;
 }
 
-describe.skipIf(process.platform === "win32")("sandbox shell config", () => {
+describe("sandbox shell config", () => {
   test("enables zsh autosuggestions when the plugin is available", async () => {
     await expect(getAutosuggestionsState()).resolves.toEqual([
       "history completion",

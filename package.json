@@ -113,7 +113,7 @@
     "jscpd": "^5.1.2",
     "knip": "^6.34.0",
     "typescript": "^7.0.2",
-    "typescript-api": "npm:typescript@^5.9.3"
+    "typescript-api": "npm:typescript@^7.0.0"
   },
   "patchedDependencies": {
     "dependency-cruiser@18.2.0": "patches/dependency-cruiser@18.2.0.patch"

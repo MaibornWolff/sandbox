@@ -4,7 +4,7 @@ import {
   setTimeout as waitForTimeout,
 } from "node:timers/promises";
 import { stripVTControlCharacters } from "node:util";
-import { StdinBuffer } from "@earendil-works/pi-tui";
+import { type ProgramStatus, StdinBuffer } from "@earendil-works/pi-tui";
 import { Terminal as XtermTerminal } from "@xterm/headless";
 import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import {
@@ -192,6 +192,8 @@ class TestPiTerminal implements Terminal {
   }
 
   setProgress(_active: boolean): void {}
+
+  setProgramStatus(_status: ProgramStatus): void {}
 }
 
 function repeat(sequence: string, count = 1): string {

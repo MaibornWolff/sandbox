@@ -12,7 +12,7 @@ index 3da4b88f7191d68e8d31a8f22bbc0ee6ac5b786b..7bdfc56c77226dd0263a4508bddd69f8
  );
  
 diff --git a/src/extract/transpile/meta.mjs b/src/extract/transpile/meta.mjs
-index ee48d5603227d877ba18e7557d68a029caffe2c6..d095b145a8a3d6cb1eb6400c36d883fc03946d4f 100644
+index 42a3a803ca0a64fcbe9a8821ddc6184ef7dcdf6d..f1afb6b60a1fdcdf2410d6a6a0d2a91574f632ed 100644
 --- a/src/extract/transpile/meta.mjs
 +++ b/src/extract/transpile/meta.mjs
 @@ -56,7 +56,7 @@ const TRANSPILER2AVAILABLE = {
@@ -38,7 +38,7 @@ index f698b075fb1e611884dade3afd01e4b026c425df..f518024d0c9e623e3293184d50f0d94b
  );
  
 diff --git a/src/extract/tsc/extract-typescript-deps.mjs b/src/extract/tsc/extract-typescript-deps.mjs
-index 54455fd60c65cd7f41622bbacd7c5b713c13a539..b8d3e75a78b205b258dca33215b544bde6e192d2 100644
+index e7fbe7543a6e738360f51392fc69a1b3525f0a01..adb441b25007edfb2f77524e0686f1f5eee80601 100644
 --- a/src/extract/tsc/extract-typescript-deps.mjs
 +++ b/src/extract/tsc/extract-typescript-deps.mjs
 @@ -11,7 +11,7 @@ import meta from "#meta.cjs";

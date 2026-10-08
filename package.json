@@ -86,35 +86,35 @@
   },
   "dependencies": {
     "@crosscopy/clipboard": "0.3.6",
-    "@earendil-works/pi-tui": "^0.85.1",
-    "chalk": "^6.0.0",
+    "@earendil-works/pi-tui": "^1.1.0",
+    "chalk": "^6.0.1",
     "commander": "^15.0.0",
     "core-js": "^3.50.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "fast-glob": "^3.3.3",
-    "node-ws": "npm:ws@^8.21.3",
+    "node-ws": "npm:ws@^8.22.0",
     "re2-wasm": "^1.0.2",
     "selfsigned": "^5.5.0",
-    "smol-toml": "^1.8.0",
-    "zod": "^4.5.4"
+    "smol-toml": "^1.9.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.12",
+    "@biomejs/biome": "^2.5.15",
     "@types/cross-spawn": "^6.0.6",
     "@types/diff": "^8.0.0",
-    "@types/node": "^26.4.1",
-    "@types/node-ws": "npm:@types/ws@^8.18.1",
+    "@types/node": "^26.6.4",
+    "@types/node-ws": "npm:@types/ws@^8.18.2",
     "@xterm/headless": "^6.0.0",
     "bun-types": "^1.4.2",
-    "dependency-cruiser": "18.2.0",
+    "dependency-cruiser": "18.5.0",
     "husky": "^9.1.7",
-    "jscpd": "^5.1.2",
-    "knip": "^6.34.0",
+    "jscpd": "^5.4.0",
+    "knip": "^6.40.0",
     "typescript": "^7.0.2",
     "typescript-api": "npm:typescript@^5.9.3"
   },
   "patchedDependencies": {
-    "dependency-cruiser@18.2.0": "patches/dependency-cruiser@18.2.0.patch"
+    "dependency-cruiser@18.5.0": "patches/dependency-cruiser@18.5.0.patch"
   }
 }

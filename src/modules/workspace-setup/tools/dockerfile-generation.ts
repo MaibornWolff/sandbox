@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { shellQuote } from "#shared/text/index.js";
 import type { ImageSetupAction } from "./image-setup.js";
 import type { ToolDefinition } from "./tool-definition.js";
 
@@ -177,7 +178,11 @@ function generateAction(action: ImageSetupAction): string[] {
         `ENV PATH="${[...action.prepend, "$PATH", ...action.append].join(":")}"`,
       ];
     case "add-shell-setup":
-      return ["RUN <<'EOF' cat >> ~/.profile", ...action.lines, "EOF"];
+      return action.lines.length === 0
+        ? []
+        : [
+            `${formatPackageRun("printf '%s\\n'", action.lines.map(shellQuote))} >> ~/.profile`,
+          ];
   }
 }
 

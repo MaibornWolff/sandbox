@@ -89,15 +89,18 @@ jobs:
         if: matrix.runtime == 'podman'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes uidmap slirp4netns
+          sudo apt-get install --yes uidmap slirp4netns fuse-overlayfs
           mkdir -p "$HOME/.config/containers"
           printf 'unqualified-search-registries = ["docker.io"]\n' > "$HOME/.config/containers/registries.conf"
           podman info
           test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
           graphroot=$(podman info --format '{{.Store.GraphRoot}}')
           runroot=$(podman info --format '{{.Store.RunRoot}}')
-          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
-          echo "CONTAINERS_STORAGE_CONF=$RUNNER_TEMP/podman-storage.conf" >> "$GITHUB_ENV"
+          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
+          export CONTAINERS_STORAGE_CONF="$RUNNER_TEMP/podman-storage.conf"
+          echo "CONTAINERS_STORAGE_CONF=$CONTAINERS_STORAGE_CONF" >> "$GITHUB_ENV"
+          podman info
+          test "$(podman info --format '{{index .Store.GraphStatus "Supports shifting"}}')" = true
       - name: Check Docker
         if: matrix.runtime == 'docker'
         run: docker info
@@ -140,16 +143,19 @@ jobs:
           bun-version: "1"
       - name: Inspect storage and user mappings
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes fuse-overlayfs
           podman info
           df -h
-          podman pull docker.io/library/alpine:3
           isolated_home=$(mktemp -d)
           HOME="$isolated_home" podman info --format 'Isolated HOME store: {{.Store.GraphRoot}}'
           graphroot=$(podman info --format '{{.Store.GraphRoot}}')
           runroot=$(podman info --format '{{.Store.RunRoot}}')
-          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
+          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
           export CONTAINERS_STORAGE_CONF="$RUNNER_TEMP/podman-storage.conf"
           echo "CONTAINERS_STORAGE_CONF=$CONTAINERS_STORAGE_CONF" >> "$GITHUB_ENV"
+          podman info
+          podman pull docker.io/library/alpine:3
           HOME="$isolated_home" podman info --format 'Shared store with isolated HOME: {{.Store.GraphRoot}}'
           HOME="$isolated_home" podman image exists docker.io/library/alpine:3
           fixture=$(mktemp -d)
@@ -183,6 +189,8 @@ jobs:
         run: timeout 120 bun test --bail --timeout 30000 tests/e2e/stdin.test.ts
       - name: Run focused host networking regression
         run: timeout 120 bun test --timeout 30000 tests/e2e/wildcard-network-ports.test.ts
+      - name: Run focused image and concurrent-start regressions
+        run: timeout 480 bun test --bail --timeout 30000 tests/e2e/init-devbox.test.ts tests/e2e/init-php.test.ts tests/e2e/init-mise.test.ts tests/e2e/connection-lifecycle.test.ts
       - name: Inspect final state
         if: always()
         run: |

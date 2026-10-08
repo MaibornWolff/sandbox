@@ -299,7 +299,7 @@ describe("catalog Dockerfile behavior", () => {
       "@earendil-works/pi-coding-agent@latest",
       "COPY .mise.tom[l]",
       "mise trust --all -y",
-      "RUN <<'EOF' cat >> ~/.profile",
+      "RUN printf '%s\\n'",
       'ENV PATH="/home/sandbox/go/bin:$PATH"',
     ]) {
       expect(result).toContain(expected);

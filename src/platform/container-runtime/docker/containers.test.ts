@@ -130,6 +130,27 @@ describe("Docker container operations", () => {
     expect(commands.events()[0]?.args).toEqual(expected);
   });
 
+  test("keeps host ownership for Podman bind mounts and starts the entrypoint as root", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    const spec = createSpec();
+    commands.givenOutput(
+      {
+        command: "podman",
+        args: buildContainerRunArgs(spec, "detached", "podman"),
+      },
+      "container-1",
+    );
+    const operations = createDockerContainerOperations({
+      binaryName: "podman",
+      runtime: "podman",
+      exec: commands.executor,
+    });
+    await operations.startDetached(spec);
+    const args = commands.events()[0]?.args ?? [];
+    expect(args).toContain("--userns=keep-id");
+    expect(args).toContain("--user=0:0");
+  });
+
   test("uses conjunction for labels and disjunction for states", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenOutput(

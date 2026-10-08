@@ -314,7 +314,9 @@ describe("security", () => {
             return !/\(ro(?:,|\))/.test(line);
           }
           if (ALLOWED_RUNTIME_MOUNT_TARGETS.has(target)) return false;
-          if (target === "/") return !/ type (?:overlay|ext4) /.test(line);
+          if (target === "/") {
+            return !/ type (?:overlay|ext4|fuse\.fuse-overlayfs) /.test(line);
+          }
           if (
             allowedTargetPrefixes.some((prefix) => target.startsWith(prefix))
           ) {

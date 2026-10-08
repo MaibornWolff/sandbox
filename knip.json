@@ -10,7 +10,6 @@
   ],
   "tags": ["-lintignore", "-testonly"],
   "ignoreExportsUsedInFile": true,
-  "ignoreDependencies": ["@biomejs/cli-linux-arm64"],
   "ignoreBinaries": ["knip"],
   "ignoreFiles": [
     "architecture.ts",

@@ -202,6 +202,7 @@ export const architecture = defineArchitecture({
         "environment",
         "git",
         "terminal",
+        "text",
         "errors",
       ],
     },

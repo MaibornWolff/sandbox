@@ -21,6 +21,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
   - When running inside Sandbox, run all host E2E tests with `sandbox escape -- bun test:e2e`.
 - You SHOULD pin CI toolchain dependencies to major versions unless stricter reproducibility is explicitly requested.
 - You MUST avoid duplicate branch and merge-request pipelines for the same commit.
+- You MUST run slow container E2E jobs only on `main` pushes or manual branch triggers.
 
 ## Key Rules
 

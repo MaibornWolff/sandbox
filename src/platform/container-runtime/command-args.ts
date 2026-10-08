@@ -47,7 +47,12 @@ export function buildContainerRunArgs(
     args.push("--add-host=host.docker.internal:host-gateway");
   }
   if (runtime === "podman") {
-    args.push("--network=private", "--cgroups=disabled");
+    args.push(
+      "--network=private",
+      "--cgroups=disabled",
+      "--userns=keep-id",
+      "--user=0:0",
+    );
   }
   if (runtime !== "apple-container") {
     args.push(

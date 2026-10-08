@@ -94,6 +94,10 @@ jobs:
           printf 'unqualified-search-registries = ["docker.io"]\n' > "$HOME/.config/containers/registries.conf"
           podman info
           test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+          graphroot=$(podman info --format '{{.Store.GraphRoot}}')
+          runroot=$(podman info --format '{{.Store.RunRoot}}')
+          printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
+          echo "CONTAINERS_STORAGE_CONF=$RUNNER_TEMP/podman-storage.conf" >> "$GITHUB_ENV"
       - name: Check Docker
         if: matrix.runtime == 'docker'
         run: docker info
@@ -141,9 +145,12 @@ jobs:
           podman pull docker.io/library/alpine:3
           isolated_home=$(mktemp -d)
           HOME="$isolated_home" podman info --format 'Isolated HOME store: {{.Store.GraphRoot}}'
-          podman info --format '[storage]\ndriver = "{{.Store.GraphDriverName}}"\ngraphroot = "{{.Store.GraphRoot}}"\nrunroot = "{{.Store.RunRoot}}"' > "$RUNNER_TEMP/podman-storage.conf"
+          graphroot=$(podman info --format '{{.Store.GraphRoot}}')
+          runroot=$(podman info --format '{{.Store.RunRoot}}')
+          printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
           export CONTAINERS_STORAGE_CONF="$RUNNER_TEMP/podman-storage.conf"
           echo "CONTAINERS_STORAGE_CONF=$CONTAINERS_STORAGE_CONF" >> "$GITHUB_ENV"
+          HOME="$isolated_home" podman info --format 'Shared store with isolated HOME: {{.Store.GraphRoot}}'
           HOME="$isolated_home" podman image exists docker.io/library/alpine:3
           fixture=$(mktemp -d)
           chmod 755 "$fixture"

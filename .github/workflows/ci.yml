@@ -170,14 +170,22 @@ jobs:
           mkdir -p "$SANDBOX_CONFIG_DIR"
           printf 'runtime = "podman"\n' > "$SANDBOX_CONFIG_DIR/config.toml"
           time ./dist/apps/sandbox/main.js --trust --verbose build
+      - name: Start one Sandbox container with live logs
+        env:
+          SANDBOX_CONFIG_DIR: ${{ runner.temp }}/sandbox-build-config
+        run: |
+          mkdir -p "$RUNNER_TEMP/podman-smoke/.sandbox"
+          printf 'allow_network = ["example.com"]\n' > "$RUNNER_TEMP/podman-smoke/.sandbox/config.toml"
+          binary="$GITHUB_WORKSPACE/dist/apps/sandbox/main.js"
+          cd "$RUNNER_TEMP/podman-smoke"
+          timeout 90 "$binary" --trust --verbose run -- id
       - name: Run focused stdin regression
-        run: timeout 120 bun test --timeout 30000 tests/e2e/stdin.test.ts
+        run: timeout 120 bun test --bail --timeout 30000 tests/e2e/stdin.test.ts
       - name: Run focused host networking regression
         run: timeout 120 bun test --timeout 30000 tests/e2e/wildcard-network-ports.test.ts
       - name: Inspect final state
         if: always()
         run: |
-          podman ps --all
-          podman images
-          podman system df
+          timeout 15 podman ps --all || echo "Podman listing timed out or failed"
+          timeout 15 podman images || echo "Podman image listing timed out or failed"
           df -h

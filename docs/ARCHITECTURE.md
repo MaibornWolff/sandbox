@@ -102,6 +102,8 @@ The container-runtime component exposes two boundaries:
 
 Docker, Podman, and Apple `container` implement both boundaries. Sandbox modules use opaque instance and storage handles. They do not use runtime image stores, container names, or volume names. Docker and Podman share Docker-compatible code only inside the adapter.
 
+The Podman adapter preserves the host user identity inside rootless containers. The entrypoint still starts as container root for initialization, then sessions run as the non-root Sandbox user. This mapping keeps bind-mounted host files writable without changing them to subordinate host IDs.
+
 Automatic instance cleanup preserves instances that are still being created. Runtime adapters report name conflicts through one semantic error. Callers can then retry without parsing runtime CLI messages.
 
 The Apple adapter initializes newly allocated logical storage from image contents before instance creation. One helper copies all new volumes into staging directories. A storage lock prevents concurrent copies. Existing storage is retained, and warm starts do not repeat initialization.

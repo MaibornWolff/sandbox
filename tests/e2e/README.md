@@ -41,7 +41,9 @@ Set `SANDBOX_TEST_TMP` to use another runtime-shared temporary directory. The de
 
 CI runs the full suite in separate Docker and rootless Podman jobs on Ubuntu 24.04. Both jobs build images with the selected runtime. The workflow token permits GitHub downloads during image builds without an anonymous API rate limit.
 
-Use the CI workflow's manual trigger to test a branch before you open a pull request. Branch pushes do not start CI. Pull requests and pushes to `main` start CI automatically.
+The Podman job fixes the rootless image-store path because fixtures isolate `HOME`. Without this setting, each fixture rebuilds the base image in a separate store. FUSE overlay supports UID shifting without copying image layers for each user namespace.
+
+Use the CI workflow's manual trigger to run E2E tests on a branch. Pushes to `main` also run E2E tests. Pull requests run the faster checks only. Branch pushes do not start CI.
 
 Apple containers require a self-hosted Apple silicon runner with macOS 26 or newer. GitHub-hosted macOS runners [do not support nested virtualization](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The [Apple runtime requirements](https://github.com/apple/container#requirements) also exclude Linux runners. CI therefore tests Docker and Podman only.
 

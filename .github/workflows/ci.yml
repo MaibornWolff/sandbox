@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      podman_debug:
+        description: Run short Podman diagnostics instead of the full E2E suite
+        type: boolean
+        default: false
   pull_request:
     branches: [main]
   push:
@@ -49,6 +54,7 @@ jobs:
           if-no-files-found: warn
 
   e2e:
+    if: ${{ !inputs.podman_debug }}
     name: End-to-end tests (${{ matrix.runtime }})
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -109,4 +115,60 @@ jobs:
           ${{ matrix.runtime }} info
           ${{ matrix.runtime }} ps --all
           ${{ matrix.runtime }} images
+          df -h
+
+  podman-debug:
+    if: ${{ inputs.podman_debug }}
+    name: Temporary Podman diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SANDBOX_TEST_RUNTIME: podman
+      SANDBOX_TEST_TMP: /tmp/sandbox-e2e
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Inspect storage and user mappings
+        run: |
+          podman info
+          df -h
+          podman pull docker.io/library/alpine:3
+          isolated_home=$(mktemp -d)
+          HOME="$isolated_home" podman info --format 'Isolated HOME store: {{.Store.GraphRoot}}'
+          podman info --format '[storage]\ndriver = "{{.Store.GraphDriverName}}"\ngraphroot = "{{.Store.GraphRoot}}"\nrunroot = "{{.Store.RunRoot}}"' > "$RUNNER_TEMP/podman-storage.conf"
+          export CONTAINERS_STORAGE_CONF="$RUNNER_TEMP/podman-storage.conf"
+          echo "CONTAINERS_STORAGE_CONF=$CONTAINERS_STORAGE_CONF" >> "$GITHUB_ENV"
+          HOME="$isolated_home" podman image exists docker.io/library/alpine:3
+          fixture=$(mktemp -d)
+          chmod 755 "$fixture"
+          set +e
+          podman run --rm -v "$fixture:/fixture" --user 1000 docker.io/library/alpine:3 sh -c 'id; touch /fixture/default-mapping'
+          echo "Default mapping exit: $?"
+          set -e
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 --user 0 -v "$fixture:/fixture" docker.io/library/alpine:3 sh -c 'id; ls -ldn /fixture'
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 --user 1000 -v "$fixture:/fixture" docker.io/library/alpine:3 sh -c 'id; touch /fixture/keep-id'
+          ls -ln "$fixture"
+      - name: Install and build
+        run: bun install --frozen-lockfile && bun run build
+      - name: Warm shared image store
+        env:
+          SANDBOX_CONFIG_DIR: ${{ runner.temp }}/sandbox-build-config
+        run: |
+          mkdir -p "$SANDBOX_CONFIG_DIR"
+          printf 'runtime = "podman"\n' > "$SANDBOX_CONFIG_DIR/config.toml"
+          time ./dist/apps/sandbox/main.js --trust --verbose build
+      - name: Run focused stdin regression
+        run: timeout 120 bun test --timeout 30000 tests/e2e/stdin.test.ts
+      - name: Inspect final state
+        if: always()
+        run: |
+          podman ps --all
+          podman images
+          podman system df
           df -h

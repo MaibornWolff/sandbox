@@ -96,7 +96,7 @@ jobs:
           test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
           graphroot=$(podman info --format '{{.Store.GraphRoot}}')
           runroot=$(podman info --format '{{.Store.RunRoot}}')
-          printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
+          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
           echo "CONTAINERS_STORAGE_CONF=$RUNNER_TEMP/podman-storage.conf" >> "$GITHUB_ENV"
       - name: Check Docker
         if: matrix.runtime == 'docker'
@@ -147,7 +147,7 @@ jobs:
           HOME="$isolated_home" podman info --format 'Isolated HOME store: {{.Store.GraphRoot}}'
           graphroot=$(podman info --format '{{.Store.GraphRoot}}')
           runroot=$(podman info --format '{{.Store.RunRoot}}')
-          printf '[storage]\ndriver = "overlay"\ngraphroot = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
+          printf '[storage]\ndriver = "overlay"\nrootless_storage_path = "%s"\nrunroot = "%s"\n' "$graphroot" "$runroot" > "$RUNNER_TEMP/podman-storage.conf"
           export CONTAINERS_STORAGE_CONF="$RUNNER_TEMP/podman-storage.conf"
           echo "CONTAINERS_STORAGE_CONF=$CONTAINERS_STORAGE_CONF" >> "$GITHUB_ENV"
           HOME="$isolated_home" podman info --format 'Shared store with isolated HOME: {{.Store.GraphRoot}}'
@@ -172,6 +172,8 @@ jobs:
           time ./dist/apps/sandbox/main.js --trust --verbose build
       - name: Run focused stdin regression
         run: timeout 120 bun test --timeout 30000 tests/e2e/stdin.test.ts
+      - name: Run focused host networking regression
+        run: timeout 120 bun test --timeout 30000 tests/e2e/wildcard-network-ports.test.ts
       - name: Inspect final state
         if: always()
         run: |

@@ -1,6 +1,6 @@
 {
   "name": "@maibornwolff/sandbox",
-  "version": "0.0.0-development",
+  "version": "0.71.0",
   "description": "Container sandbox CLI for coding agents",
   "license": "BSD-3-Clause",
   "homepage": "https://github.com/MaibornWolff/sandbox#readme",
@@ -51,6 +51,7 @@
     "!src/**/*.test.ts",
     "!src/test/**",
     "README.md",
+    "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
     "SBOM.cdx.json"
   ],
@@ -74,6 +75,7 @@
     "test:coverage": "bun test --coverage --only-failures src/",
     "coverage:check": "bun test --coverage --only-failures src/ && bun scripts/check-coverage.ts",
     "typecheck": "tsc --build",
+    "deprecations": "bun scripts/check-deprecations.ts",
     "architecture": "bun scripts/architecture/check-architecture.ts",
     "lint": "biome check --write .",
     "lint:staged": "biome check --write --staged --no-errors-on-unmatched",
@@ -82,7 +84,8 @@
     "knip": "knip --production",
     "knip:fix": "knip --fix",
     "prepare": "husky",
-    "prepack": "bun scripts/prepare-npm-package.ts"
+    "prepack": "bun scripts/prepare-npm-package.ts",
+    "release": "bun scripts/release.ts"
   },
   "dependencies": {
     "@crosscopy/clipboard": "0.3.6",

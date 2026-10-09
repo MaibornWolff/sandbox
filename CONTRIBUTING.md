@@ -43,8 +43,14 @@ Read [docs/TESTING.md](docs/TESTING.md) for test design and test commands.
 - Add a failing test before you fix a bug.
 - Add tests for new behavior.
 - Update user documentation when behavior changes.
+- Add user-visible changes to `CHANGELOG.md` under `Unreleased`. Include migration steps for breaking changes.
 - Keep commits focused.
 - Use conventional commit messages such as `feat: add command` or `fix: preserve exit code`.
+
+## Releases
+
+Maintainers start releases manually. See [docs/RELEASING.md](docs/RELEASING.md) for
+version selection, dry runs, npm setup, and recovery.
 
 ## Pull Requests
 

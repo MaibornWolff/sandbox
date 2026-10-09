@@ -15,27 +15,23 @@ export {
   startUpdateRefresh,
 } from "./update-cache.js";
 
-const stateSchema = z
-  .object({
-    latestVersion: z.string().optional(),
-    latestVersionCheckedAt: z.number().optional(),
-    templateHashes: z.record(z.string(), z.string()).optional(),
-    sandboxImages: z
-      .record(
-        z.string(),
-        z.object({
-          reference: z.string(),
-          digest: z.string(),
-          labels: z.record(z.string(), z.string()).optional(),
-          ownedDigests: z.array(z.string()).optional(),
-        }),
-      )
-      .optional(),
-    sandboxStorage: z
-      .record(z.string(), z.object({ id: z.string() }))
-      .optional(),
-  })
-  .passthrough();
+const stateSchema = z.looseObject({
+  latestVersion: z.string().optional(),
+  latestVersionCheckedAt: z.number().optional(),
+  templateHashes: z.record(z.string(), z.string()).optional(),
+  sandboxImages: z
+    .record(
+      z.string(),
+      z.object({
+        reference: z.string(),
+        digest: z.string(),
+        labels: z.record(z.string(), z.string()).optional(),
+        ownedDigests: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  sandboxStorage: z.record(z.string(), z.object({ id: z.string() })).optional(),
+});
 
 type State = z.infer<typeof stateSchema>;
 

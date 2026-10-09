@@ -8,5 +8,8 @@
     "types": ["bun-types"]
   },
   "include": ["architecture.ts", "scripts/**/*.ts", "scripts/**/*.d.mts"],
-  "references": [{ "path": "./tsconfig.src.json" }]
+  "references": [
+    { "path": "./tsconfig.src.json" },
+    { "path": "./tsconfig.test.json" }
+  ]
 }

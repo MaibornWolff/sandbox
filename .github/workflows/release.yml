@@ -1,0 +1,213 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version increment (minor for features or breaking changes)
+        required: true
+        type: choice
+        options: [minor, patch]
+        default: minor
+      expected_version:
+        description: Expected next version, such as 0.72.0
+        required: true
+        type: string
+      dry_run:
+        description: Validate and pack without publishing or changing GitHub
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      source_commit: ${{ steps.prepare.outputs.source_commit }}
+    steps:
+      - name: Require main
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [ "$RELEASE_REF" != refs/heads/main ]; then
+            echo "::error::Run releases from main only"
+            exit 1
+          fi
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Prepare release metadata
+        id: prepare
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: bun release prepare "$RELEASE_BUMP" "$EXPECTED_VERSION"
+      - name: Install shell test dependencies
+        run: sudo apt-get update && sudo apt-get install --yes zsh
+      - name: Run checks
+        run: bun check --verbose
+      - name: Run shell tests
+        run: bun run test:shell
+      - name: Check dependency licenses
+        run: >-
+          bunx license-checker@25.0.1 --production
+          --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;ISC;Zlib;Unlicense;X11;PostgreSQL;Python-2.0.1;PSF-2.0;CC0-1.0;WTFPL;NCSA;UPL-1.0"
+      - name: Pack and test the installed npm package
+        run: bun release pack
+      - name: Check for unexpected generated changes
+        run: git diff --exit-code -- . ':!package.json' ':!CHANGELOG.md'
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-release-candidate
+          path: .release/
+          include-hidden-files: true
+          if-no-files-found: error
+      - name: Summarize candidate
+        env:
+          RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          printf '## Release candidate %s\n\nDry run: %s\n\n' "$RELEASE_VERSION" "$DRY_RUN" >> "$GITHUB_STEP_SUMMARY"
+          cat .release/notes.md >> "$GITHUB_STEP_SUMMARY"
+
+  e2e:
+    name: Test release containers
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SANDBOX_TEST_RUNTIME: docker
+      SANDBOX_TEST_TMP: /tmp/sandbox-release-e2e
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_commit }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Download release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-release-candidate
+          path: .release/
+      - name: Restore release metadata
+        run: bun release restore
+      - name: Run end-to-end tests
+        run: bun run test:e2e
+
+  publish:
+    name: Publish to npm
+    needs: [prepare, e2e]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_commit }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org/
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Download release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-release-candidate
+          path: .release/
+      - name: Set up trusted-publishing npm CLI
+        run: npm install --global npm@11
+      - name: Publish the validated tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
+        run: bun release publish
+
+  finalize:
+    name: Commit release metadata and create GitHub Release
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-production
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.source_commit }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_GITHUB_TOKEN || github.token }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Download release candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-release-candidate
+          path: .release/
+      - name: Configure release commit author
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Commit version and changelog after publication
+        run: bun release finalize
+      - name: Create GitHub Release from maintained notes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN || github.token }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          tag="v$RELEASE_VERSION"
+          releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name')
+          if printf '%s\n' "$releases" | grep -Fxq "$tag"; then
+            echo "GitHub Release $tag already exists"
+          else
+            gh release create "$tag" --verify-tag --title "$tag" --notes-file .release/notes.md
+          fi

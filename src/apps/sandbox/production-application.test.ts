@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { PassThrough } from "node:stream";
+import { getVersion } from "#modules/self-update/index.js";
 import { getTestRepoRootPath } from "#test/utils.js";
 import { createUpdateWorkerFixture } from "./__test__/update-worker.js";
 import { runProductionSandboxApplication } from "./production-application.js";
@@ -108,14 +109,14 @@ describe("production sandbox application", () => {
     expect(
       await runProductionSandboxApplication(["--version"], terminal.streams),
     ).toBe(0);
-    expect(terminal.stdout()).toBe("0.0.0-development\n");
+    expect(terminal.stdout()).toBe(`${getVersion()}\n`);
     expect(terminal.stderr()).toBe("");
   });
 
   test("preserves process exit codes and releases production resources", async () => {
     const success = await runProductionProcess(["--version"]);
     expect(success.exitCode).toBe(0);
-    expect(success.stdout).toContain("0.0.0-development");
+    expect(success.stdout).toBe(`${getVersion()}\n`);
     expect(success.stderr).toBe("");
 
     const failure = await runProductionProcess(["unknown-command"]);

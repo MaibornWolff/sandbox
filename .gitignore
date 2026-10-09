@@ -13,6 +13,7 @@ node_modules/
 dist/
 
 # Build artifacts
+/.release/
 /THIRD_PARTY_NOTICES.md
 /SBOM.cdx.json
 *.log

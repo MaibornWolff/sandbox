@@ -20,6 +20,7 @@ import {
   commitPublishedRelease,
   restoreReleaseCheckout,
 } from "./release-git.js";
+import { releaseIncrementFromHistory } from "./release-history.js";
 import { packRelease } from "./release-package.js";
 import {
   type ReleasePlan,
@@ -35,7 +36,7 @@ import { createReleaseRegistry } from "./release-registry.js";
 import { nextReleaseVersion, prepareChangelog } from "./release-state.js";
 
 const USAGE =
-  "Usage: bun release prepare <patch|minor> <expected-version> | pack | restore | publish | finalize";
+  "Usage: bun release prepare | pack | restore | publish | finalize";
 const packageSchema = z.looseObject({
   name: z.literal("@maibornwolff/sandbox"),
   version: z.string(),
@@ -43,8 +44,6 @@ const packageSchema = z.looseObject({
 
 interface PrepareReleaseOptions {
   readonly repoRoot: string;
-  readonly bump: string;
-  readonly expectedVersion: string;
   readonly date: string;
 }
 
@@ -56,16 +55,12 @@ interface ReleaseOptions {
 export async function prepareRelease(
   options: PrepareReleaseOptions,
 ): Promise<ReleasePlan> {
-  const { repoRoot, bump, expectedVersion, date } = options;
+  const { repoRoot, date } = options;
   assertCleanReleaseCheckout(repoRoot);
   const currentMetadata = await readReleaseMetadata(repoRoot);
   const manifest = packageSchema.parse(JSON.parse(currentMetadata.packageJson));
+  const bump = releaseIncrementFromHistory(repoRoot, manifest.version);
   const version = nextReleaseVersion(manifest.version, bump);
-  if (version !== expectedVersion) {
-    throw new Error(
-      `Expected version ${expectedVersion} does not match ${version}`,
-    );
-  }
 
   const preparedChangelog = prepareChangelog({
     changelog: currentMetadata.changelog,
@@ -138,12 +133,9 @@ async function prepareFromArguments(
   repoRoot: string,
   args: readonly string[],
 ): Promise<void> {
-  const [bump, expectedVersion] = args;
-  if (!bump || !expectedVersion) throw new Error(USAGE);
+  if (args.length > 0) throw new Error(USAGE);
   const plan = await prepareRelease({
     repoRoot,
-    bump,
-    expectedVersion,
     date: new Date().toISOString().slice(0, 10),
   });
   const outputFile = process.env.GITHUB_OUTPUT;

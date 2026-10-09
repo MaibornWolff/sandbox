@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 import {
   finalizeRelease,
@@ -56,8 +57,6 @@ async function createRepository() {
 async function prepareCandidate(repoRoot: string) {
   const plan = await prepareRelease({
     repoRoot,
-    bump: "minor",
-    expectedVersion: "0.72.0",
     date: "2026-10-08",
   });
   const tarball = Buffer.from("a validated tarball fixture");
@@ -121,10 +120,15 @@ async function advanceMain(repoRoot: string) {
 test("prepares a release candidate without committing or pushing", async () => {
   await using fixture = await createRepository();
   const before = gitCommand(["rev-parse", "HEAD"], fixture.repoRoot);
+  gitCommand(["tag", "v0.71.0"], fixture.repoRoot);
+  gitCommand(
+    ["commit", "--allow-empty", "-m", "fix: correct startup"],
+    fixture.repoRoot,
+  );
+  gitCommand(["push", "origin", "main"], fixture.repoRoot);
+  const source = gitCommand(["rev-parse", "HEAD"], fixture.repoRoot);
   const plan = await prepareRelease({
     repoRoot: fixture.repoRoot,
-    bump: "patch",
-    expectedVersion: "0.71.1",
     date: "2026-10-08",
   });
   expect(plan.version).toBe("0.71.1");
@@ -136,27 +140,99 @@ test("prepares a release candidate without committing or pushing", async () => {
   expect(
     await readFile(path.join(fixture.repoRoot, "CHANGELOG.md"), "utf8"),
   ).toContain("## [Unreleased]\n\n## [0.71.1] - 2026-10-08");
-  expect(gitCommand(["rev-parse", "HEAD"], fixture.repoRoot)).toBe(before);
+  expect(source).not.toBe(before);
+  expect(gitCommand(["rev-parse", "HEAD"], fixture.repoRoot)).toBe(source);
   expect(
     gitCommand(
       ["--git-dir", fixture.remote, "rev-parse", "main"],
       fixture.root,
     ),
-  ).toBe(before);
+  ).toBe(source);
 });
 
-test("rejects a stale expected version without writing metadata", async () => {
+test("rejects a release with no commits after its current version tag", async () => {
   await using fixture = await createRepository();
+  gitCommand(["tag", "v0.71.0"], fixture.repoRoot);
   await expect(
     prepareRelease({
       repoRoot: fixture.repoRoot,
-      bump: "minor",
-      expectedVersion: "0.71.1",
       date: "2026-10-08",
     }),
-  ).rejects.toThrow("does not match");
+  ).rejects.toThrow("No commits since v0.71.0");
   expect(existsSync(releaseDirectory(fixture.repoRoot))).toBe(false);
   expect(gitCommand(["status", "--porcelain"], fixture.repoRoot)).toBe("");
+});
+
+test.each([
+  ["fix(cli): correct startup", "0.71.1"],
+  ["perf: reduce startup calls", "0.71.1"],
+  ["chore: update dependencies", "0.71.1"],
+  ["feat(cli): add an option", "0.72.0"],
+  ["fix(cli)!: remove an option", "0.72.0"],
+  [
+    "refactor: change config\n\nBREAKING CHANGE: replace the old config",
+    "0.72.0",
+  ],
+  [
+    "refactor: change config\n\nBREAKING-CHANGE: replace the old config",
+    "0.72.0",
+  ],
+])(
+  "selects a version from commits since the baseline: %s",
+  async (message, version) => {
+    await using fixture = await createRepository();
+    gitCommand(["tag", "v0.71.0"], fixture.repoRoot);
+    gitCommand(["commit", "--allow-empty", "-m", message], fixture.repoRoot);
+    const plan = await prepareRelease({
+      repoRoot: fixture.repoRoot,
+      date: "2026-10-08",
+    });
+    expect(plan.version).toBe(version);
+  },
+);
+
+test("selects the highest increment across all unreleased commits", async () => {
+  await using fixture = await createRepository();
+  gitCommand(["tag", "v0.71.0"], fixture.repoRoot);
+  gitCommand(
+    ["commit", "--allow-empty", "-m", "feat: add an option"],
+    fixture.repoRoot,
+  );
+  gitCommand(
+    ["commit", "--allow-empty", "-m", "fix: correct startup"],
+    fixture.repoRoot,
+  );
+  const plan = await prepareRelease({
+    repoRoot: fixture.repoRoot,
+    date: "2026-10-08",
+  });
+  expect(plan.version).toBe("0.72.0");
+});
+
+test("rejects a missing baseline tag after earlier releases", async () => {
+  await using fixture = await createRepository();
+  gitCommand(["tag", "v0.70.0"], fixture.repoRoot);
+  await expect(
+    prepareRelease({ repoRoot: fixture.repoRoot, date: "2026-10-08" }),
+  ).rejects.toThrow("v0.71.0 is missing");
+  expect(existsSync(releaseDirectory(fixture.repoRoot))).toBe(false);
+});
+
+test("rejects shallow release history", async () => {
+  await using fixture = await createRepository();
+  gitCommand(
+    ["--git-dir", fixture.remote, "symbolic-ref", "HEAD", "refs/heads/main"],
+    fixture.root,
+  );
+  const shallow = path.join(fixture.root, "shallow");
+  gitCommand(
+    ["clone", "--depth=1", pathToFileURL(fixture.remote).href, shallow],
+    fixture.root,
+  );
+  await expect(
+    prepareRelease({ repoRoot: shallow, date: "2026-10-08" }),
+  ).rejects.toThrow("full Git history");
+  expect(existsSync(releaseDirectory(shallow))).toBe(false);
 });
 
 test("rejects tracked local edits before preparation", async () => {
@@ -168,8 +244,6 @@ test("rejects tracked local edits before preparation", async () => {
   await expect(
     prepareRelease({
       repoRoot: fixture.repoRoot,
-      bump: "minor",
-      expectedVersion: "0.72.0",
       date: "2026-10-08",
     }),
   ).rejects.toThrow("clean tracked");

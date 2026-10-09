@@ -1,17 +1,22 @@
 # Releasing Sandbox
 
-Releases start manually through `.github/workflows/release.yml`. Commits do not
-select versions. Maintainers select the version increment and review the written
-release notes.
+Releases start manually through `.github/workflows/release.yml`. The workflow
+calculates the next version from commit history. Maintainers review the written
+release notes. No version input is required.
 
 ## Version policy
 
-- Select **patch** for compatible bug fixes, for example `0.71.1`.
-- Select **minor** for features or breaking changes, for example `0.72.0`.
-- The workflow also requires the exact expected version. This prevents a stale
-  release request from selecting a different version after another release.
+- Read commits after the `v<current-version>` tag, where `current-version`
+  comes from `package.json`. The checkout must include full history and tags.
+- Before the first tagged release, read the complete commit history.
+- Conventional Commit subjects with `feat:` or `feat(scope):` select **minor**.
+  A `!` before the colon or a `BREAKING CHANGE:` or `BREAKING-CHANGE:` footer
+  also selects **minor**, for example `0.72.0`.
+- Other commits select **patch**, for example `0.71.1`.
+- Use the highest increment found across all unreleased commits.
+- Stop if no commits follow the current version tag, or if that tag is missing
+  when earlier release tags exist.
 - Stay in `0.x` until maintainers explicitly adopt a stable `1.0.0` policy.
-- Calculate the next version from `package.json`, not from Git tags.
 
 ## Maintain the changelog
 
@@ -65,22 +70,22 @@ permission is separate and is used only after npm publication.
 
 1. Keep `main` unchanged during publication. Ask contributors to pause merges.
 2. Open **Actions > Release > Run workflow** and select `main`.
-3. Select `minor` or `patch`. Enter the expected version.
-4. Leave **dry_run** enabled for the first run.
-5. Check the job results, release notes, and `npm-release-candidate` artifact.
+3. Leave **dry_run** enabled for the first run.
+4. Check the calculated version, job results, release notes, and
+   `npm-release-candidate` artifact.
    The workflow runs the complete checks, shell tests, license check, installed
    package smoke tests, and Docker end-to-end tests. It also runs
    `npm publish --dry-run` on the packed tarball.
-6. Run the workflow again with the same inputs and **dry_run** disabled.
+5. Run the workflow again from the same commit with **dry_run** disabled.
    This creates a new validated candidate. Approve the production jobs if the
    environment requires approval.
-7. Confirm the npm version, `v<version>` tag, GitHub Release, and commit on `main`.
+6. Confirm the npm version, `v<version>` tag, GitHub Release, and commit on `main`.
    The commit must contain the released package version, dated changelog notes,
    and an empty `Unreleased` section.
 
 Dry runs have no publishing credentials or GitHub write permissions. They do not
 publish to npm, push commits or tags, or create GitHub Releases. A local
-`bun release prepare <patch|minor> <expected-version>` changes the checkout only.
+`bun release prepare` calculates the version and changes the checkout only.
 Use a disposable checkout for local release tests. Do not commit the prepared
 version before running the workflow, because the workflow calculates the next
 version from `main`.

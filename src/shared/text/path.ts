@@ -122,3 +122,28 @@ export function safeResolve(targetPath: string, basePath?: string): string {
     ? path.resolve(basePath, targetPath)
     : path.resolve(targetPath);
 }
+
+/**
+ * Check whether a relative path consists only of plain segments.
+ *
+ * Rejects an empty path, ".", "..", backslashes, and empty segments except a
+ * trailing one, so joining the path onto a base directory always selects a
+ * path below that directory.
+ *
+ * @example
+ * hasNormalizedPathSegments(".cache/state")   // true
+ * hasNormalizedPathSegments(".cache/")        // true
+ * hasNormalizedPathSegments("")               // false
+ * hasNormalizedPathSegments("../.ssh")        // false
+ * hasNormalizedPathSegments(".cache//state")  // false
+ */
+export function hasNormalizedPathSegments(relativePath: string): boolean {
+  if (relativePath.length === 0 || relativePath.includes("\\")) return false;
+  const segments = relativePath.split("/");
+  return segments.every(
+    (segment, index) =>
+      segment !== "." &&
+      segment !== ".." &&
+      (segment !== "" || index === segments.length - 1),
+  );
+}

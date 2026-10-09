@@ -44,7 +44,7 @@ jobs:
             exit 1
           fi
       - name: Check out release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - name: Set up Node.js
@@ -102,7 +102,7 @@ jobs:
       SANDBOX_TEST_TMP: /tmp/sandbox-release-e2e
     steps:
       - name: Check out release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.source_commit }}
       - name: Set up Node.js
@@ -137,7 +137,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.source_commit }}
       - name: Set up Node.js
@@ -173,7 +173,7 @@ jobs:
       contents: write
     steps:
       - name: Check out release source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.source_commit }}
           fetch-depth: 0

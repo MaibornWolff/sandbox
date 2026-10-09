@@ -20,10 +20,11 @@ describe("sandbox update", () => {
   test("uses scoped cache timestamps and exposes verbose cache guidance", async () => {
     await using app = await setupSandboxAppTest();
     app.workspace.writeRootFile(
-      "data/sandbox/state.json",
+      "data/sandbox/update-check/cache.json",
       JSON.stringify({
         latestVersion: "0.0.0-development",
-        latestVersionCheckedAt: app.clock.currentTime(),
+        checkedAt: app.clock.currentTime(),
+        publicVersion: true,
       }),
     );
     app.processes

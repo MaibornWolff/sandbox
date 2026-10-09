@@ -62,6 +62,8 @@ Use these rules when talking to the user:
 
 ## Code Style
 
+- You MUST preserve user-configured package registries unless the user explicitly requests an override.
+
 - You MUST keep deprecation diagnostics fatal in `bun check` and use supported, non-deprecated APIs without suppressing warnings.
 - You MUST block dependency updates and releases on critical non-denial-of-service security findings or scanner errors. Ignore denial-of-service advisories and report other lower-severity findings as non-blocking warnings.
 - You MUST use specific error messages and preserve exit codes from child processes.

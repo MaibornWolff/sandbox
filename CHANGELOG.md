@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Refresh older version caches to prevent incorrect Sandbox update notices.
+
 ## [0.72.0] - 2026-10-09
 
 ### Added

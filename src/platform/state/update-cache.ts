@@ -17,6 +17,7 @@ const RETRY_INTERVAL = 60 * 60 * 1_000;
 const CACHE_INTERVAL = 24 * RETRY_INTERVAL;
 const cacheSchema = z.object({
   latestVersion: z.string().optional(),
+  publicVersion: z.boolean().optional(),
   checkedAt: z.number().optional(),
   error: z.string().optional(),
 });
@@ -32,18 +33,13 @@ function attemptDirectory(attempt: number): string {
 
 export function readUpdateCache(): UpdateCache {
   const cachePath = path.join(cacheDirectory(), "cache.json");
-  let data: unknown;
-  if (pathExists(cachePath)) {
-    data = readJsonRecord(cachePath);
-  } else {
-    const legacy = readJsonRecord(getStatePath());
-    data = {
-      latestVersion: legacy.latestVersion,
-      checkedAt: legacy.latestVersionCheckedAt,
-    };
+  if (!pathExists(cachePath)) return {};
+  const parsed = cacheSchema.safeParse(readJsonRecord(cachePath));
+  if (!parsed.success) return {};
+  if (parsed.data.publicVersion !== true) {
+    return parsed.data.error ? { error: parsed.data.error } : {};
   }
-  const parsed = cacheSchema.safeParse(data);
-  return parsed.success ? parsed.data : {};
+  return parsed.data;
 }
 
 export function claimUpdateRefresh(now: number): string | undefined {
@@ -96,7 +92,11 @@ export function finishUpdateRefresh(
   if (attempt === undefined || !pathExists(attemptDirectory(attempt))) return;
   let cache: UpdateCache;
   if ("latestVersion" in result) {
-    cache = { latestVersion: result.latestVersion, checkedAt: now };
+    cache = {
+      latestVersion: result.latestVersion,
+      checkedAt: now,
+      publicVersion: true,
+    };
   } else {
     cache = { ...readUpdateCache(), error: result.error.slice(0, 500) };
   }

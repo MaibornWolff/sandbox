@@ -55,6 +55,10 @@ async function runProductionProcess(args: readonly string[]): Promise<{
 describe("production sandbox application", () => {
   test("exits while a detached registry refresh is pending and shows it only next time", async () => {
     await using fixture = await createUpdateWorkerFixture();
+    fixture.writeState({
+      latestVersion: "1.70.0",
+      latestVersionCheckedAt: Date.UTC(2099, 0, 1),
+    });
     const invocations = Array.from({ length: 4 }, () => fixture.run());
     const first = await Promise.all(invocations);
     expect(first.every((result) => result.exitCode === 1)).toBe(true);

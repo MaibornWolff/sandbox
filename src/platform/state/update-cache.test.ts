@@ -14,27 +14,56 @@ import {
 const now = Date.UTC(2026, 0, 1);
 const hour = 60 * 60 * 1_000;
 
-test("migrates the existing available release without writing shared state", async () => {
+test("discards an unmarked release without writing shared state", async () => {
   const root = createTestDir("update-cache-migration");
   using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(root) };
   await runInHostTestScope({ root }, () => {
     const existing = {
       latestVersion: "2.0.0",
-      latestVersionCheckedAt: now - 24 * hour,
+      latestVersionCheckedAt: now,
       sandboxImages: { project: { reference: "image", digest: "digest" } },
     };
     writeState(existing);
-    expect(readUpdateCache().latestVersion).toBe("2.0.0");
+    expect(readUpdateCache().latestVersion).toBeUndefined();
     const token = claimUpdateRefresh(now);
     expect(token).toBeDefined();
     finishUpdateRefresh(token ?? "", now, { error: "registry unavailable" });
     expect(readUpdateCache()).toMatchObject({
-      latestVersion: "2.0.0",
       error: "registry unavailable",
     });
     expect(readState()).toEqual(existing);
   });
 });
+
+test.each([undefined, false])(
+  "refreshes a recent cache with publicVersion=%s",
+  async (publicVersion) => {
+    const root = createTestDir("update-cache-public");
+    using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(root) };
+    await runInHostTestScope({ root }, () => {
+      const directory = path.join(root, "data", "sandbox", "update-check");
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(
+        path.join(directory, "cache.json"),
+        JSON.stringify({
+          latestVersion: "1.70.0",
+          checkedAt: now,
+          publicVersion,
+        }),
+      );
+      expect(readUpdateCache().latestVersion).toBeUndefined();
+      const token = claimUpdateRefresh(now);
+      expect(token).toBeDefined();
+      finishUpdateRefresh(token ?? "", now, { latestVersion: "0.72.0" });
+      expect(readUpdateCache()).toEqual({
+        latestVersion: "0.72.0",
+        checkedAt: now,
+        publicVersion: true,
+      });
+      expect(claimUpdateRefresh(now)).toBeUndefined();
+    });
+  },
+);
 
 test("rejects stale worker claims and late results", async () => {
   const root = createTestDir("update-cache-stale");
@@ -79,6 +108,7 @@ test.each(["../outside", "-1", "NaN", "9007199254740999", "99999999", "0"])(
       expect(readUpdateCache()).toEqual({
         latestVersion: "2.0.0",
         checkedAt: now,
+        publicVersion: true,
       });
     });
   },

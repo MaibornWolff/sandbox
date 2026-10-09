@@ -8,6 +8,7 @@
 
 ### Security
 
+- Reject `persist_paths` entries with `.`, `..`, empty, or backslash segments, and entries such as `~/` that select a whole directory root. A trusted project config could previously create files and read-write mounts outside the Sandbox data directory on the host.
 - Block proxy requests to unlisted IP addresses even when reverse DNS maps the address to an allowed domain. If affected, use the allowed hostname or add the IP address and port to `allow_network`, for example `"192.0.2.10:443"`.
 
 ## [0.72.0] - 2026-10-09

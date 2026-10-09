@@ -1,6 +1,7 @@
 export { splitColonString } from "./colon-separated.js";
 export { resolveContainerPath } from "./container-path.js";
 export {
+  hasNormalizedPathSegments,
   normalizePath,
   safeResolve,
   windowsPathToDocker,

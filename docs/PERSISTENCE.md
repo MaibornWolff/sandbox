@@ -49,7 +49,7 @@ When `default` is absent, Sandbox creates an empty directory for a new persisten
 
 Set `only_if_exists = true` to avoid new empty directories for optional paths.
 
-For a `~/` path, Sandbox checks the host home directory. For a `./` path, Sandbox checks the project directory.
+For a `~/` path, Sandbox checks the host home directory. For a `./` path, Sandbox checks the project directory. Paths must be normalized: Sandbox rejects a config with `.`, `..`, empty, or backslash segments, or with a bare prefix such as `~/`, so persisted data always stays below the Sandbox data directory.
 
 ### Use file patterns
 

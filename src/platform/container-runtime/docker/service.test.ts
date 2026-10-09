@@ -5,16 +5,6 @@ import { DockerService } from "./service.js";
 import { createDockerVolumeOperations } from "./volumes.js";
 
 describe("DockerService", () => {
-  test("exposes one complete grouped runtime contract", () => {
-    const service = new DockerService(
-      createStatefulRuntimeCommandExecutor().executor,
-    );
-    expect(service.runtime).toBe("docker");
-    expect(service.instances).toBeDefined();
-    expect(service.storage).toBeDefined();
-    expect(service.build).toBeDefined();
-  });
-
   test("returns normalized and cached host readiness", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenOutput(

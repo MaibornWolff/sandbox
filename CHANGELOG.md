@@ -6,6 +6,10 @@
 
 - Refresh older version caches to prevent incorrect Sandbox update notices.
 
+### Security
+
+- Block proxy requests to unlisted IP addresses even when reverse DNS maps the address to an allowed domain. If affected, use the allowed hostname or add the IP address and port to `allow_network`, for example `"192.0.2.10:443"`.
+
 ## [0.72.0] - 2026-10-09
 
 ### Added

@@ -25,11 +25,9 @@ afterAll(async () => {
   await cleanupProject(projectDir, sb);
 }, 30_000);
 
-test("builds a missing project image and reuses the existing image", async () => {
+test("builds and executes a project image with working base tools", async () => {
   const first = await sb.build();
   expect(first.exitCode, first.stderr).toBe(0);
-  const second = await sb.build();
-  expect(second.exitCode, second.stderr).toBe(0);
   const result = await sb.run(
     "/usr/bin/node",
     "-e",
@@ -37,4 +35,12 @@ test("builds a missing project image and reuses the existing image", async () =>
   );
   expect(result.exitCode, result.stderr).toBe(0);
   expect(result.stdout.trim()).toBe(marker);
+  const jq = await sb.run(
+    "jq",
+    "--null-input",
+    "--raw-output",
+    '{"tool":"available"} | .tool',
+  );
+  expect(jq.exitCode, jq.stderr).toBe(0);
+  expect(jq.stdout.trim()).toBe("available");
 }, 600_000);

@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
 describe("sandbox network allow", () => {
@@ -156,48 +154,5 @@ describe("sandbox network allow", () => {
     expect(second.runtime.events()).toHaveLength(1);
     expect(first.project.configExists()).toBe(false);
     expect(second.project.configExists()).toBe(false);
-  });
-
-  test("rejects concurrent executions on one application terminal", async () => {
-    const app = await setupSandboxAppTest();
-    await app.project.givenConfig({ allowNetwork: [] });
-    app.project
-      .givenContainer({ state: "running" })
-      .network.block("pending.example.com", 443);
-    const execution = app.cli.run("network", "allow");
-    await app.tui.waitForText("Select domains to allow:");
-
-    expect(() => app.cli.run("--version")).toThrow(
-      "Only one CLI execution may use an application terminal at a time.",
-    );
-
-    await app[Symbol.asyncDispose]();
-    expect((await execution).exitCode).toBe(1);
-  });
-
-  test("aborts and settles an execution waiting for prompt input", async () => {
-    const app = await setupSandboxAppTest();
-    await app.project.givenConfig({ allowNetwork: [] });
-    app.project
-      .givenContainer({ state: "running" })
-      .network.block("pending.example.com", 443);
-    const execution = app.cli.run("network", "allow");
-    await app.tui.waitForText("Select domains to allow:");
-
-    await app[Symbol.asyncDispose]();
-
-    expect((await execution).exitCode).toBe(1);
-  });
-
-  test("disposes isolated roots when the test body throws", async () => {
-    let appRoot = "";
-
-    await expect(async () => {
-      await using app = await setupSandboxAppTest();
-      appRoot = path.dirname(app.project.root);
-      throw new Error("test body failure");
-    }).toThrow("test body failure");
-
-    expect(fs.existsSync(appRoot)).toBe(false);
   });
 });

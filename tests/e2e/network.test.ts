@@ -50,17 +50,6 @@ describe("network enforcement", () => {
     expect(exitCode).toBe(0);
   }, 60_000);
 
-  test("blocked domain in default mode", async () => {
-    const { exitCode } = await sb.run(
-      "curl",
-      "-fsS",
-      "-m",
-      "10",
-      "https://example.com",
-    );
-    expect(exitCode).not.toBe(0);
-  }, 60_000);
-
   test("allowed domain in full-network mode", async () => {
     const { exitCode } = await sb.runFullNetwork(
       "curl",
@@ -105,9 +94,9 @@ describe("DNS firewall", () => {
   }, 30_000);
 
   test("blocked domain returns NXDOMAIN via DNS", async () => {
-    const { exitCode } = await sb.run("nslookup", "google.de");
-    // nslookup returns non-zero on NXDOMAIN
-    expect(exitCode).not.toBe(0);
+    const { exitCode, stdout, stderr } = await sb.run("nslookup", "google.de");
+    expect(exitCode).toBe(1);
+    expect(stdout + stderr).toContain("NXDOMAIN");
   }, 30_000);
 
   test("allowed domain resolves in full-network mode", async () => {
@@ -140,7 +129,22 @@ describe("network diagnostics", () => {
   }, 60_000);
 
   test("reports a blocked request observed by the real network stack", async () => {
-    await sb.run("curl", "-fsS", "-m", "5", "https://example.com");
+    const denied = await sb.run(
+      "curl",
+      "-sS",
+      "--noproxy",
+      "",
+      "--proxy",
+      "http://127.0.0.1:8888",
+      "--max-time",
+      "10",
+      "--write-out",
+      "\\n%{http_code}\\n",
+      "http://example.com",
+    );
+    expect(denied.exitCode, denied.stderr).toBe(0);
+    expect(denied.stdout).toContain("HTTP 403 Blocked");
+    expect(denied.stdout).toEndWith("\n403\n");
 
     const { stdout, exitCode } = await sb.networkLogs();
     expect(exitCode).toBe(0);

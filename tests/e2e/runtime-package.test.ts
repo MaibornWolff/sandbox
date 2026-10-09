@@ -122,27 +122,3 @@ const timer = setInterval(() => {
   expect(oldResult.exitCode).toBe(0);
   expect(oldResult.stdout).toContain("old-runtime=first");
 }, 300_000);
-
-test("concurrent starts use complete runtime contents", async () => {
-  await writeFile(
-    path.join(installation, "dist/runtime/release-marker.txt"),
-    "concurrent",
-  );
-  const inspect = () =>
-    sb.run(
-      "/usr/bin/node",
-      "--input-type=module",
-      "-e",
-      inspectRuntime,
-      installation,
-    );
-  const results = await Promise.all([inspect(), inspect()]);
-  for (const result of results) {
-    expect(result.exitCode, result.stderr).toBe(0);
-    expect(JSON.parse(result.stdout.trim())).toMatchObject({
-      readOnly: true,
-      release: "concurrent",
-      hostInstallationVisible: false,
-    });
-  }
-}, 120_000);

@@ -2,10 +2,6 @@ import { deduplicateCommandPatterns } from "#modules/host-command-escape/index.j
 import { parseEnvList } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import type { Config } from "./config.js";
-import {
-  CONFIG_FIELD_CATALOG,
-  type MergeStrategy,
-} from "./config-field-catalog.js";
 import { parseAllowedNetwork, parsePort } from "./config-value-parsing.js";
 import { resolveExistingMounts } from "./mount-path-resolution.js";
 import {
@@ -13,18 +9,6 @@ import {
   normalizeSettingsEntry,
   type TomlConfig,
 } from "./toml-config-schema.js";
-
-interface FieldRule {
-  readonly strategy: MergeStrategy;
-}
-
-/** @testonly Merge rules derived from the central field catalog. */
-export const CONFIG_MERGE_RULES = Object.fromEntries(
-  Object.values(CONFIG_FIELD_CATALOG).map((field) => [
-    field.configKey,
-    { strategy: field.mergeStrategy },
-  ]),
-) as { readonly [Key in keyof Config]-?: FieldRule };
 
 /**
  * Apply TOML configuration to a Config object according to merge rules.

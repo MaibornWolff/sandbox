@@ -21,7 +21,15 @@ Run the suite on a host that can create container images, containers, networks, 
 bun run test:e2e
 ```
 
-The command creates a temporary runtime package. It builds the command-line interface (CLI) directly into that package. All tests use this immutable snapshot.
+The command runs the core container-boundary suite. It creates a temporary runtime package and builds the command-line interface (CLI) directly into that package. All tests use this immutable snapshot.
+
+PHP and Devbox installation tests are separate and require an explicit command:
+
+```bash
+bun run test:e2e:extended
+```
+
+The extended command runs only `tests/e2e-extended/`. It does not run as part of `bun check`, `bun test:e2e`, or any CI trigger, including manual CI runs. To run an extended file against an existing CLI, set `SANDBOX_E2E_EXTENDED=1` explicitly.
 
 Set a different runtime when required:
 
@@ -39,11 +47,11 @@ Set `SANDBOX_TEST_TMP` to use another runtime-shared temporary directory. The de
 
 ## GitHub Actions
 
-CI runs the full suite in separate Docker and rootless Podman jobs on Ubuntu 24.04. Both jobs build images with the selected runtime. The workflow token permits GitHub downloads during image builds without an anonymous API rate limit.
+CI runs the core suite in separate Docker and rootless Podman jobs on Ubuntu 26.04. Both jobs build images with the selected runtime. The workflow token permits GitHub downloads during image builds without an anonymous API rate limit.
 
 The Podman job fixes the rootless image-store path because fixtures isolate `HOME`. Without this setting, each fixture rebuilds the base image in a separate store. FUSE overlay supports UID shifting without copying image layers for each user namespace.
 
-Use the CI workflow's manual trigger to run E2E tests on a branch. Pushes to `main` also run E2E tests. Pull requests run the faster checks only. Branch pushes do not start CI.
+Use the CI workflow's manual trigger to run E2E tests on a branch. Pushes to `main` also run E2E tests. Renovate pull requests and pull requests with the `run-e2e` label also run the core suite. Other pull requests run the faster checks only. Branch pushes do not start CI.
 
 Apple containers require a self-hosted Apple silicon runner with macOS 26 or newer. GitHub-hosted macOS runners [do not support nested virtualization](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The [Apple runtime requirements](https://github.com/apple/container#requirements) also exclude Linux runners. CI therefore tests Docker and Podman only.
 
@@ -108,14 +116,15 @@ Do not use the isolated tests as evidence that native clipboard support is quali
 - `container-start-signals.test.ts`: interrupt and termination signal behavior through the host CLI, runtime CLI, and container entrypoint
 - `runtime-package.test.ts`: read-only runtime caches, unchanged tool images after runtime edits, concurrent starts, and active-session version isolation
 - `init-mise.test.ts`: mise image build and tool installation
-- `init-php.test.ts`: PHP and Composer image build
 - `mounts-symlink.test.ts`: symbolic-link resolution and read-only bind mounts
 - `network.test.ts`: proxy and DNS enforcement, full-network mode, and diagnostics
 - `persistence.test.ts`: persistent data after container recreation
 - `pid1-lifecycle.test.ts`: concurrent sessions, orphan process cleanup, signals, and idle shutdown
 - `ports.test.ts`: a container HTTP service published on a host port
 - `readonly-workspace.test.ts`: read-only project mount enforcement
-- `security.test.ts`: network, privilege, filesystem, and mount-isolation boundaries
+- `security.test.ts`: controlled host service, explicit proxy denials, local DNS denial, firewall observations, privilege, filesystem, and mount-isolation boundaries
 - `stdin.test.ts`: piped standard input and a real pseudo-terminal
 
-Use the deterministic application harness for exhaustive business rules and state combinations.
+Use the deterministic application harness for exhaustive business rules and state combinations. Test matching rules and credential lifetime below E2E. Runtime-cache publication uses independent Node processes and a real shared filesystem.
+
+The explicit extended suite retains PHP/Composer installation and the Nix/Devbox login-shell and launcher checks.

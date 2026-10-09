@@ -73,11 +73,11 @@ half_closed_clients on
 server_persistent_connections on
 client_persistent_connections on
 
-acl allowed_domains_0 dstdomain "/var/run/proxy-allowed-domains-0.txt"
+acl allowed_domains_0 dstdomain -n "/var/run/proxy-allowed-domains-0.txt"
 acl allowed_ports_0 port 1-65535
 http_access allow allowed_domains_0 allowed_ports_0
 
-acl allowed_domains_1 dstdomain "/var/run/proxy-allowed-domains-1.txt"
+acl allowed_domains_1 dstdomain -n "/var/run/proxy-allowed-domains-1.txt"
 acl allowed_ports_1 port 443
 http_access allow allowed_domains_1 allowed_ports_1
 deny_info ERR_SANDBOX_BLOCKED all

@@ -387,18 +387,3 @@ export function createSandbox(opts?: SandboxOptions) {
 }
 
 export type SandboxInstance = ReturnType<typeof createSandbox>;
-
-/** Check if a network failure is transient (DNS/timeout issues, not a security block). */
-export function isTransientNetworkFailure(
-  exitCode: number,
-  output: string,
-): boolean {
-  if ([6, 7, 28, 124].includes(exitCode)) return true;
-  if (
-    /Could not resolve host|Temporary failure in name resolution|Failed to connect|Connection timed out|operation timed out/i.test(
-      output,
-    )
-  )
-    return true;
-  return false;
-}

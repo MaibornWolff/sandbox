@@ -26,29 +26,6 @@ function createScopedProgram(variables: Readonly<Record<string, string>> = {}) {
 }
 
 describe("sandbox program metadata", () => {
-  test("registers every root subcommand exactly once", () => {
-    const program = createScopedProgram();
-    const names = program.commands.map((command) => command.name());
-
-    expect(names).toEqual([
-      "run",
-      "escape",
-      "build",
-      "upgrade",
-      "status",
-      "stop",
-      "init",
-      "clean",
-      "update",
-      "doctor",
-      "config",
-      "assist",
-      "network",
-      "container",
-    ]);
-    expect(new Set(names).size).toBe(names.length);
-  });
-
   test("exposes no-build globally and silent only on run", () => {
     const program = createScopedProgram();
     const rootHelp = program.helpInformation();

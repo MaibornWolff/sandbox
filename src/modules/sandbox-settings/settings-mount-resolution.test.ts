@@ -47,49 +47,6 @@ describe("getSettingsDir", () => {
   });
 });
 
-describe("getSettingsMounts", () => {
-  test("returns array of mounts", async () => {
-    const result = await getSettingsMounts();
-
-    // Should return array (may be empty or contain multiple mounts)
-    expect(Array.isArray(result)).toBe(true);
-  });
-
-  test("returns individual mounts for each settings entry", async () => {
-    const result = await getSettingsMounts();
-
-    // Should return array
-    expect(Array.isArray(result)).toBe(true);
-
-    // If settings directory exists and has entries, verify mount structure
-    for (const mount of result) {
-      expect(mount).toHaveProperty("hostPath");
-      expect(mount).toHaveProperty("containerPath");
-      expect(mount).toHaveProperty("mode");
-
-      // Should mount under /etc/sandbox/ or /home/sandbox/
-      expect(mount.containerPath).toMatch(/^\/(etc\/sandbox|home\/sandbox)\//);
-
-      // Should be read-write
-      expect(mount.mode).toBe("rw");
-
-      // Host path should be absolute
-      expect(path.isAbsolute(mount.hostPath)).toBe(true);
-    }
-  });
-
-  test("mounts have correct structure", async () => {
-    const result = await getSettingsMounts();
-
-    // Each mount should have correct properties
-    for (const mount of result) {
-      expect(typeof mount.hostPath).toBe("string");
-      expect(typeof mount.containerPath).toBe("string");
-      expect(mount.mode).toBe("rw");
-    }
-  });
-});
-
 describe("getSettingsMounts with patterns", () => {
   let tmpDir: string;
 

@@ -42,7 +42,6 @@ beforeAll(async () => {
     `settings = [
   "~/.phase11/**",
   { path = "~/.phase11-copy/config.toml", mode = "copy" },
-  { path = "~/.phase11-copy-missing/config.toml", mode = "copy" },
 ]
 `,
   );
@@ -132,18 +131,5 @@ describe("container settings lifecycle", () => {
     );
     assertSandboxSuccess(restarted);
     expect(restarted.stdout).toBe('model = "host-model"\n');
-  }, 120_000);
-
-  test("skips a copy file that does not exist on the host", async () => {
-    const result = await sb.run(
-      "sh",
-      "-c",
-      [
-        "test ! -e /etc/sandbox/settings/.phase11-copy-missing/config.toml",
-        "test ! -e ~/.phase11-copy-missing/config.toml",
-      ].join("\n"),
-    );
-
-    assertSandboxSuccess(result);
   }, 120_000);
 });

@@ -42,16 +42,11 @@ afterAll(async () => {
 });
 
 describe("mounts-symlink", () => {
-  test("starts container with symlinked mount", async () => {
-    const result = await sb.run("true");
-    expect(result.exitCode).toBe(0);
-  }, 120_000);
-
   test("symlinked mount directory is accessible inside container", async () => {
     const { stdout, exitCode } = await sb.run("cat", "/mnt/data/marker.txt");
     expect(exitCode).toBe(0);
     expect(stdout.trim()).toBe("symlink-resolved");
-  });
+  }, 120_000);
 
   test("symlinked mount is read-only inside container", async () => {
     const { exitCode } = await sb.run(

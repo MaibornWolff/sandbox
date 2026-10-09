@@ -22,7 +22,37 @@ function expectInvalid(pattern: unknown, message: string): void {
   );
 }
 
+const openPattern: CommandPattern = [
+  "open",
+  {
+    repeat: [
+      { regex: "https?://\\S+" },
+      { regex: "[^-:][^:]*\\.html?", flags: "i" },
+    ],
+    min: 1,
+    max: 10,
+  },
+];
+
 describe("command pattern matching", () => {
+  test.each([
+    "report.HTML",
+    "http://example.com/report",
+    "https://example.com/report",
+  ])("allows safe open target %s", (target) =>
+    expect(matches(openPattern, ["open", target])).toBe(true),
+  );
+
+  test.each([
+    { args: ["/Applications/Calculator.app"] },
+    { args: ["file:///tmp/report.html"] },
+    { args: ["-a", "Terminal"] },
+    { args: ["-report.html"] },
+    { args: [] },
+  ])("rejects unsafe open arguments %j", ({ args }) => {
+    expect(matches(openPattern, ["open", ...args])).toBe(false);
+  });
+
   test("matches exact complete argument vectors and preserves spaces", () => {
     const pattern = ["bun", "run", "one test"];
     expect(matches(pattern, ["bun", "run", "one test"])).toBe(true);

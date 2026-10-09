@@ -96,7 +96,7 @@ export function renderSquidConfig(request: NetworkBootstrapRequest): {
   const aclConfig = groups
     .map(
       ({ id, ports }) =>
-        `acl allowed_domains_${id} dstdomain "${getSquidDomainAclPath(id)}"\n` +
+        `acl allowed_domains_${id} dstdomain -n "${getSquidDomainAclPath(id)}"\n` +
         `acl allowed_ports_${id} port ${formatNetworkPortSelection(ports, {
           allPorts: "1-65535",
           separator: " ",

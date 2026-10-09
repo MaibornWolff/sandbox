@@ -2,10 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { createProcessTestHarness } from "#platform/process/__test__/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import { createStatefulRuntimeCommandExecutor } from "./__test__/index.js";
-import { AppleContainerService } from "./apple/service.js";
 import { DockerService } from "./docker/service.js";
-import { PodmanService } from "./podman/service.js";
-import { createRuntimeService, resolveRuntime } from "./runtime.js";
+import { resolveRuntime } from "./runtime.js";
 import { createProductionRuntimeProvider } from "./runtime-provider.js";
 
 const resolveRuntimeInScope: typeof resolveRuntime = (...args) =>
@@ -99,29 +97,6 @@ describe("resolveRuntime", () => {
       { command: "podman", args: ["--version"] },
       { command: "container", args: ["--version"] },
     ]);
-  });
-});
-
-describe("createRuntimeService", () => {
-  test("creates DockerService for docker", () => {
-    const commands = createStatefulRuntimeCommandExecutor();
-    expect(
-      createRuntimeService("docker", commands.executor).runtime,
-    ).toBeInstanceOf(DockerService);
-  });
-
-  test("creates PodmanService for podman", () => {
-    const commands = createStatefulRuntimeCommandExecutor();
-    expect(
-      createRuntimeService("podman", commands.executor).runtime,
-    ).toBeInstanceOf(PodmanService);
-  });
-
-  test("creates AppleContainerService for apple-container", () => {
-    const commands = createStatefulRuntimeCommandExecutor();
-    expect(
-      createRuntimeService("apple-container", commands.executor).runtime,
-    ).toBeInstanceOf(AppleContainerService);
   });
 });
 

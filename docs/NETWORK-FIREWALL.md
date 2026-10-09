@@ -60,6 +60,8 @@ allow_network = [
 
 Ports 80 and 443 apply when an entry does not specify a port.
 
+Proxy requests that use a literal IPv4 address require an explicit entry in the same allowlist, such as `"192.0.2.10:443"`. A reverse DNS match to an allowed domain does not permit the request. Use the allowed hostname when possible.
+
 Use `host:*` or `host:{*}` to allow all Transmission Control Protocol (TCP) ports for one host. The traffic must still use the managed proxy.
 
 A wildcard such as `*.example.net` matches the base domain and all subdomains. Wildcards increase the available network surface.

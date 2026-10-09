@@ -613,6 +613,38 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
     );
   });
 
+  test("revokes captured bridge credentials when the outer execution ends", async () => {
+    await using app = await setupSandboxAppTest();
+    const user = app.processes.expectStart({ match: { stdio: "inherit" } });
+    const execution = app.cli.run("run", "true");
+    await user.waitForStart();
+    const environment = attachedExecution(app)?.spec.environment ?? {};
+    const endpoint = new URL(environment[HOST_BRIDGE_ENDPOINT_VARIABLE] ?? "");
+    endpoint.hostname = "127.0.0.1";
+    const captured = {
+      ...environment,
+      [HOST_BRIDGE_ENDPOINT_VARIABLE]: endpoint.href,
+    };
+    await runWithDependencies(
+      [provideWebSocketService(createNodeWebSocketService())],
+      async () => {
+        await using connection = await openHostBridgeConnection({
+          capability: "host-command",
+          environment: captured,
+        });
+        user.resolveResult({ exitCode: 0, stdout: "", stderr: "" });
+        expect((await execution).exitCode).toBe(0);
+        await connection.closed;
+        await expect(
+          openHostBridgeConnection({
+            capability: "host-command",
+            environment: captured,
+          }),
+        ).rejects.toThrow();
+      },
+    );
+  });
+
   test("uses a new broker token for each execution in a reused container", async () => {
     await using app = await setupSandboxAppTest();
     givenSuccessfulInteractiveProcess(app);
@@ -656,6 +688,24 @@ pattern = ["tool", ["safe", { regex = 'profile-[0-9]+' }]]
       expect(
         attachedExecution(app)?.spec.environment?.SANDBOX_HOST_BRIDGE_ENDPOINT,
       ).toStartWith(`wss://${hostAccessName}:`);
+    },
+  );
+
+  test.each(["docker", "podman", "apple-container"] as const)(
+    "runs a recorded %s image without building under --no-build",
+    async (runtime) => {
+      await using app = await setupSandboxAppTest({ runtime });
+      await app.project.givenConfig({ allowNetwork: [], runtime });
+      for (const digit of ["a", "b", "c"]) {
+        app.runtime.images.givenNextBuild({ id: `sha256:${digit.repeat(64)}` });
+      }
+      expect((await app.cli.run("build")).exitCode).toBe(0);
+      const buildsBefore = app.runtime.images.builds().length;
+      givenSuccessfulInteractiveProcess(app);
+      const result = await app.cli.run("--no-build", "run", "true");
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(app.runtime.images.builds()).toHaveLength(buildsBefore);
+      expect(attachedExecution(app)).toBeDefined();
     },
   );
 

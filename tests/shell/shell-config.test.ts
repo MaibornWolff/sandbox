@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { writeFile } from "node:fs/promises";
+import { chmod, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getRepoRootPath } from "#platform/git/index.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
@@ -30,7 +30,7 @@ function createSandboxHome(prefix: string): string {
 }
 
 async function runShellCommand(
-  shell: "sh" | "zsh",
+  shell: "sh" | "bash" | "zsh",
   args: string[],
   env?: NodeJS.ProcessEnv,
 ): Promise<ShellResult> {
@@ -103,6 +103,42 @@ async function getProfileLocalMarker(): Promise<string> {
 }
 
 describe("sandbox shell config", () => {
+  test.each([
+    ["bash", ["--noprofile", "--norc"]],
+    ["zsh", ["-f"]],
+  ] as const)(
+    "activates Mise once when sourced by %s",
+    async (shell, flags) => {
+      const home = createSandboxHome("mise-activation");
+      const executable = path.join(home, "mise");
+      await writeFile(
+        executable,
+        `#!/bin/sh
+printf 'export MISE_ACTIVATED=%s\\n' "$2"
+printf 'called\\n' >> "$HOME/mise-calls"
+`,
+      );
+      await chmod(executable, 0o755);
+      const profile = JSON.stringify(await getDockerFilePath("profile"));
+      const script = [
+        `. ${profile}`,
+        `. ${profile}`,
+        'printf "%s\\n" "$MISE_ACTIVATED"',
+        'cat "$HOME/mise-calls"',
+      ].join("\n");
+      const result = await runShellCommand(shell, [...flags, "-c", script], {
+        HOME: home,
+        ZDOTDIR: home,
+        BASH_ENV: undefined,
+        ENV: undefined,
+        PATH: `${home}${path.delimiter}${process.env.PATH ?? ""}`,
+        SANDBOX_PROFILE_LOADED: undefined,
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(result.stdout.trim().split("\n")).toEqual([shell, "called"]);
+    },
+  );
+
   test("enables zsh autosuggestions when the plugin is available", async () => {
     await expect(getAutosuggestionsState()).resolves.toEqual([
       "history completion",

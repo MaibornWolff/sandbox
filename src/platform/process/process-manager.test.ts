@@ -7,69 +7,7 @@ import {
   getProcessManager,
   provideProcessManager,
   type StandardProcessRequest,
-  type StartProcessRequest,
-  type StreamingProcessRequest,
 } from "./process-manager.js";
-
-const validRequests = [
-  {
-    command: "command",
-    lifetime: "application",
-    interaction: { mode: "non-interactive" },
-    stdio: "capture",
-  },
-  {
-    command: "interactive",
-    lifetime: "application",
-    interaction: { mode: "interactive", title: "agent" },
-    stdio: "inherit",
-  },
-  {
-    command: "editor",
-    lifetime: "detached",
-    interaction: { mode: "non-interactive" },
-    stdio: "ignore",
-    stdin: "ignore",
-  },
-  {
-    command: "bridge",
-    lifetime: "application",
-    interaction: { mode: "non-interactive" },
-    stdio: "stream",
-  },
-] as const satisfies readonly StartProcessRequest[];
-
-// @ts-expect-error Detached interactive processes are invalid.
-const detachedInteractive: StartProcessRequest = {
-  command: "invalid",
-  lifetime: "detached",
-  interaction: { mode: "interactive" },
-};
-
-// @ts-expect-error Detached processes cannot inherit terminal streams.
-const detachedInherited: StartProcessRequest = {
-  command: "invalid",
-  lifetime: "detached",
-  interaction: { mode: "non-interactive" },
-  stdio: "inherit",
-};
-
-// @ts-expect-error Interactive processes cannot configure output callbacks.
-const interactiveCallback: StartProcessRequest = {
-  command: "invalid",
-  lifetime: "application",
-  interaction: { mode: "interactive" },
-  onStdout: () => undefined,
-};
-
-const streamingCallback: StreamingProcessRequest = {
-  command: "invalid",
-  lifetime: "application",
-  interaction: { mode: "non-interactive" },
-  stdio: "stream",
-  // @ts-expect-error Streaming processes use their stdout iterator.
-  onStdout: () => undefined,
-};
 
 const clock: Clock = {
   now: () => 0,
@@ -100,14 +38,6 @@ describe("process manager request model", () => {
     expect(
       runWithDependencies([provideProcessManager(manager)], getProcessManager),
     ).toBe(manager);
-  });
-
-  test("accepts every supported lifetime and interaction combination", () => {
-    expect(validRequests).toHaveLength(4);
-    expect(detachedInteractive.command).toBe("invalid");
-    expect(detachedInherited.command).toBe("invalid");
-    expect(interactiveCallback.command).toBe("invalid");
-    expect(streamingCallback.command).toBe("invalid");
   });
 
   test.each([

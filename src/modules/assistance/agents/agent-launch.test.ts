@@ -1,22 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { getSupportedAssistAgents } from "./agent-catalog.js";
 import {
   buildAssistLaunchSpec,
   formatAssistLaunchCommand,
 } from "./agent-launch.js";
-
-describe("getSupportedAssistAgents", () => {
-  test("returns agents in priority order", () => {
-    const agents = getSupportedAssistAgents();
-    expect(agents.map((agent) => agent.command)).toEqual([
-      "claude",
-      "codex",
-      "copilot",
-      "pi",
-      "opencode",
-    ]);
-  });
-});
 
 describe("buildAssistLaunchSpec", () => {
   test("claude with question stays interactive", () => {

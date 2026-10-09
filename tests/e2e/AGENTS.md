@@ -10,7 +10,8 @@ E2E tests verify behavior across a real container boundary. They are not part of
 ## Running
 
 ```bash
-bun run test:e2e                                   # all
+bun run test:e2e                                   # core boundary suite
+bun run test:e2e:extended                          # explicit PHP/Devbox qualification
 bun test tests/e2e/network.test.ts                 # single file
 SANDBOX_BIN=/path/to/sandbox bun test --timeout 30000 tests/e2e/ # custom binary
 ```
@@ -52,6 +53,7 @@ test("my feature works", async () => {
 
 - You MUST verify DNS-provider logic with deterministic tests and use the configured DNS mode for general network E2E coverage.
 - You MUST keep general E2E tests runnable on Linux with the CI-selected container runtime.
+- You MUST keep extended tool-installation tests opt-in and excluded from normal runners and CI.
 - You MUST only use E2E tests for behavior that requires a real container runtime. Examples: published ports and bind-mount enforcement. Negative example: exit-code orchestration with a fake runtime.
 - You MUST NOT use the default `sandbox` instance from `utils/sandbox.js`. Always create a dedicated one with `createSandbox({ cwd: projectDir })`.
 - You MUST call `cleanupProject()` in `afterAll`. It calls `sb.stop()` and removes the temp dir.

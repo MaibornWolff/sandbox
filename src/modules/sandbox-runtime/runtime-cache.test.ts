@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { hashDirectoryContents } from "#platform/filesystem/index.js";
 import { runInHostTestScope } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 import { prepareSandboxRuntimeFromPackage } from "./runtime-cache.js";
@@ -19,6 +28,106 @@ function createRuntimePackage(root: string, version: string): RuntimePackage {
   );
   return { directory, version };
 }
+
+function startPublisher(options: {
+  readonly root: string;
+  readonly runtimePackage: RuntimePackage;
+  readonly cleanup: DisposableStack;
+}) {
+  const { root, runtimePackage, cleanup } = options;
+  const outputDirectory = path.join(root, "publisher");
+  const child = spawn(
+    "node",
+    [
+      path.join(outputDirectory, "runtime-cache-publisher.js"),
+      runtimePackage.directory,
+      runtimePackage.version,
+    ],
+    {
+      env: { ...process.env, XDG_DATA_HOME: path.join(root, "data") },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  cleanup.defer(() => child.kill());
+  if (!child.stdout || !child.stderr) {
+    throw new Error("Runtime publisher requires piped stdout and stderr");
+  }
+  const ready = new Promise<void>((resolve, reject) => {
+    child.once("message", () => resolve());
+    child.once("error", reject);
+    child.once("exit", () =>
+      reject(new Error("Publisher exited before readiness")),
+    );
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout += chunk.toString();
+  });
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const completed = new Promise<string>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code !== 0)
+        reject(new Error(`Publisher exited with ${code}: ${stderr}`));
+      else resolve(stdout);
+    });
+  });
+  return { child, ready, completed };
+}
+
+test("independent processes publish complete contents into the same cache", async () => {
+  const root = createTestDir("runtime-cache-concurrent");
+  using cleanup = new DisposableStack();
+  cleanup.defer(() => cleanupTestDir(root));
+  const runtimePackage = createRuntimePackage(root, "1.70.0");
+  for (let index = 0; index < 32; index += 1) {
+    writeFileSync(
+      path.join(runtimePackage.directory, `payload-${index}`),
+      Buffer.alloc(128 * 1024, index),
+    );
+  }
+  const outputDirectory = path.join(root, "publisher");
+  const build = await Bun.build({
+    entrypoints: [
+      fileURLToPath(
+        new URL(
+          "../../../scripts/fixtures/runtime-cache-publisher.ts",
+          import.meta.url,
+        ),
+      ),
+    ],
+    outdir: outputDirectory,
+    target: "node",
+    format: "esm",
+    packages: "bundle",
+  });
+  expect(build.success, build.logs.map((log) => log.message).join("\n")).toBe(
+    true,
+  );
+  const publishers = [0, 1].map(() =>
+    startPublisher({ root, runtimePackage, cleanup }),
+  );
+  await Promise.all(publishers.map((publisher) => publisher.ready));
+  for (const publisher of publishers) publisher.child.send("publish");
+  const outputs = await Promise.all(
+    publishers.map((publisher) => publisher.completed),
+  );
+  expect(outputs[0]).toBe(outputs[1]);
+  const published: { id: string; mount: { hostPath: string; mode: string } } =
+    JSON.parse(outputs[0] ?? "");
+  expect(published.mount.mode).toBe("ro");
+  expect(hashDirectoryContents(published.mount.hostPath)).toBe(
+    hashDirectoryContents(runtimePackage.directory),
+  );
+  expect(readdirSync(path.dirname(published.mount.hostPath)).sort()).toEqual([
+    ".leases",
+    published.id,
+  ]);
+}, 30_000);
 
 test("materializes a versioned runtime cache and reuses immutable contents", async () => {
   const root = createTestDir("runtime-cache");

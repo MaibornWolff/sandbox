@@ -27,60 +27,20 @@ beforeAll(async () => {
     },
   );
   expect(initResult.exitCode).toBe(0);
-});
+  expect((await sb.build()).exitCode).toBe(0);
+}, 360_000);
 
 afterAll(async () => {
   await cleanupProject(projectDir, sb);
 });
 
 describe("init-mise", () => {
-  test("builds project image", async () => {
-    const result = await sb.build();
-    expect(result.exitCode).toBe(0);
-  }, 120_000);
-
-  test("mise is installed", async () => {
-    const { stdout, exitCode } = await sb.run("mise", "--version");
-    expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/[0-9]+\.[0-9]+/);
-  });
-
-  test("base image provides jq for agent workflows", async () => {
-    const { stdout, exitCode } = await sb.run(
-      "jq",
-      "--null-input",
-      "--raw-output",
-      '{"tool":"available"} | .tool',
-    );
-    expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("available");
-  });
-
-  test("project tool installed from .mise.toml", async () => {
-    const { stdout, exitCode } = await sb.run("yq", "--version");
-    expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/[0-9]/);
-  });
-
-  test("mise lists installed tools", async () => {
-    const { stdout, exitCode } = await sb.run("mise", "ls");
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("yq");
-  });
-
-  test("mise shims on PATH", async () => {
-    const { stdout, exitCode } = await sb.run("sh", "-c", "echo $PATH");
-    expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/mise|\.local/);
-  });
-
-  test("mise doctor reports healthy", async () => {
-    const { exitCode } = await sb.run("mise", "doctor");
-    expect(exitCode).toBe(0);
-  });
-
-  test("mise env activates", async () => {
-    const { exitCode } = await sb.run("mise", "env");
-    expect(exitCode).toBe(0);
+  test("installs and executes the project tool from .mise.toml", async () => {
+    const inventory = await sb.run("mise", "ls");
+    expect(inventory.exitCode).toBe(0);
+    expect(inventory.stdout).toContain("yq");
+    const tool = await sb.run("yq", "--version");
+    expect(tool.exitCode).toBe(0);
+    expect(tool.stdout).toMatch(/[0-9]/);
   });
 });

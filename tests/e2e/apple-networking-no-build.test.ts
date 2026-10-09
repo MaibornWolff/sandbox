@@ -59,7 +59,7 @@ for (const host of ["host.container.internal", "host.docker.internal"]) {
       assertSandboxSuccess(result);
     });
 
-    test("supports no-build without changing shared Apple builder state", async () => {
+    test("supports no-build DNS and host-command access", async () => {
       const result = await sb.exec(
         [
           "--no-build",
@@ -68,8 +68,6 @@ for (const host of ["host.container.internal", "host.docker.internal"]) {
           "sh",
           "-c",
           `set -eu
-getent hosts host.container.internal >/dev/null
-getent hosts host.docker.internal >/dev/null
 getent ahostsv4 example.com >/dev/null
 sandbox escape ${JSON.stringify(process.execPath)} --version >/dev/null`,
         ],

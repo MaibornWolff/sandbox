@@ -4,16 +4,6 @@ import { createStatefulRuntimeCommandExecutor } from "../__test__/index.js";
 import { PodmanService } from "./service.js";
 
 describe("PodmanService", () => {
-  test("uses composition for a complete grouped contract", () => {
-    const service = new PodmanService(
-      createStatefulRuntimeCommandExecutor().executor,
-    );
-    expect(service.runtime).toBe("podman");
-    expect(service.instances).toBeDefined();
-    expect(service.storage).toBeDefined();
-    expect(service.build).toBeDefined();
-  });
-
   test("returns Podman-owned normalized host readiness", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenOutput(

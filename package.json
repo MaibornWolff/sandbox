@@ -71,6 +71,7 @@
     "test:shell": "bun test --only-failures tests/shell/",
     "security": "bun scripts/dependency-audit.ts",
     "test:e2e": "bun scripts/run-e2e.ts",
+    "test:e2e:extended": "bun scripts/run-e2e.ts --extended",
     "test:verbose": "bun test src/",
     "test:watch": "bun test --watch src/",
     "test:coverage": "bun test --coverage --only-failures src/",

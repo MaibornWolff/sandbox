@@ -79,25 +79,6 @@ function collectProductionFiles(directory: string): string[] {
 }
 
 describe("architecture: command display redaction", () => {
-  test("scanner distinguishes unsafe and approved command rendering", () => {
-    const unsafe = scanUnsafeCommandDisplayContent(
-      `logger.debug(\`Executing: docker \${args.join(" ")}\`);\n` +
-        `logger.debug(\`Docker build command: docker \${redactCommandArgs(args).join(" ")}\`);\n` +
-        `logger.debug(\`Foreground run: \${redactDockerCommand(\`\${runtime} \${runArgs.join(" ")}\`)}\`);`,
-    );
-    expect(unsafe.map(({ reason }) => reason)).toEqual([
-      'redactCommandArgs().join(" ") bypasses redactCommandForDisplay()',
-      "redactDockerCommand() called on joined argv string",
-      "logger.debug() command display joins args directly",
-    ]);
-    expect(
-      scanUnsafeCommandDisplayContent(
-        "logger.debug(`Executing: $" +
-          "{redactCommandForDisplay(command, args)}`);",
-      ),
-    ).toEqual([]);
-  });
-
   test("production command displays use redactCommandForDisplay", () => {
     const violations = collectProductionFiles(SOURCE_DIRECTORY).flatMap(
       (file) =>

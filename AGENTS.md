@@ -83,6 +83,9 @@ Use these rules when talking to the user:
 
 ## Testing
 
+- You MUST NOT add unit tests whose only subject is E2E assertion helpers or fixture validation.
+- You MUST put executable test-fixture work behind a main guard and keep imported test helpers free of process or filesystem side effects.
+- You SHOULD verify simple development-script wiring directly instead of adding isolated tests that only restate command arguments.
 - You SHOULD keep regression tests concise and put repeated boundary setup in small owner-local fixtures.
 - You MUST NOT add tests for config files.
 - You MUST use separate tests for different outcomes and avoid copying production polling loops into tests.

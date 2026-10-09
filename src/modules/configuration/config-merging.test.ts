@@ -10,32 +10,11 @@ import {
 } from "#test/utils.js";
 import { runWithConfigurationTestScope } from "./__test__/index.js";
 import type { Config } from "./config.js";
-import {
-  applyTomlConfig as applyTomlConfigInScope,
-  CONFIG_MERGE_RULES,
-} from "./config-merging.js";
+import { applyTomlConfig as applyTomlConfigInScope } from "./config-merging.js";
 import type { TomlConfig } from "./toml-config-schema.js";
 
 const applyTomlConfig: typeof applyTomlConfigInScope = (...args) =>
   runWithConfigurationTestScope(() => applyTomlConfigInScope(...args));
-
-describe("CONFIG_MERGE_RULES", () => {
-  test("defines merge strategy for all Config fields", () => {
-    expect(CONFIG_MERGE_RULES.runtime.strategy).toBe("override");
-    expect(CONFIG_MERGE_RULES.mounts.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.env.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.readonly.strategy).toBe("override");
-    expect(CONFIG_MERGE_RULES.persistPaths.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.settings.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.ports.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.allowNetwork.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.allowHostCommands.strategy).toBe("accumulate");
-    expect(CONFIG_MERGE_RULES.fullNetwork.strategy).toBe("override");
-    expect(CONFIG_MERGE_RULES.noProxy.strategy).toBe("override");
-    expect(CONFIG_MERGE_RULES.shmSize.strategy).toBe("override");
-    expect(CONFIG_MERGE_RULES.runtimes.strategy).toBe("override");
-  });
-});
 
 function createBaseConfig(): Config {
   return createTestConfig();

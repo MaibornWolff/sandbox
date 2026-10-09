@@ -25,9 +25,15 @@ write and revise these notes in normal pull requests. Maintainers review them.
 Use only relevant sections, such as `Added`, `Changed`, `Fixed`, `Removed`,
 `Security`, and `Breaking Changes`.
 
-Describe the effect on users. Include migration steps for breaking changes.
-Combine related changes. Omit routine internal cleanup. Do not generate the
-changelog from commit messages. Correct published notes only for factual errors.
+Write for product users only. Include user-facing capabilities, behavior,
+fixes, security changes, and required migration steps. Exclude CI, tests,
+release processes, development workflows, and internal implementation. Combine
+related changes. Do not generate the changelog from commit messages. Correct
+published notes only for factual errors.
+
+For the first public release, write a short overview of the existing product
+capabilities. Present it as the initial open-source release. Do not describe the
+internal work that prepared the repository for publication.
 
 Before a release, merge the reviewed notes into `main`. Leave the package version
 unchanged. The release workflow prepares the version and dated notes in its

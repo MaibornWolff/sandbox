@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Command } from "commander";
 import { createSystemClock } from "#platform/clock/index.js";
 import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import {
@@ -25,7 +26,33 @@ function createScopedProgram(variables: Readonly<Record<string, string>> = {}) {
   );
 }
 
+function listShortFlags(command: Command): string[] {
+  return command.options.flatMap((option) =>
+    option.short ? [option.short] : [],
+  );
+}
+
+function listSubcommands(command: Command): Command[] {
+  return command.commands.flatMap((subcommand) => [
+    subcommand,
+    ...listSubcommands(subcommand),
+  ]);
+}
+
 describe("sandbox program metadata", () => {
+  test("subcommand short flags never collide with global short flags", () => {
+    const program = createScopedProgram();
+    const globalShortFlags = new Set(listShortFlags(program));
+
+    const collisions = listSubcommands(program).flatMap((command) =>
+      listShortFlags(command)
+        .filter((flag) => globalShortFlags.has(flag))
+        .map((flag) => `${command.name()} ${flag}`),
+    );
+
+    expect(collisions).toEqual([]);
+  });
+
   test("exposes no-build globally and silent only on run", () => {
     const program = createScopedProgram();
     const rootHelp = program.helpInformation();

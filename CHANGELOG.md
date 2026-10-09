@@ -5,6 +5,7 @@
 ### Fixed
 
 - Refresh older version caches to prevent incorrect Sandbox update notices.
+- Remove the broken `-p` alias from `sandbox init` and `sandbox config update`. The global `-p, --port` option shadowed it, so both commands failed with "option '-p, --port <port>' argument missing". Use `--project`.
 
 ### Security
 

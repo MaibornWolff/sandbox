@@ -156,7 +156,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
       - name: Require the applicable checks
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           CHECK_RESULT: ${{ needs.check.result }}
           SECURITY_RESULT: ${{ needs.security.result }}

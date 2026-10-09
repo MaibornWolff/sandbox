@@ -182,6 +182,10 @@ export async function packRelease(repoRoot: string): Promise<void> {
     throw new Error("Working tree metadata changed after release preparation");
   }
 
+  console.error(
+    `Building ${chalk.cyan(`${plan.packageName}@${plan.version}`)}`,
+  );
+  npm(["run", "build"], repoRoot);
   const integrity = await createReleaseTarball(repoRoot);
   await writeReleasePlan(repoRoot, { ...plan, integrity });
   console.error(

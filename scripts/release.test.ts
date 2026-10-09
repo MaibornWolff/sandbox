@@ -35,7 +35,19 @@ async function createRepository() {
   await writeFile(path.join(repoRoot, ".gitignore"), ".release/\n");
   await writeFile(
     path.join(repoRoot, "package.json"),
-    `${JSON.stringify({ name: "@maibornwolff/sandbox", version: "0.71.0", license: "BSD-3-Clause" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@maibornwolff/sandbox", version: "0.71.0", license: "BSD-3-Clause", scripts: { build: "node build.cjs" } }, null, 2)}\n`,
+  );
+  await writeFile(
+    path.join(repoRoot, "build.cjs"),
+    `const fs = require("node:fs");
+const version = require("./package.json").version;
+fs.mkdirSync("bin", { recursive: true });
+fs.mkdirSync("dist/apps/sandbox", { recursive: true });
+fs.writeFileSync("bin/sandbox.js", \`console.log(process.argv[2] === "--version" ? "\${version}" : "Sandbox help");\\n\`);
+fs.writeFileSync("dist/apps/sandbox/main.js", "export {};\\n");
+fs.writeFileSync("SBOM.cdx.json", JSON.stringify({ metadata: { component: { name: "@maibornwolff/sandbox", version } } }));
+fs.writeFileSync("THIRD_PARTY_NOTICES.md", \`Version: \${version}\\n\`);
+`,
   );
   await writeFile(
     path.join(repoRoot, "CHANGELOG.md"),
@@ -120,34 +132,10 @@ async function advanceMain(repoRoot: string) {
 
 test("validates the saved package without rebuilding it", async () => {
   await using fixture = await createRepository();
-  const plan = await prepareRelease({
+  await prepareRelease({
     repoRoot: fixture.repoRoot,
     date: "2026-10-08",
   });
-  await mkdir(path.join(fixture.repoRoot, "bin"));
-  await mkdir(path.join(fixture.repoRoot, "dist", "apps", "sandbox"), {
-    recursive: true,
-  });
-  await writeFile(
-    path.join(fixture.repoRoot, "bin", "sandbox.js"),
-    `console.log(process.argv[2] === "--version" ? "${plan.version}" : "Sandbox help");\n`,
-  );
-  await writeFile(
-    path.join(fixture.repoRoot, "dist", "apps", "sandbox", "main.js"),
-    "export {};\n",
-  );
-  await writeFile(
-    path.join(fixture.repoRoot, "SBOM.cdx.json"),
-    JSON.stringify({
-      metadata: {
-        component: { name: plan.packageName, version: plan.version },
-      },
-    }),
-  );
-  await writeFile(
-    path.join(fixture.repoRoot, "THIRD_PARTY_NOTICES.md"),
-    `Version: ${plan.version}\n`,
-  );
   await packRelease(fixture.repoRoot);
   const tarballPath = path.join(
     releaseDirectory(fixture.repoRoot),

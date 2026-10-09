@@ -12,6 +12,11 @@ on:
         description: Reuse the validated candidate from a successful Release run (optional)
         type: string
         default: ""
+      skip_ci_wait:
+        description: Skip CI verification for an urgent release
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -124,6 +129,7 @@ jobs:
 
   source-ci:
     name: Wait for CI
+    if: ${{ !inputs.skip_ci_wait }}
     runs-on: ubuntu-latest
     timeout-minutes: 65
     permissions:
@@ -175,7 +181,9 @@ jobs:
     needs: [prepare, source-ci, validate]
     if: >-
       always() && !cancelled() && !inputs.dry_run &&
-      needs.prepare.result == 'success' && needs.source-ci.result == 'success' &&
+      needs.prepare.result == 'success' &&
+      (needs.source-ci.result == 'success' ||
+      (inputs.skip_ci_wait && needs.source-ci.result == 'skipped')) &&
       (needs.validate.result == 'success' ||
       (inputs.candidate_run_id != '' && needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest

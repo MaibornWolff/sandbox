@@ -19,7 +19,9 @@ import {
   writeReleasePlan,
 } from "./release-plan.js";
 
-async function createRepository() {
+async function createRepository(
+  options: { readonly packageVersion?: string } = {},
+) {
   const root = createTestDir("release-");
   const repoRoot = path.join(root, "checkout");
   const remote = path.join(root, "remote.git");
@@ -35,7 +37,7 @@ async function createRepository() {
   await writeFile(path.join(repoRoot, ".gitignore"), ".release/\n");
   await writeFile(
     path.join(repoRoot, "package.json"),
-    `${JSON.stringify({ name: "@maibornwolff/sandbox", version: "0.71.0", license: "BSD-3-Clause", scripts: { build: "node build.cjs" } }, null, 2)}\n`,
+    `${JSON.stringify({ name: "@maibornwolff/sandbox", version: options.packageVersion ?? "0.71.0", license: "BSD-3-Clause", scripts: { build: "node build.cjs" } }, null, 2)}\n`,
   );
   await writeFile(
     path.join(repoRoot, "build.cjs"),
@@ -131,7 +133,7 @@ async function advanceMain(repoRoot: string) {
 }
 
 test("validates the saved package without rebuilding it", async () => {
-  await using fixture = await createRepository();
+  await using fixture = await createRepository({ packageVersion: "0.999.0" });
   await prepareRelease({
     repoRoot: fixture.repoRoot,
     date: "2026-10-08",

@@ -79,7 +79,10 @@ permission is separate and is used only after npm publication.
 1. Keep `main` unchanged during publication. Ask contributors to pause merges
    and pause Renovate automerge for the release window.
 2. Open **Actions > Release > Run workflow** and select `main`.
-3. Leave **dry_run** enabled for the first run. Leave **candidate_run_id** empty.
+3. Leave **dry_run** enabled for the first run. Leave **candidate_run_id** empty
+   and **skip_ci_wait** disabled. Enable **skip_ci_wait** only for an urgent
+   release after you manually confirm that all required checks passed for the
+   exact `main` commit. This option bypasses the automated CI safety gate.
 4. Check the calculated version, job results, release notes, and
    `npm-release-candidate` artifact. Record the workflow run ID.
    The workflow packs an immutable candidate, then tests installation and
@@ -131,7 +134,9 @@ changelog, not from generated commit summaries.
   and low findings are non-blocking warnings.
 - **npm fails:** rerun the failed jobs from the same workflow run. An existing
   version is accepted only when its integrity matches the saved candidate.
-  Authentication and registry errors stop the release.
+  Authentication and registry errors stop the release. If npm stages the
+  release for human review, approve it on npm and rerun the failed jobs. The
+  rerun verifies the published integrity before finalization.
 - **Commit or GitHub Release creation fails:** rerun the failed jobs from the
   same run after correcting permissions. Do not start a new release or rebuild
   the published version. Finalization recognizes an already completed matching

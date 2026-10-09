@@ -21,7 +21,7 @@ import {
   restoreReleaseCheckout,
 } from "./release-git.js";
 import { releaseIncrementFromHistory } from "./release-history.js";
-import { packRelease } from "./release-package.js";
+import { packRelease, validateReleasePackage } from "./release-package.js";
 import {
   type ReleasePlan,
   readReleaseMetadata,
@@ -36,7 +36,7 @@ import { createReleaseRegistry } from "./release-registry.js";
 import { nextReleaseVersion, prepareChangelog } from "./release-state.js";
 
 const USAGE =
-  "Usage: bun release prepare | pack | restore | publish | finalize";
+  "Usage: bun release prepare | pack | validate | restore | publish | finalize";
 const packageSchema = z.looseObject({
   name: z.literal("@maibornwolff/sandbox"),
   version: z.string(),
@@ -156,6 +156,8 @@ async function main(): Promise<void> {
       return prepareFromArguments(repoRoot, args);
     case "pack":
       return packRelease(repoRoot);
+    case "validate":
+      return validateReleasePackage(repoRoot);
     case "restore":
       return restoreReleaseMetadata(repoRoot);
     case "publish":

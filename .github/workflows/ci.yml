@@ -2,8 +2,14 @@ name: CI
 
 on:
   workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: Run Docker and Podman end-to-end tests
+        type: boolean
+        default: true
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -11,7 +17,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'automatic' }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -48,8 +54,29 @@ jobs:
           path: coverage/lcov.info
           if-no-files-found: warn
 
+  security:
+    name: Dependency security
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1"
+      - name: Install dependencies without lifecycle scripts
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Block critical dependency vulnerabilities and report lower severities
+        run: bun run security
+
   e2e:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_e2e) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' &&
+      ((github.event.pull_request.user.login == 'renovate[bot]' && github.event.pull_request.user.type == 'Bot') ||
+      contains(github.event.pull_request.labels.*.name, 'run-e2e')))
     name: End-to-end tests (${{ matrix.runtime }})
     runs-on: ubuntu-26.04
     timeout-minutes: 60
@@ -118,3 +145,29 @@ jobs:
           timeout --kill-after=5s 15s ${{ matrix.runtime }} ps --all || echo '::warning::Container listing failed or timed out'
           timeout --kill-after=5s 15s ${{ matrix.runtime }} images || echo '::warning::Image listing failed or timed out'
           df -h
+
+  merge-gate:
+    name: Merge gate
+    if: always()
+    needs: [check, security, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Require the applicable checks
+        uses: actions/github-script@v8
+        env:
+          CHECK_RESULT: ${{ needs.check.result }}
+          SECURITY_RESULT: ${{ needs.security.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        with:
+          script: |
+            const { assertMergeGate } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);
+            const author = context.payload.pull_request?.user;
+            assertMergeGate({
+              check: process.env.CHECK_RESULT,
+              security: process.env.SECURITY_RESULT,
+              e2e: process.env.E2E_RESULT,
+              renovate: author?.login === 'renovate[bot]' && author?.type === 'Bot',
+            });

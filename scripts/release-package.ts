@@ -12,6 +12,7 @@ import {
   releaseDirectory,
   releaseMetadataDigest,
   releaseTarballPath,
+  verifyReleaseTarball,
   writeReleasePlan,
 } from "./release-plan.js";
 
@@ -182,6 +183,15 @@ export async function packRelease(repoRoot: string): Promise<void> {
   }
 
   const integrity = await createReleaseTarball(repoRoot);
+  await writeReleasePlan(repoRoot, { ...plan, integrity });
+  console.error(
+    `Packed ${chalk.cyan(`${plan.packageName}@${plan.version}`)} for approval and validation`,
+  );
+}
+
+export async function validateReleasePackage(repoRoot: string): Promise<void> {
+  const plan = await readReleasePlan(repoRoot);
+  await verifyReleaseTarball(repoRoot, plan);
   await verifyInstalledPackage(repoRoot, plan);
   npm(
     [
@@ -193,7 +203,7 @@ export async function packRelease(repoRoot: string): Promise<void> {
     ],
     repoRoot,
   );
-  await writeReleasePlan(repoRoot, { ...plan, integrity });
+  await verifyReleaseTarball(repoRoot, plan);
   console.error(
     `Validated ${chalk.cyan(`${plan.packageName}@${plan.version}`)} without publishing`,
   );

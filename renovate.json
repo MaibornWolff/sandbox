@@ -2,6 +2,17 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
   "prConcurrentLimit": 3,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
+  "rebaseWhen": "behind-base-branch",
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "automerge": false,
+    "dependencyDashboardApproval": true
+  },
   "semanticCommitType": "chore",
   "semanticCommitScope": null,
   "packageRules": [
@@ -11,6 +22,11 @@
       "groupName": "npm dependencies"
     },
     {
+      "matchDatasources": ["npm"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
       "separateMajorMinor": false
@@ -18,7 +34,8 @@
     {
       "matchDatasources": ["npm", "docker", "github-runners"],
       "matchUpdateTypes": ["major"],
-      "dependencyDashboardApproval": true
+      "dependencyDashboardApproval": true,
+      "automerge": false
     },
     {
       "matchDatasources": ["github-runners"],
@@ -27,6 +44,11 @@
     {
       "matchDepNames": ["typescript-api"],
       "allowedVersions": "<6.0.0"
+    },
+    {
+      "matchJsonata": ["isVulnerabilityAlert = true"],
+      "automerge": false,
+      "groupName": null
     }
   ]
 }

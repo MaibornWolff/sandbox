@@ -8,6 +8,10 @@ on:
         required: true
         type: boolean
         default: true
+      candidate_run_id:
+        description: Reuse the validated candidate from a successful Release run (optional)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -18,12 +22,16 @@ concurrency:
 
 jobs:
   prepare:
-    name: Validate and pack
+    name: Prepare immutable candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
     outputs:
-      version: ${{ steps.prepare.outputs.version }}
-      source_commit: ${{ steps.prepare.outputs.source_commit }}
+      version: ${{ steps.metadata.outputs.version }}
+      source_commit: ${{ github.sha }}
+      candidate_run_id: ${{ steps.metadata.outputs.candidate_run_id }}
     steps:
       - name: Require main
         env:
@@ -38,6 +46,37 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+      - name: Require configured human approval before publishing
+        if: ${{ !inputs.dry_run }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: environment } = await github.rest.repos.getEnvironment({
+              ...context.repo, environment_name: 'npm-release-approval',
+            });
+            const { assertApprovalEnvironment } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);
+            assertApprovalEnvironment(environment);
+      - name: Verify reusable candidate origin
+        if: inputs.candidate_run_id != ''
+        uses: actions/github-script@v8
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        with:
+          script: |
+            const value = process.env.CANDIDATE_RUN_ID;
+            if (!/^[1-9][0-9]*$/.test(value)) throw new Error('Candidate run ID must be a positive integer');
+            const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: Number(value) });
+            const { data: workflow } = await github.rest.actions.getWorkflow({ ...context.repo, workflow_id: 'release.yml' });
+            const { assertReusableCandidate } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);
+            assertReusableCandidate(run, context.sha, workflow.id);
+      - name: Download reusable candidate
+        if: inputs.candidate_run_id != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-release-candidate
+          path: .release/
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
@@ -48,46 +87,76 @@ jobs:
           bun-version: "1"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Prepare release metadata
-        id: prepare
-        run: bun release prepare
-      - name: Install shell test dependencies
-        run: sudo apt-get update && sudo apt-get install --yes zsh
-      - name: Run checks
-        run: bun check --verbose
-      - name: Run shell tests
-        run: bun run test:shell
-      - name: Check dependency licenses
-        run: >-
-          bunx license-checker@25.0.1 --production
-          --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;ISC;Zlib;Unlicense;X11;PostgreSQL;Python-2.0.1;PSF-2.0;CC0-1.0;WTFPL;NCSA;UPL-1.0"
-      - name: Pack and test the installed npm package
-        run: bun release pack
+      - name: Prepare version and pack candidate
+        if: inputs.candidate_run_id == ''
+        run: |
+          bun release prepare
+          bun release pack
+      - name: Verify candidate and record metadata
+        id: metadata
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id || github.run_id }}
+        run: |
+          bun -e '
+            const { appendFile } = await import("node:fs/promises");
+            const { readReleasePlan, verifyReleaseTarball } = await import("./scripts/release-plan.ts");
+            const { getRepoRootPath } = await import("./src/platform/git/index.ts");
+            const root = await getRepoRootPath(process.cwd());
+            const plan = await readReleasePlan(root);
+            if (plan.sourceCommit !== process.env.GITHUB_SHA) {
+              throw new Error("Candidate source does not match main");
+            }
+            await verifyReleaseTarball(root, plan);
+            await appendFile(process.env.GITHUB_OUTPUT,
+              `version=${plan.version}\ncandidate_run_id=${process.env.CANDIDATE_RUN_ID}\n`);
+          '
       - name: Check for unexpected generated changes
+        if: inputs.candidate_run_id == ''
         run: git diff --exit-code -- . ':!package.json' ':!CHANGELOG.md'
-      - name: Upload release candidate
+      - name: Upload immutable release candidate
+        if: inputs.candidate_run_id == ''
         uses: actions/upload-artifact@v7
         with:
           name: npm-release-candidate
           path: .release/
           include-hidden-files: true
           if-no-files-found: error
-      - name: Summarize candidate
+          retention-days: 30
+      - name: Summarize candidate for review
         env:
-          RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          RELEASE_VERSION: ${{ steps.metadata.outputs.version }}
+          CANDIDATE_RUN_ID: ${{ steps.metadata.outputs.candidate_run_id }}
         run: |
-          printf '## Release candidate %s\n\nDry run: %s\n\n' "$RELEASE_VERSION" "$DRY_RUN" >> "$GITHUB_STEP_SUMMARY"
+          printf '## Release candidate %s\n\nSource: %s\n\nCandidate run: %s\n\n' "$RELEASE_VERSION" "$GITHUB_SHA" "$CANDIDATE_RUN_ID" >> "$GITHUB_STEP_SUMMARY"
           cat .release/notes.md >> "$GITHUB_STEP_SUMMARY"
+          printf '\n\n### Integrity\n\n' >> "$GITHUB_STEP_SUMMARY"
+          sha512sum .release/package.tgz >> "$GITHUB_STEP_SUMMARY"
 
-  e2e:
-    name: Test release containers
-    needs: prepare
+  source-ci:
+    name: Wait for source CI
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      SANDBOX_TEST_RUNTIME: docker
-      SANDBOX_TEST_TMP: /tmp/sandbox-release-e2e
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Require successful CI for this main commit
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { waitForSourceCI } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);
+            await waitForSourceCI({ github, context, core });
+
+  validate:
+    name: Test packed candidate
+    needs: prepare
+    if: inputs.candidate_run_id == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out release source
         uses: actions/checkout@v7
@@ -103,25 +172,44 @@ jobs:
           bun-version: "1"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Download release candidate
+      - name: Download immutable candidate
         uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/
-      - name: Restore release metadata
-        run: bun release restore
-      - name: Run end-to-end tests
-        run: bun run test:e2e
+      - name: Test installation and publishing without rebuilding
+        run: bun release validate
+
+  approve:
+    name: Approve candidate while checks run
+    needs: prepare
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: npm-release-approval
+    steps:
+      - name: Record approval
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
+          CANDIDATE_RUN_ID: ${{ needs.prepare.outputs.candidate_run_id }}
+        run: printf 'Approved version %s from commit %s and candidate run %s. Publication still requires successful validation.\n' "$RELEASE_VERSION" "$SOURCE_COMMIT" "$CANDIDATE_RUN_ID"
 
   publish:
     name: Publish to npm
-    needs: [prepare, e2e]
-    if: ${{ !inputs.dry_run }}
+    needs: [prepare, source-ci, validate, approve]
+    if: >-
+      always() && !cancelled() && !inputs.dry_run &&
+      needs.prepare.result == 'success' && needs.source-ci.result == 'success' &&
+      needs.approve.result == 'success' &&
+      (needs.validate.result == 'success' ||
+      (inputs.candidate_run_id != '' && needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm-production
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - name: Check out release source
@@ -139,14 +227,18 @@ jobs:
           bun-version: "1"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Download release candidate
+      - name: Recheck critical dependency vulnerabilities before publication
+        run: bun run security
+      - name: Download approved candidate
         uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/
+          run-id: ${{ needs.prepare.outputs.candidate_run_id }}
+          github-token: ${{ github.token }}
       - name: Set up trusted-publishing npm CLI
         run: npm install --global npm@11
-      - name: Publish the validated tarball
+      - name: Publish the validated tarball if main is unchanged
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         run: bun release publish
@@ -154,11 +246,15 @@ jobs:
   finalize:
     name: Commit release metadata and create GitHub Release
     needs: [prepare, publish]
+    if: >-
+      always() && !cancelled() &&
+      needs.prepare.result == 'success' && needs.publish.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: npm-production
     permissions:
       contents: write
+      actions: read
     steps:
       - name: Check out release source
         uses: actions/checkout@v7
@@ -176,11 +272,13 @@ jobs:
           bun-version: "1"
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Download release candidate
+      - name: Download published candidate
         uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/
+          run-id: ${{ needs.prepare.outputs.candidate_run_id }}
+          github-token: ${{ github.token }}
       - name: Configure release commit author
         run: |
           git config user.name 'github-actions[bot]'

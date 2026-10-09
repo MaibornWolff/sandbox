@@ -38,9 +38,12 @@ an empty `Unreleased` section for the next changes.
 
 1. Confirm that the npm organization owns the `@maibornwolff` scope and that the
    release maintainer can publish `@maibornwolff/sandbox` publicly.
-2. Create the GitHub environment `npm-production`. Restrict it to `main`.
-   Add required reviewers if a second approval is required. A sole maintainer
-   must not enable a self-review restriction without another available reviewer.
+2. Create the GitHub environments `npm-production` and `npm-release-approval`.
+   Restrict both environments to `main`. Add required reviewers to
+   `npm-release-approval`. A sole maintainer must not enable a self-review
+   restriction without another available reviewer. Keep publishing secrets in
+   `npm-production`. Move existing required reviewers from `npm-production` to
+   `npm-release-approval` to prevent a second approval after validation.
 3. Permit the release identity to push the release commit to `main` and create
    public `v0.*` tags. Do not remove branch protection for all contributors.
    The default `GITHUB_TOKEN` works only if repository rules permit its writes.
@@ -68,24 +71,43 @@ permission is separate and is used only after npm publication.
 
 ## Run a release
 
-1. Keep `main` unchanged during publication. Ask contributors to pause merges.
+1. Keep `main` unchanged during publication. Ask contributors to pause merges
+   and pause Renovate automerge for the release window.
 2. Open **Actions > Release > Run workflow** and select `main`.
-3. Leave **dry_run** enabled for the first run.
+3. Leave **dry_run** enabled for the first run. Leave **candidate_run_id** empty.
 4. Check the calculated version, job results, release notes, and
-   `npm-release-candidate` artifact.
-   The workflow runs the complete checks, shell tests, license check, installed
-   package smoke tests, and Docker end-to-end tests. It also runs
-   `npm publish --dry-run` on the packed tarball.
+   `npm-release-candidate` artifact. Record the workflow run ID.
+   The workflow packs an immutable candidate, then tests installation and
+   `npm publish --dry-run` from that tarball without rebuilding it.
+   In parallel, it waits for successful main-push CI, Compliance, and CodeQL
+   runs on the exact source commit. The source checks include shell tests,
+   dependency security, licenses, and Docker and Podman end-to-end tests.
+   Failed, missing, or skipped required jobs block publication.
 5. Run the workflow again from the same commit with **dry_run** disabled.
-   This creates a new validated candidate. Approve the production jobs if the
-   environment requires approval.
-6. Confirm the npm version, `v<version>` tag, GitHub Release, and commit on `main`.
+   Set **candidate_run_id** to the successful dry-run ID. The workflow reuses
+   its saved tarball and validation instead of rebuilding or repeating tests.
+   Candidate reuse requires a successful Release run on the current `main`
+   commit with an available `npm-release-candidate` artifact.
+6. Approve the candidate through `npm-release-approval`. For a new candidate,
+   approval can occur while package tests and source CI run. Approval alone
+   does not permit publishing. All gates must succeed. The workflow repeats
+   the dependency security audit immediately before publishing and verifies
+   that `main` has not changed.
+7. Confirm the npm version, `v<version>` tag, GitHub Release, and commit on `main`.
    The commit must contain the released package version, dated changelog notes,
    and an empty `Unreleased` section.
+
+For a release without a separate dry run, disable **dry_run** and leave
+**candidate_run_id** empty. Review the candidate summary before approving it.
+Each new candidate requires new approval. Candidate artifacts expire after
+30 days. A reused run does not create another copy of the artifact: keep the
+ID of the original run that packed it.
 
 Dry runs have no publishing credentials or GitHub write permissions. They do not
 publish to npm, push commits or tags, or create GitHub Releases. A local
 `bun release prepare` calculates the version and changes the checkout only.
+`bun release pack` builds and saves the candidate with its integrity.
+`bun release validate` tests the saved candidate without rebuilding it.
 Use a disposable checkout for local release tests. Do not commit the prepared
 version before running the workflow, because the workflow calculates the next
 version from `main`.
@@ -99,6 +121,12 @@ are pushed atomically without force. GitHub Release notes come from the prepared
 changelog, not from generated commit summaries.
 
 - **Validation fails:** correct the source or notes and start a new dry run.
+- **Source CI fails or is missing:** correct or rerun the main-push checks for
+  the exact source commit. Manual branch checks do not replace main-push CI.
+- **Security audit fails:** correct critical non-denial-of-service dependency
+  vulnerabilities before releasing. Scanner and registry errors also block
+  publication. Denial-of-service advisories are ignored. Other high, moderate,
+  and low findings are non-blocking warnings.
 - **npm fails:** rerun the failed jobs from the same workflow run. An existing
   version is accepted only when its integrity matches the saved candidate.
   Authentication and registry errors stop the release.

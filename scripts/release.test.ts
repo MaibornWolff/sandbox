@@ -12,6 +12,7 @@ import {
   restoreReleaseMetadata,
 } from "./release.js";
 import { gitCommand, type ReleaseCommand } from "./release-command.js";
+import { packRelease, validateReleasePackage } from "./release-package.js";
 import {
   readReleasePlan,
   releaseDirectory,
@@ -116,6 +117,62 @@ async function advanceMain(repoRoot: string) {
   gitCommand(["commit", "-m", "feat: concurrent change"], repoRoot);
   gitCommand(["push", "origin", "main"], repoRoot);
 }
+
+test("validates the saved package without rebuilding it", async () => {
+  await using fixture = await createRepository();
+  const plan = await prepareRelease({
+    repoRoot: fixture.repoRoot,
+    date: "2026-10-08",
+  });
+  await mkdir(path.join(fixture.repoRoot, "bin"));
+  await mkdir(path.join(fixture.repoRoot, "dist", "apps", "sandbox"), {
+    recursive: true,
+  });
+  await writeFile(
+    path.join(fixture.repoRoot, "bin", "sandbox.js"),
+    `console.log(process.argv[2] === "--version" ? "${plan.version}" : "Sandbox help");\n`,
+  );
+  await writeFile(
+    path.join(fixture.repoRoot, "dist", "apps", "sandbox", "main.js"),
+    "export {};\n",
+  );
+  await writeFile(
+    path.join(fixture.repoRoot, "SBOM.cdx.json"),
+    JSON.stringify({
+      metadata: {
+        component: { name: plan.packageName, version: plan.version },
+      },
+    }),
+  );
+  await writeFile(
+    path.join(fixture.repoRoot, "THIRD_PARTY_NOTICES.md"),
+    `Version: ${plan.version}\n`,
+  );
+  await packRelease(fixture.repoRoot);
+  const tarballPath = path.join(
+    releaseDirectory(fixture.repoRoot),
+    "package.tgz",
+  );
+  const tarball = await readFile(tarballPath);
+  await writeFile(
+    path.join(fixture.repoRoot, "bin", "sandbox.js"),
+    'throw new Error("Source must not be rebuilt");\n',
+  );
+  await validateReleasePackage(fixture.repoRoot);
+  expect(await readFile(tarballPath)).toEqual(tarball);
+});
+
+test("package validation rejects a changed tarball before installation", async () => {
+  await using fixture = await createRepository();
+  await prepareCandidate(fixture.repoRoot);
+  await writeFile(
+    path.join(releaseDirectory(fixture.repoRoot), "package.tgz"),
+    "changed",
+  );
+  await expect(validateReleasePackage(fixture.repoRoot)).rejects.toThrow(
+    "recorded integrity",
+  );
+});
 
 test("prepares a release candidate without committing or pushing", async () => {
   await using fixture = await createRepository();

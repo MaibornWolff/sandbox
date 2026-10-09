@@ -21,7 +21,7 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
   - When running inside Sandbox, run all host E2E tests with `sandbox escape -- bun test:e2e`.
 - You SHOULD pin CI toolchain dependencies to major versions unless stricter reproducibility is explicitly requested.
 - You MUST avoid duplicate branch and merge-request pipelines for the same commit.
-- You MUST run slow container E2E jobs only on `main` pushes or manual branch triggers.
+- You MUST run slow container E2E jobs only on `main` pushes, Renovate bot PRs, or explicit manual requests.
 
 ## Key Rules
 
@@ -63,6 +63,7 @@ Use these rules when talking to the user:
 ## Code Style
 
 - You MUST keep deprecation diagnostics fatal in `bun check` and use supported, non-deprecated APIs without suppressing warnings.
+- You MUST block dependency updates and releases on critical non-denial-of-service security findings or scanner errors. Ignore denial-of-service advisories and report other lower-severity findings as non-blocking warnings.
 - You MUST use specific error messages and preserve exit codes from child processes.
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
@@ -81,6 +82,7 @@ Use these rules when talking to the user:
 ## Testing
 
 - You SHOULD keep regression tests concise and put repeated boundary setup in small owner-local fixtures.
+- You MUST NOT add tests for config files.
 - You MUST use separate tests for different outcomes and avoid copying production polling loops into tests.
 - You MUST NOT use `mock.module()` because it causes flaky tests due to parallel execution.
 - You MUST NOT use `try`/`finally` for test cleanup and MUST use `DisposableStack`, `Disposable`, or `AsyncDisposable` instead.

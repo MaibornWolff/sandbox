@@ -106,7 +106,7 @@ Use these rules when talking to the user:
 
 - You MUST update `CHANGELOG.md` under `Unreleased` for user-visible changes and include migration steps for breaking changes.
 - You MUST keep released changelog sections unchanged except for factual corrections.
-- You MUST write changelog and release notes only for product users. Include user-facing capabilities, behavior, fixes, security, and required migration steps. Exclude CI, tests, release processes, development workflows, and internal implementation.
+- You MUST write changelog and release notes only for product users. Include user-facing capabilities, behavior, fixes, security, required migration steps, and relevant command or configuration examples. Exclude CI, tests, release processes, development workflows, and internal implementation.
 - You MUST follow `docs/RELEASING.md` for release work and must not publish without an explicit user request.
 
 ## Logging

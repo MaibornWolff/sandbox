@@ -26,10 +26,11 @@ Use only relevant sections, such as `Added`, `Changed`, `Fixed`, `Removed`,
 `Security`, and `Breaking Changes`.
 
 Write for product users only. Include user-facing capabilities, behavior,
-fixes, security changes, and required migration steps. Exclude CI, tests,
-release processes, development workflows, and internal implementation. Combine
-related changes. Do not generate the changelog from commit messages. Correct
-published notes only for factual errors.
+fixes, security changes, and required migration steps. Add short command or
+configuration examples when they help users apply or understand a change.
+Exclude CI, tests, release processes, development workflows, and internal
+implementation. Combine related changes. Do not generate the changelog from
+commit messages. Correct published notes only for factual errors.
 
 For the first public release, write a short overview of the existing product
 capabilities. Present it as the initial open-source release. Do not describe the

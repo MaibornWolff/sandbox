@@ -379,7 +379,7 @@ function getImportedComponentOwner(
 function isTypeOnlyImport(node: ts.ImportDeclaration): boolean {
   const clause = node.importClause;
   if (!clause) return false;
-  if (clause.isTypeOnly) return true;
+  if (clause.phaseModifier === ts.SyntaxKind.TypeKeyword) return true;
   return (
     clause.namedBindings !== undefined &&
     ts.isNamedImports(clause.namedBindings) &&

@@ -13,6 +13,7 @@ export interface CheckCommandResult {
 const mutatingSteps = ["lint", "build"] as const;
 const readOnlySteps = [
   "typecheck",
+  "deprecations",
   "architecture",
   "cpd",
   "knip",

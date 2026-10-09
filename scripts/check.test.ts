@@ -72,6 +72,7 @@ describe("check runner", () => {
       "lint",
       "build",
       "typecheck",
+      "deprecations",
       "architecture",
       "cpd",
       "knip",
@@ -111,6 +112,7 @@ describe("check runner", () => {
       "lint",
       "build",
       "typecheck",
+      "deprecations",
       "architecture",
       "cpd",
       "knip",
@@ -118,6 +120,26 @@ describe("check runner", () => {
       "coverage:check",
     ]);
     expect(started.at(-1)).toBe("coverage:check");
+  });
+
+  test("fails when deprecated APIs are reported", async () => {
+    const result = await runChecks({
+      verbose: false,
+      log: () => undefined,
+      runStep: async (step) =>
+        step === "deprecations"
+          ? {
+              exitCode: 1,
+              stdout: "src/example.ts:3:1: Deprecated API",
+              stderr: "",
+            }
+          : success(),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.failures).toMatchObject([
+      { step: "deprecations", output: "src/example.ts:3:1: Deprecated API" },
+    ]);
   });
 
   test("fails through the coverage gate path", async () => {

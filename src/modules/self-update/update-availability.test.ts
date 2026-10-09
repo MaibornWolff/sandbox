@@ -17,6 +17,7 @@ import {
 } from "#platform/state/index.js";
 import { runInHostTestScope } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
+import { getVersion } from "./package-version.js";
 import {
   formatAvailableUpdateWarning,
   runUpdateCheckWorker,
@@ -74,7 +75,7 @@ describe("update availability", () => {
     });
   });
 
-  it("refreshes only in the worker and never changes unrelated state", async () => {
+  it("refreshes an up-to-date version only in the worker and preserves unrelated state", async () => {
     const root = createTestDir("update-worker");
     using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(root) };
     const scope = await runInHostTestScope({ root }, async ({ processes }) => {
@@ -84,11 +85,11 @@ describe("update availability", () => {
       const request = await worker.waitForStart();
       const claim = request.args?.[2] ?? "";
       const npm = createNpmFixture(processes);
-      npm.givenPackageVersion(packageName, "1.5.0");
+      npm.givenPackageVersion(packageName, getVersion());
       npm.prepare();
       await runUpdateCheckWorker(claim);
       await runUpdateCheckWorker(claim);
-      expect(readUpdateCache().latestVersion).toBe("1.5.0");
+      expect(readUpdateCache().latestVersion).toBe(getVersion());
       expect(npm.operations()).toHaveLength(1);
       writeState({ sandboxStorage: { project: { id: "new-storage" } } });
       expect(readState()).toEqual({

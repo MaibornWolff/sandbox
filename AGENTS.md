@@ -7,7 +7,7 @@
 
 ## Commands
 
-- **Check all:** `bun check` (typecheck + lint + test + build + cpd + knip)
+- **Check all:** `bun check` (typecheck + deprecations + lint + test + build + cpd + knip)
 
 Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, optimized `bun check` command otherwise:
 
@@ -62,6 +62,7 @@ Use these rules when talking to the user:
 
 ## Code Style
 
+- You MUST keep deprecation diagnostics fatal in `bun check` and use supported, non-deprecated APIs without suppressing warnings.
 - You MUST use specific error messages and preserve exit codes from child processes.
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
@@ -98,6 +99,13 @@ Use these rules when talking to the user:
 - You MUST NOT add tests that only restate tool registry values or generated output implied by them.
 - You SHOULD use `createTestDir()`/`cleanupTestDir()` from `src/test/utils.ts` for temp directories.
 - Coverage: aim for 100% on utils, test config/docker logic, commands MAY use integration-style tests.
+
+## Releases
+
+- You MUST update `CHANGELOG.md` under `Unreleased` for user-visible changes and include migration steps for breaking changes.
+- You MUST keep released changelog sections unchanged except for factual corrections.
+- You MUST keep the changelog focused on user-visible changes, not internal release bookkeeping.
+- You MUST follow `docs/RELEASING.md` for release work and must not publish without an explicit user request.
 
 ## Logging
 

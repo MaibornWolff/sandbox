@@ -17,7 +17,7 @@ const RETRY_INTERVAL = 60 * 60 * 1_000;
 const CACHE_INTERVAL = 24 * RETRY_INTERVAL;
 const cacheSchema = z.object({
   latestVersion: z.string().optional(),
-  checkedAt: z.number().finite().optional(),
+  checkedAt: z.number().optional(),
   error: z.string().optional(),
 });
 type UpdateCache = z.infer<typeof cacheSchema>;

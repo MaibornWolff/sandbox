@@ -43,8 +43,27 @@ Read [docs/TESTING.md](docs/TESTING.md) for test design and test commands.
 - Add a failing test before you fix a bug.
 - Add tests for new behavior.
 - Update user documentation when behavior changes.
+- Add user-visible changes to `CHANGELOG.md` under `Unreleased`. Include migration steps for breaking changes.
 - Keep commits focused.
 - Use conventional commit messages such as `feat: add command` or `fix: preserve exit code`.
+
+## Dependency Updates
+
+Renovate is the only bot that opens dependency update pull requests. GitHub
+Dependabot security alerts stay enabled. Routine npm updates share one pull
+request. GitHub Actions updates share a separate pull request, including major
+versions. Major npm, container image, and runner updates need approval in the
+Dependency Dashboard before Renovate opens a pull request.
+
+Keep `typescript-api` on TypeScript 5. The check scripts use its JavaScript
+compiler API, which the TypeScript 7 native compiler does not provide. Review
+changes to the dependency-cruiser patch when you update that package. Run the
+Docker and Podman end-to-end jobs before you accept a runner image update.
+
+## Releases
+
+Maintainers start releases manually. See [docs/RELEASING.md](docs/RELEASING.md) for
+version selection, dry runs, npm setup, and recovery.
 
 ## Pull Requests
 

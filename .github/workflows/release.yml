@@ -48,7 +48,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Set up Bun
@@ -106,7 +106,7 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_commit }}
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Set up Bun
@@ -141,7 +141,7 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.source_commit }}
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org/
@@ -179,7 +179,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_GITHUB_TOKEN || github.token }}
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Set up Bun

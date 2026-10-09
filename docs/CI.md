@@ -69,4 +69,4 @@ must be an explicit maintainer decision.
 
 Releases reuse successful main-push checks for the exact source commit. They
 still test installation and publishing from the saved npm package. See
-[Releasing Sandbox](RELEASING.md) for approval, candidate reuse, and recovery.
+[Releasing Sandbox](RELEASING.md) for CI gating, candidate reuse, and recovery.

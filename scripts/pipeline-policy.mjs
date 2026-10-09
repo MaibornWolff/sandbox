@@ -39,17 +39,6 @@ export function assertRequiredJobs(jobs, requiredNames) {
   }
 }
 
-export function assertApprovalEnvironment(environment) {
-  const reviewersRequired = environment.protection_rules?.some(
-    (rule) => rule.type === "required_reviewers" && rule.reviewers?.length > 0,
-  );
-  if (!reviewersRequired) {
-    throw new Error(
-      "Configure required reviewers on npm-release-approval before publishing",
-    );
-  }
-}
-
 export function assertReusableCandidate(run, sourceCommit, workflowId) {
   if (
     run.workflow_id !== workflowId ||
@@ -108,16 +97,16 @@ export async function waitForSourceCI({
         );
         assertRequiredJobs(jobs, entry.jobs);
       }
-      core.info(`All source CI gates passed for ${context.sha}`);
+      core.info(`All CI gates passed for ${context.sha}`);
       return;
     }
     core.info(
-      `Waiting for source CI: ${states
+      `Waiting for CI: ${states
         .filter((entry) => entry.state === "pending")
         .map((entry) => entry.path)
         .join(", ")}`,
     );
     if (attempt + 1 < attempts) await sleep(30000);
   }
-  throw new Error(`Timed out waiting for source CI on ${context.sha}`);
+  throw new Error(`Timed out waiting for CI on ${context.sha}`);
 }

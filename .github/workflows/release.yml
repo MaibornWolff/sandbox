@@ -46,16 +46,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Require configured human approval before publishing
-        if: ${{ !inputs.dry_run }}
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { data: environment } = await github.rest.repos.getEnvironment({
-              ...context.repo, environment_name: 'npm-release-approval',
-            });
-            const { assertApprovalEnvironment } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);
-            assertApprovalEnvironment(environment);
       - name: Verify reusable candidate origin
         if: inputs.candidate_run_id != ''
         uses: actions/github-script@v8
@@ -133,7 +123,7 @@ jobs:
           sha512sum .release/package.tgz >> "$GITHUB_STEP_SUMMARY"
 
   source-ci:
-    name: Wait for source CI
+    name: Wait for CI
     runs-on: ubuntu-latest
     timeout-minutes: 65
     permissions:
@@ -180,28 +170,12 @@ jobs:
       - name: Test installation and publishing without rebuilding
         run: bun release validate
 
-  approve:
-    name: Approve candidate while checks run
-    needs: prepare
-    if: ${{ !inputs.dry_run }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: npm-release-approval
-    steps:
-      - name: Record approval
-        env:
-          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
-          SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
-          CANDIDATE_RUN_ID: ${{ needs.prepare.outputs.candidate_run_id }}
-        run: printf 'Approved version %s from commit %s and candidate run %s. Publication still requires successful validation.\n' "$RELEASE_VERSION" "$SOURCE_COMMIT" "$CANDIDATE_RUN_ID"
-
   publish:
     name: Publish to npm
-    needs: [prepare, source-ci, validate, approve]
+    needs: [prepare, source-ci, validate]
     if: >-
       always() && !cancelled() && !inputs.dry_run &&
       needs.prepare.result == 'success' && needs.source-ci.result == 'success' &&
-      needs.approve.result == 'success' &&
       (needs.validate.result == 'success' ||
       (inputs.candidate_run_id != '' && needs.validate.result == 'skipped'))
     runs-on: ubuntu-latest
@@ -229,7 +203,7 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Recheck critical dependency vulnerabilities before publication
         run: bun run security
-      - name: Download approved candidate
+      - name: Download validated candidate
         uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate

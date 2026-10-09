@@ -53,7 +53,7 @@ jobs:
           fetch-depth: 0
       - name: Verify reusable candidate origin
         if: inputs.candidate_run_id != ''
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
         with:
@@ -141,7 +141,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - name: Require successful CI for this main commit
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const { waitForSourceCI } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/pipeline-policy.mjs`);

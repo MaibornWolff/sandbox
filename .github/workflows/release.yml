@@ -78,7 +78,7 @@ jobs:
       - name: Check for unexpected generated changes
         run: git diff --exit-code -- . ':!package.json' ':!CHANGELOG.md'
       - name: Upload release candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-release-candidate
           path: .release/
@@ -116,7 +116,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Download release candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/
@@ -152,7 +152,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Download release candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/
@@ -189,7 +189,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Download release candidate
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: npm-release-candidate
           path: .release/

@@ -44,7 +44,7 @@ jobs:
           node -e 'const files = new Set(require("./pack-files.json")[0].files.map(file => file.path)); for (const name of ["THIRD_PARTY_NOTICES.md", "SBOM.cdx.json"]) if (!files.has(name)) throw new Error(`Missing npm package file: ${name}`)'
           node -e 'const fs = require("node:fs"); const pkg = require("./package.json"); const sbom = require("./SBOM.cdx.json"); const components = new Set(sbom.components.map(component => component.name)); for (const name of Object.keys(pkg.dependencies)) if (!components.has(name)) throw new Error(`Missing SBOM dependency: ${name}`); if (sbom.metadata.component.name !== pkg.name || sbom.metadata.component.version !== pkg.version) throw new Error("SBOM identity does not match package"); if (!fs.readFileSync("THIRD_PARTY_NOTICES.md", "utf8").includes(`Version: ${pkg.version}`)) throw new Error("Third-party notices version does not match package")'
       - name: Upload compliance artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: compliance
           path: |

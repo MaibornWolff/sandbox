@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.72.0] - 2026-10-09
+
 ### Added
 
 - Publish the first open-source release of Sandbox, a command-line tool for running coding agents and other development commands in isolated containers.

@@ -21,9 +21,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Set up Bun
@@ -42,7 +42,7 @@ jobs:
         run: git diff --exit-code
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/lcov.info
@@ -67,9 +67,9 @@ jobs:
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
           df -h
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: Set up Bun

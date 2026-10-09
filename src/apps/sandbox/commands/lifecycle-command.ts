@@ -65,7 +65,7 @@ export function registerLifecycleCommands(program: Command): void {
     .command("init")
     .description("Initialize sandbox configuration")
     .option(
-      "-p, --project",
+      "--project",
       "Initialize project-level config (instead of user-level)",
     )
     .option(

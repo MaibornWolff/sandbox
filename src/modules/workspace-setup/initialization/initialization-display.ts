@@ -75,7 +75,7 @@ export function displayFeatureOverview(): void {
       desc: [
         "Install additional tools by editing the Dockerfile at",
         "~/.config/sandbox/docker/Dockerfile, then run 'sandbox build'.",
-        "For project-specific settings, run 'sandbox init -p' in your",
+        "For project-specific settings, run 'sandbox init --project' in your",
         "project directory.",
       ],
     },

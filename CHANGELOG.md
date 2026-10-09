@@ -4,10 +4,16 @@
 
 ### Added
 
-- Release Sandbox as an open-source CLI for container-based coding-agent sessions.
-- Add a manually started npm release workflow with a dry-run mode and maintained release notes.
+- Publish the first open-source release of Sandbox, a command-line tool for running coding agents and other development commands in isolated containers.
+- Support Docker, Podman, and Apple `container` across macOS, Linux, and Windows environments.
+- Limit agents to the current project and selected mounts. Restrict outbound traffic with a domain allowlist, keep selected data between sessions, and permit specific host commands when needed.
+- Provide layered user and project configuration, customizable container images, reusable containers, setup diagnostics, and AI-assisted configuration help.
 
-### Changed
+Install Sandbox and start an agent:
 
-- Calculate release versions from commit history instead of manual version inputs. Use `bun release prepare` without version arguments for local preparation.
-- Reuse source CI and saved dry-run packages for releases. Approve candidates while validation runs. Existing release setups must move required reviewers to the new `npm-release-approval` environment. Run `bun release validate` after local `bun release pack` to test the saved package.
+```bash
+npm install -g @maibornwolff/sandbox
+sandbox init
+cd your-project
+sandbox run claude # or: codex, copilot, pi, opencode
+```

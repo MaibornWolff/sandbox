@@ -104,6 +104,7 @@ Use these rules when talking to the user:
 
 ## Releases
 
+- You MUST get explicit confirmation in the current chat before each push. Earlier push approval does not apply to later changes.
 - You MUST update `CHANGELOG.md` under `Unreleased` for user-visible changes and include migration steps for breaking changes.
 - You MUST keep released changelog sections unchanged except for factual corrections.
 - You MUST write changelog and release notes only for product users. Include user-facing capabilities, behavior, fixes, security, required migration steps, and relevant command or configuration examples. Exclude CI, tests, release processes, development workflows, and internal implementation.

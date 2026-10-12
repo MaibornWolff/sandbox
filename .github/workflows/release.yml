@@ -221,8 +221,6 @@ jobs:
       - name: Set up trusted-publishing npm CLI
         run: npm install --global npm@11
       - name: Publish the validated tarball if main is unchanged
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_BOOTSTRAP_TOKEN }}
         run: bun release publish
 
   finalize:

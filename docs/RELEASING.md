@@ -46,7 +46,7 @@ an empty `Unreleased` section for the next changes.
 1. Confirm that the npm organization owns the `@maibornwolff` scope and that the
    release maintainer can publish `@maibornwolff/sandbox` publicly.
 2. Create the GitHub environment `npm-production` and restrict it to `main`.
-   Keep publishing secrets in this environment. The manual workflow dispatch
+   Keep release secrets in this environment. The manual workflow dispatch
    authorizes publication, so the environment does not require a second human
    approval.
 3. Permit the release identity to push the release commit to `main` and create
@@ -55,21 +55,17 @@ an empty `Unreleased` section for the next changes.
    If necessary, set the environment secret `RELEASE_GITHUB_TOKEN` to a narrowly
    scoped GitHub credential with contents write permission and an authorized
    ruleset bypass identity. The pipeline does not configure a bypass itself.
-4. For the first publish, configure an expiring granular npm publish token as the
-   environment secret `NPM_BOOTSTRAP_TOKEN`. It must permit creating the package
-   in the organization and meet the organization's 2FA rules.
-5. After the first publish creates the package, configure its npm trusted
-   publisher with owner `MaibornWolff`, repository `sandbox`, workflow filename
-   `release.yml`, and environment `npm-production`. Permit direct `npm publish`.
-   Use GitHub-hosted runners and npm 11.5.1 or newer.
-6. After trusted publishing works, revoke and remove `NPM_BOOTSTRAP_TOKEN`.
-   Enable npm's requirement for 2FA and disallow token-based publishing.
+4. Configure the npm trusted publisher of `@maibornwolff/sandbox` with owner
+   `MaibornWolff`, repository `sandbox`, workflow filename `release.yml`, and
+   environment `npm-production`. Use GitHub-hosted runners and npm 11.5.1 or
+   newer.
+5. Enable npm's requirement for 2FA and disallow token-based publishing.
 
-Trusted publishing uses OpenID Connect (OIDC) instead of a permanent npm token.
-For a public package built from a public repository, it adds provenance
-attestations automatically. Read the [npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers)
-when configuring the publisher. Complete the first OIDC publish within the
-configuration's validation period.
+The publish job authenticates only through trusted publishing. It does not use
+an npm token. Trusted publishing uses OpenID Connect (OIDC) instead of a
+permanent npm token. For a public package built from a public repository, it
+adds provenance attestations automatically. Read the [npm trusted publishing documentation](https://docs.npmjs.com/trusted-publishers)
+when configuring the publisher.
 
 The workflow grants npm OIDC permission only to the publish job. GitHub write
 permission is separate and is used only after npm publication.
@@ -120,8 +116,10 @@ version from `main`.
 ## Publication and recovery
 
 The workflow records the source commit and tarball integrity. It publishes the
-same tarball that passed installation tests. The finalize job verifies that npm
-contains that exact tarball before committing metadata. The main commit and tag
+same tarball that passed installation tests. The finalize job starts directly
+after npm accepts the tarball. It commits the metadata, creates the tag, and
+creates the GitHub Release. It does not wait until npm shows the version,
+because npm can stage a version for approval. The main commit and tag
 are pushed atomically without force. GitHub Release notes come from the prepared
 changelog, not from generated commit summaries.
 
@@ -134,9 +132,11 @@ changelog, not from generated commit summaries.
   and low findings are non-blocking warnings.
 - **npm fails:** rerun the failed jobs from the same workflow run. An existing
   version is accepted only when its integrity matches the saved candidate.
-  Authentication and registry errors stop the release. If npm stages the
-  release for human review, approve it on npm and rerun the failed jobs. The
-  rerun verifies the published integrity before finalization.
+  Authentication and registry errors stop the release.
+- **npm stages the version for approval:** approve it on npm. The tag, release
+  commit, and GitHub Release already exist. If a rerun reports
+  `Cannot publish over previously staged version`, approve the staged version
+  first and then rerun the failed jobs.
 - **Commit or GitHub Release creation fails:** rerun the failed jobs from the
   same run after correcting permissions. Do not start a new release or rebuild
   the published version. Finalization recognizes an already completed matching

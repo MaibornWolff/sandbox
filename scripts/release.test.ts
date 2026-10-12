@@ -89,6 +89,7 @@ function createRegistry(integrity: string | null = null) {
   const calls: string[][] = [];
   let published = integrity;
   let publishExitCode = 0;
+  let staged = false;
   const execute: ReleaseCommand = (_command, args) => {
     calls.push([...args]);
     if (args[0] === "view") {
@@ -110,6 +111,7 @@ function createRegistry(integrity: string | null = null) {
       };
     const tarball = args[1];
     if (!tarball) throw new Error("Missing publish tarball");
+    if (staged) return { exitCode: 0, stdout: "Staged", stderr: "" };
     published = `sha512-${createHash("sha512").update(readFileSync(tarball)).digest("base64")}`;
     return { exitCode: 0, stdout: "Published", stderr: "" };
   };
@@ -118,6 +120,9 @@ function createRegistry(integrity: string | null = null) {
     calls,
     failPublish(code: number) {
       publishExitCode = code;
+    },
+    stagePublications() {
+      staged = true;
     },
   };
 }
@@ -345,10 +350,7 @@ test("commits and pushes the version, dated notes, and next Unreleased entry onl
   const plan = await prepareCandidate(fixture.repoRoot);
   const registry = createRegistry();
   await publishRelease({ repoRoot: fixture.repoRoot, npm: registry.execute });
-  const commit = await finalizeRelease({
-    repoRoot: fixture.repoRoot,
-    npm: registry.execute,
-  });
+  const commit = await finalizeRelease(fixture.repoRoot);
   expect(
     gitCommand(
       ["--git-dir", fixture.remote, "rev-parse", "main"],
@@ -382,19 +384,21 @@ test("commits and pushes the version, dated notes, and next Unreleased entry onl
   );
 });
 
-test("does not commit metadata when publication is missing", async () => {
+test("tags a staged publication without waiting for npm approval", async () => {
   await using fixture = await createRepository();
-  const plan = await prepareCandidate(fixture.repoRoot);
-  await expect(
-    finalizeRelease({
-      repoRoot: fixture.repoRoot,
-      npm: createRegistry().execute,
-    }),
-  ).rejects.toThrow("does not match");
-  expect(gitCommand(["rev-parse", "HEAD"], fixture.repoRoot)).toBe(
-    plan.sourceCommit,
-  );
-  expect(gitCommand(["status", "--porcelain"], fixture.repoRoot)).toBe("");
+  await prepareCandidate(fixture.repoRoot);
+  const registry = createRegistry();
+  registry.stagePublications();
+
+  await publishRelease({ repoRoot: fixture.repoRoot, npm: registry.execute });
+  const commit = await finalizeRelease(fixture.repoRoot);
+
+  expect(
+    gitCommand(
+      ["--git-dir", fixture.remote, "rev-parse", "v0.72.0"],
+      fixture.root,
+    ),
+  ).toBe(commit);
 });
 
 test("preserves a failed npm publish exit code", async () => {
@@ -469,12 +473,7 @@ test("does not push a tag when the remote rejects the main commit", async () => 
     ],
     fixture.root,
   );
-  await expect(
-    finalizeRelease({
-      repoRoot: fixture.repoRoot,
-      npm: createRegistry(plan.integrity).execute,
-    }),
-  ).rejects.toThrow("git failed");
+  await expect(finalizeRelease(fixture.repoRoot)).rejects.toThrow("git failed");
   expect(
     gitCommand(
       ["--git-dir", fixture.remote, "rev-parse", "main"],
@@ -524,13 +523,12 @@ test("stops before publication when main advances", async () => {
 test("preserves concurrent work if main advances after npm publication", async () => {
   await using fixture = await createRepository();
   const plan = await prepareCandidate(fixture.repoRoot);
-  const registry = createRegistry(plan.integrity);
   await advanceMain(fixture.repoRoot);
   const advanced = gitCommand(["rev-parse", "HEAD"], fixture.repoRoot);
   gitCommand(["reset", "--hard", plan.sourceCommit], fixture.repoRoot);
-  await expect(
-    finalizeRelease({ repoRoot: fixture.repoRoot, npm: registry.execute }),
-  ).rejects.toThrow("main changed");
+  await expect(finalizeRelease(fixture.repoRoot)).rejects.toThrow(
+    "main changed",
+  );
   expect(
     gitCommand(
       ["--git-dir", fixture.remote, "rev-parse", "main"],
@@ -545,16 +543,9 @@ test("preserves concurrent work if main advances after npm publication", async (
 test("retries completed finalization without making another commit", async () => {
   await using fixture = await createRepository();
   const plan = await prepareCandidate(fixture.repoRoot);
-  const registry = createRegistry(plan.integrity);
-  const first = await finalizeRelease({
-    repoRoot: fixture.repoRoot,
-    npm: registry.execute,
-  });
+  const first = await finalizeRelease(fixture.repoRoot);
   gitCommand(["reset", "--hard", plan.sourceCommit], fixture.repoRoot);
-  const retried = await finalizeRelease({
-    repoRoot: fixture.repoRoot,
-    npm: registry.execute,
-  });
+  const retried = await finalizeRelease(fixture.repoRoot);
   expect(retried).toBe(first);
   expect(
     gitCommand(
@@ -574,12 +565,9 @@ test("rejects a conflicting tag during finalization recovery", async () => {
   gitCommand(["tag", "v0.72.0"], fixture.repoRoot);
   gitCommand(["push", "origin", "v0.72.0"], fixture.repoRoot);
   gitCommand(["reset", "--hard", plan.sourceCommit], fixture.repoRoot);
-  await expect(
-    finalizeRelease({
-      repoRoot: fixture.repoRoot,
-      npm: createRegistry(plan.integrity).execute,
-    }),
-  ).rejects.toThrow("does not match this release");
+  await expect(finalizeRelease(fixture.repoRoot)).rejects.toThrow(
+    "does not match this release",
+  );
 });
 
 test("rejects an existing conflicting release tag before publishing", async () => {

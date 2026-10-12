@@ -53,10 +53,6 @@ export function createReleaseRegistry(options: {
     throw new Error("Could not read npm package integrity");
   }
 
-  function assertPublished(plan: ReleasePlan): void {
-    assertMatchingPublication(plan, publishedIntegrity(plan));
-  }
-
   function publish(plan: ReleasePlan, tarball: string): void {
     const existingIntegrity = publishedIntegrity(plan);
     if (existingIntegrity) {
@@ -74,9 +70,13 @@ export function createReleaseRegistry(options: {
       ["publish", tarball, "--access=public", "--tag=latest", REGISTRY_OPTION],
       options.repoRoot,
     );
+    // npm may stage the version for approval. Staged versions stay invisible,
+    // so the successful publish command is the publication signal.
     requireCommandSuccess("npm publish", result);
-    assertPublished(plan);
+    console.error(
+      `Submitted ${chalk.cyan(`${plan.packageName}@${plan.version}`)} to npm`,
+    );
   }
 
-  return { publish, assertPublished };
+  return { publish };
 }

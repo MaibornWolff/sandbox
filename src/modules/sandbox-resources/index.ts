@@ -4,6 +4,7 @@ export {
   CACHE_VOLUME,
   getNamedVolumeName,
   getProjectImageName,
+  replaceLegacyImageReferences,
   USER_IMAGE,
 } from "./resource-naming.js";
 export {

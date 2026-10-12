@@ -333,6 +333,7 @@ test("publishes the checked tarball without committing release metadata", async 
       "--access=public",
       "--tag=latest",
       "--registry=https://registry.npmjs.org/",
+      "--loglevel=verbose",
     ],
   ]);
   expect(gitCommand(["rev-parse", "HEAD"], fixture.repoRoot)).toBe(

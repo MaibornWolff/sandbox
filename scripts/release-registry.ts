@@ -67,7 +67,15 @@ export function createReleaseRegistry(options: {
 
     const result = options.execute(
       "npm",
-      ["publish", tarball, "--access=public", "--tag=latest", REGISTRY_OPTION],
+      [
+        "publish",
+        tarball,
+        "--access=public",
+        "--tag=latest",
+        REGISTRY_OPTION,
+        // Shows trusted publishing (OIDC) errors in failed CI logs.
+        "--loglevel=verbose",
+      ],
       options.repoRoot,
     );
     // npm may stage the version for approval. Staged versions stay invisible,

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.72.1] - 2026-10-09
+
 ### Fixed
 
 - Refresh older version caches to prevent incorrect Sandbox update notices.

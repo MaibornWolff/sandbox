@@ -4,8 +4,13 @@
 
 ### Fixed
 
-- Refresh older version caches to prevent incorrect Sandbox update notices.
 - Fix image builds for Dockerfiles created by earlier Sandbox versions. Sandbox now updates legacy `FROM sandbox--base:latest` and `FROM sandbox--user:latest` references automatically.
+
+## [0.72.1] - 2026-10-09
+
+### Fixed
+
+- Refresh older version caches to prevent incorrect Sandbox update notices.
 
 ### Security
 

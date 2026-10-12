@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.72.2] - 2026-10-12
+
 ### Fixed
 
 - Fix image builds for Dockerfiles created by earlier Sandbox versions. Sandbox now updates legacy `FROM sandbox--base:latest` and `FROM sandbox--user:latest` references automatically.

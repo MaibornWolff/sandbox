@@ -152,3 +152,38 @@ describe("network diagnostics", () => {
     expect(stdout).toContain("BLOCKED");
   }, 60_000);
 });
+
+describe("proxy resilience", () => {
+  test("keeps serving after a client half-closes an HTTP proxy request", async () => {
+    // Browsers half-close plain HTTP proxy connections when they stop. One
+    // half-close must not stop the proxy, because a proxy exit ends every session.
+    const result = await sb.run(
+      "/usr/bin/node",
+      "--input-type=module",
+      "-e",
+      `
+import assert from 'node:assert/strict';
+import { connect } from 'node:net';
+const request = 'GET http://example.com/ HTTP/1.1\\r\\nHost: example.com\\r\\nConnection: keep-alive\\r\\n\\r\\n';
+function send({ halfClose }) {
+  return new Promise((resolve, reject) => {
+    const socket = connect(8888, '127.0.0.1');
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => { response += chunk; if (!halfClose && response.includes('\\r\\n\\r\\n')) socket.destroy(); });
+    socket.on('error', reject);
+    socket.on('close', () => resolve(response));
+    socket.write(request);
+    if (halfClose) socket.end();
+  });
+}
+for (let attempt = 0; attempt < 10; attempt++) {
+  await send({ halfClose: true });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+}
+assert.match(await send({ halfClose: false }), /^HTTP\\/1\\.1 403 /);
+`,
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+  }, 60_000);
+});

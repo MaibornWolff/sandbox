@@ -41,7 +41,6 @@ request_timeout 120 seconds
 persistent_request_timeout 120 seconds
 forward_timeout 120 seconds
 
-half_closed_clients on
 server_persistent_connections on
 client_persistent_connections on
 `;

@@ -413,3 +413,31 @@ describe("validateConfig", () => {
     });
   });
 });
+
+describe("persist path traversal", () => {
+  test.each([
+    "~/../.ssh/authorized_keys",
+    "./../outside",
+    "/home/sandbox/../../etc/passwd",
+    "~/.cache/../../escape",
+    "~/.cache/./state",
+    "~/.cache//state",
+    "~/..\\.ssh",
+    "~/",
+    "./",
+    "/home/sandbox/",
+    "/",
+  ])("rejects %s as an error", (persistPath) => {
+    const result = validateConfig({ persist_paths: [{ path: persistPath }] });
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([expect.stringContaining(persistPath)]);
+  });
+
+  test("accepts normalized persist paths with a trailing separator", () => {
+    const result = validateConfig({
+      persist_paths: [{ path: "~/.cache/" }, { path: "./**/.venv" }],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+});

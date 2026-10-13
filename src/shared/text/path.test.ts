@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { splitColonString } from "./index.js";
 import {
+  hasNormalizedPathSegments,
   isAbsolutePath,
   isWindowsDrivePath,
   normalizePath,
@@ -264,5 +265,31 @@ describe("splitColonString", () => {
 
   test("handles port-like strings (not paths)", () => {
     expect(splitColonString("8080:3000")).toEqual(["8080", "3000"]);
+  });
+});
+
+describe("hasNormalizedPathSegments", () => {
+  test("accepts plain nested segments", () => {
+    expect(hasNormalizedPathSegments(".config/sandbox/state.json")).toBe(true);
+  });
+
+  test("accepts a trailing separator after a segment", () => {
+    expect(hasNormalizedPathSegments(".cache/")).toBe(true);
+  });
+
+  test("rejects an empty path", () => {
+    expect(hasNormalizedPathSegments("")).toBe(false);
+    expect(hasNormalizedPathSegments("/")).toBe(false);
+  });
+
+  test("rejects parent and current directory segments", () => {
+    expect(hasNormalizedPathSegments("../.ssh")).toBe(false);
+    expect(hasNormalizedPathSegments(".cache/../../.ssh")).toBe(false);
+    expect(hasNormalizedPathSegments("./.cache")).toBe(false);
+  });
+
+  test("rejects repeated separators and backslashes", () => {
+    expect(hasNormalizedPathSegments(".cache//tmp")).toBe(false);
+    expect(hasNormalizedPathSegments("..\\.ssh")).toBe(false);
   });
 });

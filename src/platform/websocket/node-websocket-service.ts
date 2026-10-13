@@ -1,4 +1,5 @@
 import type * as http from "node:http";
+import * as net from "node:net";
 import type { Duplex } from "node:stream";
 // `node-ws` aliases the npm `ws` package: under Bun the bare `ws` import resolves to a built-in shim that ignores the `ca` and `servername` pinning options.
 import WebSocket, {
@@ -27,6 +28,18 @@ const closeTimeoutOption = { closeTimeout: SOCKET_TIMEOUT_MS };
 
 function pinnedTlsOptions(certificate: string) {
   return { ca: certificate, servername: "localhost", rejectUnauthorized: true };
+}
+
+/**
+ * Clears the idle timer on the TCP socket under an upgraded TLS socket.
+ * Node sets the timer on the TCP socket, so clearing only the TLS wrapper
+ * leaves the timer active.
+ */
+function clearIdleTimeout(socket: net.Socket): void {
+  socket.setTimeout(0);
+  // Node exposes the TCP socket under a TLS socket only through `_parent`.
+  const parent: unknown = Reflect.get(socket, "_parent");
+  if (parent instanceof net.Socket) parent.setTimeout(0);
 }
 
 function byteSize(data: string | Uint8Array): number {
@@ -391,7 +404,7 @@ async function startServer(
           webSocket.terminate();
           return;
         }
-        request.socket.setTimeout(0);
+        clearIdleTimeout(request.socket);
         const connection = wrapConnection(
           webSocket,
           options.maxMessageBytes,

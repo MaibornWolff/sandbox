@@ -30,8 +30,8 @@ export function writeTextFileAtomically(
   content: string,
 ): void {
   const temporaryPath = `${filePath}.${randomBytes(8).toString("hex")}.tmp`;
-  fs.writeFileSync(temporaryPath, content);
   try {
+    fs.writeFileSync(temporaryPath, content);
     fs.renameSync(temporaryPath, filePath);
   } catch (error) {
     fs.rmSync(temporaryPath, { force: true });

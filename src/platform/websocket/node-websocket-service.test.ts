@@ -124,6 +124,22 @@ describe("node WebSocket service", () => {
     });
   });
 
+  test("keeps an idle upgraded connection open under Node", async () => {
+    expect(
+      await runNodeProtocolFixture(
+        new URL("./__test__/idle-fixture.ts", import.meta.url),
+      ),
+    ).toEqual({ exitCode: 0, stderr: "" });
+  }, 15_000);
+
+  test("closes a stalled connection that never upgrades under Node", async () => {
+    expect(
+      await runNodeProtocolFixture(
+        new URL("./__test__/stalled-fixture.ts", import.meta.url),
+      ),
+    ).toEqual({ exitCode: 0, stderr: "" });
+  }, 15_000);
+
   test("pins private TLS certificates under Node without changing system trust", async () => {
     expect(
       await runNodeProtocolFixture(

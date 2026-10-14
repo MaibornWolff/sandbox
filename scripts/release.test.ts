@@ -137,25 +137,32 @@ async function advanceMain(repoRoot: string) {
   gitCommand(["push", "origin", "main"], repoRoot);
 }
 
-test("validates the saved package without rebuilding it", async () => {
-  await using fixture = await createRepository({ packageVersion: "0.999.0" });
-  await prepareRelease({
-    repoRoot: fixture.repoRoot,
-    date: "2026-10-08",
-  });
-  await packRelease(fixture.repoRoot);
-  const tarballPath = path.join(
-    releaseDirectory(fixture.repoRoot),
-    "package.tgz",
-  );
-  const tarball = await readFile(tarballPath);
-  await writeFile(
-    path.join(fixture.repoRoot, "bin", "sandbox.js"),
-    'throw new Error("Source must not be rebuilt");\n',
-  );
-  await validateReleasePackage(fixture.repoRoot);
-  expect(await readFile(tarballPath)).toEqual(tarball);
-});
+/** Package validation installs production dependencies from the npm registry. */
+const NETWORK_INSTALL_TIMEOUT = 60_000;
+
+test(
+  "validates the saved package without rebuilding it",
+  async () => {
+    await using fixture = await createRepository({ packageVersion: "0.999.0" });
+    await prepareRelease({
+      repoRoot: fixture.repoRoot,
+      date: "2026-10-08",
+    });
+    await packRelease(fixture.repoRoot);
+    const tarballPath = path.join(
+      releaseDirectory(fixture.repoRoot),
+      "package.tgz",
+    );
+    const tarball = await readFile(tarballPath);
+    await writeFile(
+      path.join(fixture.repoRoot, "bin", "sandbox.js"),
+      'throw new Error("Source must not be rebuilt");\n',
+    );
+    await validateReleasePackage(fixture.repoRoot);
+    expect(await readFile(tarballPath)).toEqual(tarball);
+  },
+  NETWORK_INSTALL_TIMEOUT,
+);
 
 test("package validation rejects a changed tarball before installation", async () => {
   await using fixture = await createRepository();

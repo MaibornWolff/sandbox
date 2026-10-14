@@ -1,6 +1,14 @@
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { isDirectoryPath, pathExists } from "#platform/filesystem/index.js";
 import { ExecError, getProcessManager } from "#platform/process/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { normalizePath } from "#shared/text/index.js";
 
 async function executeGit(args: readonly string[]): Promise<string> {
@@ -36,40 +44,86 @@ function isInsideDir(child: string, parent: string): boolean {
 export interface RepositoryRoots {
   readonly worktreeRoot: string | null;
   readonly mainRepoRoot: string | null;
+  /** Why Git could not resolve the roots, when the lookup failed. */
+  readonly lookupFailure?: string;
+}
+
+const NO_REPOSITORY: RepositoryRoots = {
+  worktreeRoot: null,
+  mainRepoRoot: null,
+};
+
+/**
+ * Derive the main repository root from the Git common dir.
+ *
+ * Only a common dir named `.git` sits directly inside the main worktree.
+ * Submodules (`.git/modules/<name>`), `--separate-git-dir` repositories, and
+ * bare repositories with linked worktrees keep their common dir elsewhere, so
+ * the worktree root is the only safe project root for them.
+ */
+function resolveMainRepoRoot(options: {
+  readonly projectPath: string;
+  readonly worktreeRoot: string;
+  readonly gitCommonDir: string;
+}): string {
+  const absoluteGitDir = isAbsolute(options.gitCommonDir)
+    ? options.gitCommonDir
+    : resolve(options.projectPath, options.gitCommonDir);
+  if (basename(absoluteGitDir) === ".git") {
+    return normalizePath(dirname(absoluteGitDir));
+  }
+  return options.worktreeRoot;
+}
+
+function parseRepositoryRoots(
+  projectPath: string,
+  output: string,
+): RepositoryRoots {
+  const lines = output
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== "--path-format=absolute");
+  const worktreeRoot = lines[0];
+  const gitCommonDir = lines.at(-1);
+  if (!worktreeRoot || !gitCommonDir) {
+    return NO_REPOSITORY;
+  }
+  const normalizedWorktreeRoot = normalizePath(worktreeRoot);
+  return {
+    worktreeRoot: normalizedWorktreeRoot,
+    mainRepoRoot: resolveMainRepoRoot({
+      projectPath,
+      worktreeRoot: normalizedWorktreeRoot,
+      gitCommonDir,
+    }),
+  };
 }
 
 async function resolveRepositoryRoots(
   projectPath: string,
 ): Promise<RepositoryRoots> {
-  try {
-    const result = await executeGit([
-      "-C",
-      projectPath,
-      "rev-parse",
-      "--show-toplevel",
-      "--path-format=absolute",
-      "--git-common-dir",
-    ]);
-    const lines = result
-      .trim()
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && line !== "--path-format=absolute");
-    const worktreeRoot = lines[0];
-    const gitCommonDir = lines.at(-1);
-    if (!worktreeRoot || !gitCommonDir) {
-      return { worktreeRoot: null, mainRepoRoot: null };
-    }
-    const absoluteGitDir = isAbsolute(gitCommonDir)
-      ? gitCommonDir
-      : resolve(projectPath, gitCommonDir);
-    return {
-      worktreeRoot: normalizePath(worktreeRoot),
-      mainRepoRoot: normalizePath(dirname(absoluteGitDir)),
-    };
-  } catch {
-    return { worktreeRoot: null, mainRepoRoot: null };
+  return executeGit([
+    "-C",
+    projectPath,
+    "rev-parse",
+    "--show-toplevel",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]).then(
+    (output) => parseRepositoryRoots(projectPath, output),
+    (error: unknown) => ({
+      ...NO_REPOSITORY,
+      lookupFailure: describeGitFailure(error),
+    }),
+  );
+}
+
+function describeGitFailure(error: unknown): string {
+  if (error instanceof ExecError && error.stderr.trim().length > 0) {
+    return error.stderr.trim();
   }
+  return getErrorMessage(error);
 }
 
 function findSandboxRoot(projectPath: string): string | null {

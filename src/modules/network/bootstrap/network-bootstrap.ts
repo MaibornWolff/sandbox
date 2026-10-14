@@ -44,7 +44,10 @@ export async function installContainerNetworkSecurity(
   const readiness = (async () => {
     try {
       if (!request.noProxy && upstreamDns) {
-        const squid = renderSquidConfig(request);
+        const squid = renderSquidConfig(request, {
+          hostAccessName: options.hostAccessName,
+          hostMappings: options.hostMappings,
+        });
         services.push(
           network.startDnsmasq({
             config: renderDnsmasqConfig(

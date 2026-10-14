@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
+import { createTestClock } from "#platform/clock/__test__/index.js";
+import { runWithDependencies } from "#platform/dependency-injection/index.js";
+import { createLogger, provideLogger } from "#platform/logging/index.js";
 import {
   expandEnvValue as expandEnvValueWithVariables,
+  parseEnvList,
   parseEnvWithExpansion as parseEnvWithVariables,
 } from "./env.js";
 
@@ -302,5 +306,26 @@ describe("parseEnvWithExpansion - multiple previous envs", () => {
     const previousEnvs = ["VAR=first", "VAR=second"];
     const result = parseEnvWithExpansion("OUT=$VAR", previousEnvs);
     expect(result).toBe("OUT=second");
+  });
+});
+
+describe("parseEnvList - warnings", () => {
+  test("warns about an undefined variable without printing the value", () => {
+    const logs: string[] = [];
+    const logger = createLogger(createTestClock().clock, (line) =>
+      logs.push(line),
+    );
+    const secret = "postgres://user:hunter2@$DB_HOST/db";
+
+    const result = runWithDependencies([provideLogger(logger)], () =>
+      parseEnvList([`DATABASE_URL=${secret}`], {}),
+    );
+
+    expect(result).toEqual(["DATABASE_URL=postgres://user:hunter2@/db"]);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toContain("DATABASE_URL");
+    expect(logs[0]).toContain("DB_HOST");
+    expect(logs[0]).not.toContain("hunter2");
+    expect(logs[0]).not.toContain(secret);
   });
 });

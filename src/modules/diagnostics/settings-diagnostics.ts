@@ -1,13 +1,12 @@
 import * as path from "node:path";
 import {
-  getGlobalConfigPath,
-  loadTomlConfig,
   normalizeSettingsEntry,
   normalizeSettingsPattern,
   type SettingsEntryInput,
 } from "#modules/configuration/index.js";
 import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import { pathExists } from "#platform/filesystem/index.js";
+import { loadGlobalConfigForDiagnostics } from "./global-config-loading.js";
 
 export interface SettingsDiagnostics {
   dirExists: boolean;
@@ -75,10 +74,14 @@ export function checkSettingsPatterns(
 }
 
 export async function checkSettingsDiagnostics(): Promise<SettingsDiagnostics> {
-  const config = loadTomlConfig(getGlobalConfigPath());
+  const { config, loadError } = loadGlobalConfigForDiagnostics();
   const patterns = config?.settings ?? [];
   const entries = patterns.map(normalizeSettingsEntry);
   const inspection = await getSandboxSettings().inspectHost(entries);
+  const warnings = loadError === null ? [] : [loadError];
+  if (!inspection.directoryExists) {
+    warnings.push(`Settings directory not found: ${inspection.directory}`);
+  }
   return {
     dirExists: inspection.directoryExists,
     patterns,
@@ -90,8 +93,6 @@ export async function checkSettingsDiagnostics(): Promise<SettingsDiagnostics> {
       .filter((setting) => setting.mode === "copy")
       .map((setting) => setting.path),
     unmatchedPatterns: [...inspection.missingPaths],
-    warnings: inspection.directoryExists
-      ? []
-      : [`Settings directory not found: ${inspection.directory}`],
+    warnings,
   };
 }

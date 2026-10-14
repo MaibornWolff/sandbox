@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import chalk from "chalk";
 import {
   chunkHostBridgePayload,
   type HostBridgeCapability,
@@ -24,7 +25,8 @@ import type {
   WebSocketConnection,
   WebSocketMessage,
 } from "#platform/websocket/index.js";
-import { isFileNotFoundError } from "#shared/errors/index.js";
+import { getErrorMessage, isFileNotFoundError } from "#shared/errors/index.js";
+import { hardenHostCommand } from "./command-hardening.js";
 import {
   type CompiledCommandPattern,
   compileCommandPattern,
@@ -156,10 +158,36 @@ async function forwardOutput(
   }
 }
 
+/**
+ * Deliver client stdin to the child until the child stops accepting input.
+ * A child may exit or close its stdin while the client still sends data
+ * (`echo data | sandbox escape git rev-parse HEAD`). That is not a protocol
+ * violation: stop forwarding stdin and keep the output and exit code flowing.
+ */
+function createInputForwarder(logger: Logger, child: ManagedStreamingProcess) {
+  let open = true;
+  function stopForwarding(error: unknown): void {
+    open = false;
+    logger.debug(
+      `Host command stopped accepting input: ${getErrorMessage(error)}`,
+    );
+  }
+  function deliver(operation: () => Promise<void>): Promise<void> {
+    if (!open) return Promise.resolve();
+    return operation().catch(stopForwarding);
+  }
+  return {
+    write: (payload: Uint8Array) => deliver(() => child.stdin.write(payload)),
+    end: () => deliver(() => child.stdin.end()),
+  };
+}
+
 async function consumeProcessInput(
+  logger: Logger,
   messages: AsyncIterable<WebSocketMessage>,
   child: ManagedStreamingProcess,
 ): Promise<void> {
+  const input = createInputForwarder(logger, child);
   for await (const message of messages) {
     if (message.type === "binary") {
       const decoded = decodeBinaryChannel(message.data);
@@ -168,11 +196,11 @@ async function consumeProcessInput(
           "Only the stdin binary channel is accepted from the client.",
         );
       }
-      await child.stdin.write(decoded.payload);
+      await input.write(decoded.payload);
       continue;
     }
     const control = parseClientControlMessage(message.data);
-    if (control.type === "stdin-end") await child.stdin.end();
+    if (control.type === "stdin-end") await input.end();
     else if (control.type === "signal")
       await child.stop({ signal: control.signal });
     else throw new Error("A connection can contain only one operation.");
@@ -254,8 +282,8 @@ function createCommandRunner(
     argv: readonly string[],
   ): Promise<void> {
     await connection.sendText(encodeControlMessage({ type: "ready" }));
-    const input = consumeProcessInput(messages, child).catch((error: unknown) =>
-      reportProtocolFailure(connection, child, error),
+    const input = consumeProcessInput(logger, messages, child).catch(
+      (error: unknown) => reportProtocolFailure(connection, child, error),
     );
     const output = Promise.allSettled([
       forwardOutput(connection, STREAM_CHANNEL.stdout, child.stdout),
@@ -290,10 +318,8 @@ function createCommandRunner(
       lifetime: "application",
       interaction: { mode: "non-interactive" },
       stdio: "stream",
-      command: request.argv[0] ?? "",
-      args: request.argv.slice(1),
+      ...hardenHostCommand(request.argv, environment.variables),
       cwd,
-      env: environment.variables,
     });
     context.children.add(child);
     let complete = false;
@@ -441,6 +467,11 @@ export async function createHostCommandCapability(
   const canonicalPatterns = Object.freeze(
     options.commandRules.map(formatCommandPattern),
   );
+  if (rules.length > 0) {
+    logger.debug(
+      `${chalk.bold(`${rules.length} host command rule(s)`)} from ${chalk.cyan("allow_host_commands")} run with host user permissions. A sandboxed process can start allowed host commands and may influence files they read in the project directory.`,
+    );
+  }
   const canonicalHostProjectRoot = await resolveRealPath(
     options.hostProjectRoot,
   );

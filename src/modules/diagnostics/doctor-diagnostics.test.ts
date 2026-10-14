@@ -3,12 +3,53 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PersistPathInput } from "#modules/configuration/index.js";
 import { normalizeSettingsPattern } from "#modules/configuration/index.js";
+import { runWithTestLogger } from "#test/host-test-scope.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
-import { checkMountConflicts } from "./configuration-diagnostics.js";
+import {
+  checkConfigurationDiagnostics,
+  checkMountConflicts,
+} from "./configuration-diagnostics.js";
 import {
   checkPatternMatches,
+  checkSettingsDiagnostics,
   checkSettingsPatterns,
 } from "./settings-diagnostics.js";
+
+async function withInvalidGlobalConfig<T>(
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  const configDir = createTestDir("doctor-invalid-config");
+  using cleanup = new DisposableStack();
+  cleanup.defer(() => cleanupTestDir(configDir));
+  fs.writeFileSync(
+    path.join(configDir, "config.toml"),
+    'persist_paths = [ "unterminated\n',
+  );
+  return await runWithTestLogger(callback, {
+    variables: { SANDBOX_CONFIG_DIR: configDir },
+  });
+}
+
+describe("invalid global config", () => {
+  test("configuration diagnostics report the load error instead of throwing", async () => {
+    const diagnostics = await withInvalidGlobalConfig(() =>
+      checkConfigurationDiagnostics(),
+    );
+    expect(diagnostics.exists).toBe(true);
+    expect(diagnostics.valid).toBe(false);
+    expect(diagnostics.errors).toHaveLength(1);
+    expect(diagnostics.errors[0]).toContain("config.toml");
+  });
+
+  test("settings diagnostics report the load error as a warning", async () => {
+    const diagnostics = await withInvalidGlobalConfig(() =>
+      checkSettingsDiagnostics(),
+    );
+    expect(diagnostics.patterns).toEqual([]);
+    expect(diagnostics.warnings[0]).toContain("config.toml");
+    expect(diagnostics.warnings[0]).toContain("Invalid TOML");
+  });
+});
 
 describe("checkMountConflicts", () => {
   test("returns empty array when no conflicts", () => {

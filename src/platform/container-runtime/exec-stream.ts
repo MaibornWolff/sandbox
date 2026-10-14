@@ -6,11 +6,13 @@ import type { SandboxExecProcess } from "./container-contract.js";
 export function openContainerExec(
   command: string,
   args: readonly string[],
+  env?: Readonly<Record<string, string>>,
 ): SandboxExecProcess {
   const child = getProcessManager().start({
     name: "container exec stream",
     command,
     args,
+    ...(env ? { env } : {}),
     lifetime: "application",
     interaction: { mode: "non-interactive" },
     stdio: "stream",

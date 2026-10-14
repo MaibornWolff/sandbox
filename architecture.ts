@@ -231,6 +231,8 @@ export const architecture = defineArchitecture({
         "clock",
         "filesystem",
         "terminal",
+        "logging",
+        "errors",
       ],
       testDependencies: ["dependency-injection"],
     },
@@ -283,8 +285,9 @@ export const architecture = defineArchitecture({
     filesystem: { dependencies: ["environment", "logging", "errors", "text"] },
     environment: {
       dependencies: ["logging", "dependency-injection"],
+      testDependencies: ["clock"],
     },
-    git: { dependencies: ["process", "filesystem", "text"] },
+    git: { dependencies: ["process", "filesystem", "text", "errors"] },
     logging: { dependencies: ["clock", "dependency-injection"] },
     terminal: {
       dependencies: ["dependency-injection", "environment", "process"],
@@ -292,8 +295,8 @@ export const architecture = defineArchitecture({
     "dependency-injection": { dependencies: [] },
     npm: { dependencies: ["process", "clock", "errors"] },
     state: {
-      dependencies: ["filesystem", "environment"],
-      testDependencies: ["logging", "dependency-injection"],
+      dependencies: ["filesystem", "environment", "logging"],
+      testDependencies: ["dependency-injection"],
     },
     "container-system": {
       dependencies: [

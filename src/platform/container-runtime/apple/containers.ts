@@ -322,9 +322,10 @@ export function createAppleContainerOperations(options: {
 
   return {
     async list(query = {}) {
+      const includeStopped = Boolean(query.all || query.states?.length);
       const output = await exec(BINARY_NAME, [
         "list",
-        ...(query.all ? ["-a"] : []),
+        ...(includeStopped ? ["-a"] : []),
         "--format",
         "json",
       ]);

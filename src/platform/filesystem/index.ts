@@ -37,6 +37,7 @@ export {
   tryCreateHardLink,
   validateSymlinkWithin,
   writeTextFile,
+  writeTextFileAtomically,
 } from "./file.js";
 export {
   getPackageRootPath,

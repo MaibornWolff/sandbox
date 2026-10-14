@@ -3,12 +3,10 @@ import type {
   SettingsEntryInput,
 } from "#modules/configuration/index.js";
 import {
-  getGlobalConfigPath,
-  loadTomlConfig,
   normalizePersistPath,
   validateConfig,
 } from "#modules/configuration/index.js";
-import { pathExists } from "#platform/filesystem/index.js";
+import { loadGlobalConfigForDiagnostics } from "./global-config-loading.js";
 
 export interface ConfigurationDiagnostics {
   exists: boolean;
@@ -59,9 +57,15 @@ export function checkConfigurationDiagnostics(): ConfigurationDiagnostics {
     errors: [],
     warnings: [],
   };
-  const globalConfigPath = getGlobalConfigPath();
+  const { config, loadError } = loadGlobalConfigForDiagnostics();
 
-  if (!pathExists(globalConfigPath)) {
+  if (loadError !== null) {
+    result.exists = true;
+    result.valid = false;
+    result.errors.push(loadError);
+    return result;
+  }
+  if (!config) {
     result.warnings.push(
       "No global config found. Run 'sandbox init' to create one.",
     );
@@ -69,12 +73,6 @@ export function checkConfigurationDiagnostics(): ConfigurationDiagnostics {
   }
 
   result.exists = true;
-  const config = loadTomlConfig(globalConfigPath);
-  if (!config) {
-    result.valid = false;
-    result.errors.push("Failed to parse config.toml");
-    return result;
-  }
 
   const validation = validateConfig(config);
   result.warnings.push(...validation.warnings);

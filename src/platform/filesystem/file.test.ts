@@ -9,6 +9,7 @@ import {
   exists,
   removeOwnedDirectory,
   setPathModifiedTime,
+  writeTextFileAtomically,
 } from "./file.js";
 
 let testDir: string;
@@ -239,5 +240,14 @@ describe("ensurePath", () => {
 
     expect(created).toBe(false);
     expect(fs.readFileSync(filePath, "utf-8")).toBe("original");
+  });
+});
+
+describe("writeTextFileAtomically", () => {
+  it("removes the temporary file when the rename fails", () => {
+    const target = path.join(testDir, "target");
+    fs.mkdirSync(path.join(target, "child"), { recursive: true });
+    expect(() => writeTextFileAtomically(target, "x")).toThrow();
+    expect(fs.readdirSync(testDir)).toEqual(["target"]);
   });
 });

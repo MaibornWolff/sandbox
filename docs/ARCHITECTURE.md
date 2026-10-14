@@ -165,6 +165,8 @@ Outbound network access uses a domain allowlist. The network system has three re
 
 Full-network mode keeps the network path but disables domain filtering.
 
+The proxy also checks the resolved destination address of each allowed domain. It denies loopback, link-local, private, unspecified, and multicast destinations. Only request hosts that are allowlisted IP literals or container runtime host access names may reach private addresses. A domain under an allowed wildcard that resolves to a private address stays blocked.
+
 An attached session can reach its host bridge through the container runtime host name. Docker uses `host.docker.internal`, Podman uses `host.containers.internal`, and Apple uses `host.container.internal`. Apple also provides `host.docker.internal` as a compatibility alias. The Apple aliases use the reachable host gateway. Host services that listen only on localhost are not supported. The bridge uses encrypted WebSocket transport with a session-specific pinned certificate. Each capability requires an active session token. Host commands also require an argument allowlist. Sandbox temporarily permits only the bridge host and port for the agent user. It removes this network-policy exception when the session ends.
 
 The Apple adapter owns its runtime-specific network behavior. Configuration selects `default`, `host`, or `host-ipv6` DNS once when it constructs the adapter. Host mode selects a guest-usable server from the current primary macOS DNS configuration. It does not use scoped resolvers or substitute public DNS. Resolver discovery, readiness, and runtime arguments stay private to the adapter. The guest DNS proxy provides exact Apple host aliases, without subdomain mappings. Sandbox does not add a privileged host setup workflow.

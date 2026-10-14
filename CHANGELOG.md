@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.73.0] - 2026-10-14
+
 ### Fixed
 
 - Fix sessions that ended without an error when a browser stopped inside the sandbox, for example at the end of a Playwright run. The network proxy no longer crashes when a client half-closes a plain HTTP request. This crash stopped the container and every session in it.

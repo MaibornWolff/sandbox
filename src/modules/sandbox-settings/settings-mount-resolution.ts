@@ -5,14 +5,14 @@ import type { Mount } from "#modules/storage/index.js";
 import { exists, resolveRealPath } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
+import { isPathInside } from "#shared/text/index.js";
+import {
+  createSettingsLinkEscapeError,
+  type SettingsMatch,
+} from "./settings-link-escape-error.js";
 import { getSettingsDir } from "./settings-paths.js";
 
 const CONTAINER_HOME = "/home/sandbox";
-
-/**
- * Find symlinked entries in the settings directory that point outside.
- * These need separate mounts to resolve correctly inside the container.
- */
 
 /**
  * Check if a path matches any exclusion pattern.
@@ -67,7 +67,7 @@ async function expandPattern(
         cwd: settingsDir,
         dot: true,
         onlyFiles: false,
-        followSymbolicLinks: true,
+        followSymbolicLinks: false,
       });
     } catch (error) {
       getLogger().debug(`Glob "${pattern}" failed: ${getErrorMessage(error)}`);
@@ -84,21 +84,16 @@ async function expandPattern(
 }
 
 /**
- * Create a mount for a matched path, resolving symlinks.
+ * Resolve all links in a matched path.
  * Returns null if the path cannot be resolved.
  */
-async function createMountForMatch(
+async function resolveMatchRealPath(
   settingsDir: string,
   match: string,
-): Promise<Mount | null> {
+): Promise<string | null> {
   const hostFullPath = path.join(settingsDir, match);
   try {
-    const hostPath = await resolveRealPath(hostFullPath);
-    return {
-      hostPath,
-      containerPath: `${CONTAINER_HOME}/${match}`,
-      mode: "rw",
-    };
+    return await resolveRealPath(hostFullPath);
   } catch {
     getLogger().debug(`Cannot resolve real path: ${hostFullPath}`);
     return null;
@@ -106,21 +101,16 @@ async function createMountForMatch(
 }
 
 /**
- * Resolve settings patterns to individual file/directory mounts.
- * Each matched file/dir gets its own bind mount from host settings → container home.
- *
- * @param settingsDir - Absolute (resolved) path to the settings directory
- * @param patterns - Normalized patterns (~/prefix already stripped)
- * @returns Mount[] with containerPath = /home/sandbox/{relativePath}
- * @testonly
+ * Select matched paths in the settings directory together with the pattern
+ * that selected each path first.
  */
-export async function resolveSettingsPaths(
+async function selectSettingsMatches(
   settingsDir: string,
   patterns: readonly string[],
-): Promise<readonly string[]> {
+): Promise<SettingsMatch[]> {
   const { includePatterns, excludePatterns } = separatePatterns([...patterns]);
   const seen = new Set<string>();
-  const selected: string[] = [];
+  const selected: SettingsMatch[] = [];
   for (const pattern of includePatterns) {
     for (const match of await expandPattern(settingsDir, pattern)) {
       if (shouldExclude(match, excludePatterns)) {
@@ -129,20 +119,56 @@ export async function resolveSettingsPaths(
       }
       if (seen.has(match)) continue;
       seen.add(match);
-      selected.push(match);
+      selected.push({ path: match, pattern });
     }
   }
   return selected;
 }
 
+/**
+ * Resolve settings patterns to matched relative paths.
+ *
+ * @param settingsDir - Absolute (resolved) path to the settings directory
+ * @param patterns - Normalized patterns (~/prefix already stripped)
+ */
+export async function resolveSettingsPaths(
+  settingsDir: string,
+  patterns: readonly string[],
+): Promise<readonly string[]> {
+  const matches = await selectSettingsMatches(settingsDir, patterns);
+  return matches.map((match) => match.path);
+}
+
+/**
+ * Resolve matches to bind mounts with link-free host paths.
+ * A container can write the settings directory, so a link that leaves it
+ * would let the container select any host path as a read-write mount source.
+ * Throws one error for all matches that resolve outside the directory.
+ */
 async function resolveSettingsToMounts(
   settingsDir: string,
   patterns: readonly string[],
 ): Promise<Mount[]> {
   const mounts: Mount[] = [];
-  for (const match of await resolveSettingsPaths(settingsDir, patterns)) {
-    const mount = await createMountForMatch(settingsDir, match);
-    if (mount) mounts.push(mount);
+  const escapingMatches: SettingsMatch[] = [];
+  for (const match of await selectSettingsMatches(settingsDir, patterns)) {
+    const hostPath = await resolveMatchRealPath(settingsDir, match.path);
+    if (hostPath === null) continue;
+    if (!isPathInside(hostPath, settingsDir)) {
+      getLogger().debug(
+        `Rejected settings path ${match.path}: resolves to ${hostPath} outside ${settingsDir}`,
+      );
+      escapingMatches.push(match);
+      continue;
+    }
+    mounts.push({
+      hostPath,
+      containerPath: `${CONTAINER_HOME}/${match.path}`,
+      mode: "rw",
+    });
+  }
+  if (escapingMatches.length > 0) {
+    throw createSettingsLinkEscapeError(settingsDir, escapingMatches);
   }
   return mounts;
 }
@@ -150,9 +176,8 @@ async function resolveSettingsToMounts(
 /**
  * Get settings directory mounts for the container
  *
- * Mounts the settings directory itself (for backsync), plus separate mounts for any
- * symlinked entries that point outside the directory (e.g., Nix/Home Manager),
- * plus individual file/directory mounts resolved from the settings patterns.
+ * Mounts the settings directory itself (for backsync), plus individual
+ * file/directory mounts resolved from the settings patterns.
  *
  * @param patterns - Normalized settings patterns (~/prefix already stripped)
  * @returns Array of mounts (empty if settings dir doesn't exist)

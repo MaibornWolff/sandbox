@@ -102,6 +102,24 @@ export function isAbsolutePath(p: string): boolean {
 }
 
 /**
+ * Check if a path is the parent directory or a descendant of it.
+ * Both paths must use the host path format.
+ *
+ * @example
+ * isPathInside("/a/b", "/a")      // true
+ * isPathInside("/a", "/a")        // true
+ * isPathInside("/a/../c", "/a")   // false
+ */
+export function isPathInside(candidate: string, parent: string): boolean {
+  const relativePath = path.relative(parent, candidate);
+  return (
+    relativePath !== ".." &&
+    !relativePath.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+/**
  * Safely resolve a path, handling Windows drive paths in Git Bash
  *
  * If the target path is already absolute (including Windows drive paths),

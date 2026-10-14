@@ -6,6 +6,22 @@
 
 - Fix sessions that ended without an error when a browser stopped inside the sandbox, for example at the end of a Playwright run. The network proxy no longer crashes when a client half-closes a plain HTTP request. This crash stopped the container and every session in it.
 
+### Security
+
+- Prevent containers from mounting host paths through symbolic links in the settings directory. Every container can write this directory. A container could replace a mount-mode setting with a link, and the next container start of any project mounted the link target read-write. Sandbox now stops the container start when a selected mount-mode setting resolves outside `{config}/settings`.
+
+### Breaking Changes
+
+- Mount-mode settings can no longer link to paths outside the settings directory, for example links created by a dotfile manager. Links inside the settings directory still work. To migrate, remove the entry from `settings` or delete the link in `{config}/settings`. Then add a `mounts` entry to the global `config.toml`. The start error shows the entries for your links:
+
+  ```toml
+  # Before: {config}/settings/.example-tool -> ~/dotfiles/example-tool
+  settings = ["~/.example-tool"]
+
+  # After
+  mounts = ["~/dotfiles/example-tool:~/.example-tool:rw"]
+  ```
+
 ## [0.72.2] - 2026-10-12
 
 ### Fixed

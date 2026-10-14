@@ -31,6 +31,43 @@ A container can create a new path that matches a mount pattern. Sandbox copies t
 
 A forced runtime or host stop can prevent this copy operation.
 
+#### Symbolic links
+
+Every container can write the settings directory. A container can replace a setting with a symbolic link. If Sandbox followed such a link, a container could mount any host path read-write at the next container start.
+
+Sandbox resolves each selected mount path before the container starts. It stops the start if the resolved path is outside the settings directory. The error lists each affected settings entry, its link, and `mounts` entries that replace it.
+
+Sandbox accepts these links:
+
+- The settings directory itself can be a link.
+- A link can point to another path inside the settings directory, for example `.claude -> shared/claude`.
+- A mounted directory can contain links, for example `.claude/foo -> /opt/foo`. The container resolves these links in its own filesystem.
+
+Glob patterns do not traverse linked directories. For example, `**/settings.json` does not select files below a linked `.claude` directory.
+
+#### Replace external links with mounts
+
+If a setting is a link to a path outside the settings directory, replace the link with a `mounts` entry in the global `{config}/config.toml`. Containers cannot write this file.
+
+Example: `{config}/settings/.example-tool` links to `~/dotfiles/example-tool`.
+
+1. Remove `~/.example-tool` from `settings`, or delete the link `{config}/settings/.example-tool`. Either step stops the error.
+2. Add the mount to the `mounts` list:
+
+   ```toml
+   mounts = ["~/dotfiles/example-tool:~/.example-tool:rw"]
+   ```
+
+For a glob entry, the error suggests a mount for the path before the first glob. For example, `~/.example-tool/agent/*` becomes a mount of `~/.example-tool/agent`.
+
+A mount has these differences from a setting:
+
+- It has no glob patterns and no copy of new paths to the host.
+- It applies to all projects.
+- It must not use the same container path as an entry in `persist_paths` or another mount.
+
+Use `:ro` if the tool only reads the files.
+
 ### Copy mode
 
 Sandbox copies the selected source into the container home at each container start.
@@ -82,6 +119,7 @@ A copied destination cannot also be a direct mount point. For example, do not pe
 - A project can select different settings, but it cannot define a different source directory.
 - A forced stop can lose new mount-mode paths that were not bind-mounted at startup.
 - Copy-mode changes inside the container are temporary.
+- The link check and the runtime mount do not run as one operation. A compromised container that runs at the same time can replace a checked path with a link before the runtime mounts it. Most attempts fail with the link error, so check the settings directory if this error appears without a reason.
 
 ## See Also
 

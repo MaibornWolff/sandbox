@@ -9,14 +9,12 @@ export interface HardenedHostCommand {
 /**
  * Git options that stop the repository under the container-writable project
  * directory from running its own commands on the host. `core.hooksPath`
- * points below `/dev/null` so no hook file can exist there on any platform.
+ * points below the platform null device so no hook file can exist there.
  */
-const GIT_HARDENING_ARGS: readonly string[] = [
-  "-c",
-  "core.fsmonitor=false",
-  "-c",
-  "core.hooksPath=/dev/null",
-];
+function gitHardeningArgs(platform: NodeJS.Platform): readonly string[] {
+  const nullDevice = platform === "win32" ? "NUL" : "/dev/null";
+  return ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${nullDevice}`];
+}
 
 function isGitCommand(command: string): boolean {
   const name = path.basename(command).toLowerCase();
@@ -31,12 +29,15 @@ function isGitCommand(command: string): boolean {
 export function hardenHostCommand(
   argv: readonly string[],
   env: Readonly<Record<string, string>>,
+  platform: NodeJS.Platform,
 ): HardenedHostCommand {
   const command = argv[0] ?? "";
   const args = argv.slice(1);
   return {
     command,
-    args: isGitCommand(command) ? [...GIT_HARDENING_ARGS, ...args] : args,
+    args: isGitCommand(command)
+      ? [...gitHardeningArgs(platform), ...args]
+      : args,
     env: { ...env, NoDefaultCurrentDirectoryInExePath: "1" },
   };
 }

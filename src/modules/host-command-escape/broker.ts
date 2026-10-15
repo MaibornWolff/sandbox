@@ -318,7 +318,11 @@ function createCommandRunner(
       lifetime: "application",
       interaction: { mode: "non-interactive" },
       stdio: "stream",
-      ...hardenHostCommand(request.argv, environment.variables),
+      ...hardenHostCommand(
+        request.argv,
+        environment.variables,
+        environment.platform,
+      ),
       cwd,
     });
     context.children.add(child);

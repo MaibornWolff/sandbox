@@ -1,10 +1,10 @@
 import { createServer } from "node:http";
+import { getE2eRuntime } from "./runtime.js";
 
-function getE2eHostName(): string {
-  if (process.env.SANDBOX_TEST_RUNTIME === "podman")
-    return "host.containers.internal";
-  if (process.env.SANDBOX_TEST_RUNTIME === "apple-container")
-    return "host.container.internal";
+export function getE2eHostName(): string {
+  const runtime = getE2eRuntime();
+  if (runtime === "podman") return "host.containers.internal";
+  if (runtime === "apple-container") return "host.container.internal";
   return "host.docker.internal";
 }
 

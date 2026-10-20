@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep quiet `sandbox escape` commands connected after five seconds when Sandbox runs under Node.js.
+
 ## [0.73.0] - 2026-10-14
 
 ### Fixed

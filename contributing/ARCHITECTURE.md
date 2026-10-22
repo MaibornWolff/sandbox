@@ -1,7 +1,7 @@
 # Architecture
 
 Read this guide when changing Sandbox's boundaries or lifecycle.
-For setup and configuration, use the [user guides](README.md).
+For setup and configuration, use the [user guides](../docs/README.md).
 
 ## Boundaries
 
@@ -26,7 +26,7 @@ Agent commands run as the non-root Sandbox user.
 The authenticated, encrypted host bridge exists for attached sessions.
 Host-command and clipboard permissions are separate capabilities.
 It is an explicit host access path, not part of filesystem isolation.
-See [security](SECURITY.md).
+See [security](../docs/SECURITY.md).
 
 ## Code ownership
 
@@ -44,10 +44,10 @@ See [repository guidance](../AGENTS.md) for dependency and ownership rules.
 
 ## Configuration, images, and data
 
-[Configuration](CONFIGURATION.md) separates built-in defaults, user preferences, project requirements, and one-run overrides.
+[Configuration](../docs/CONFIGURATION.md) separates built-in defaults, user preferences, project requirements, and one-run overrides.
 Project trust is checked before project files affect access or builds.
 
-[Image layers](LAYERED-IMAGES.md) separate base, user, and project tools.
+[Image layers](../docs/LAYERED-IMAGES.md) separate base, user, and project tools.
 A changed parent invalidates child layers.
 Every project inherits the user layer when one exists.
 
@@ -63,7 +63,7 @@ Host data has distinct lifetimes:
 - Shared settings use writable mounts or startup copies.
 - Other container data is disposable.
 
-See [mounts](MOUNTS.md), [persistence](PERSISTENCE.md), and [shared settings](SETTINGS-SYNC.md) for the user-visible contracts.
+See [mounts](../docs/MOUNTS.md), [persistence](../docs/PERSISTENCE.md), and [shared settings](../docs/SETTINGS-SYNC.md) for the user-visible contracts.
 
 ## Session lifecycle
 
@@ -83,4 +83,4 @@ Reuse depends on configuration, image identity, and runtime content.
 Session-only environment changes do not prevent reuse.
 
 Keep detailed adapter behavior in its owning code and tests.
-Use [testing guidance](TESTING.md) when changing lifecycle or external boundaries.
+For test design when changing lifecycle or external boundaries, use the [test-writing skill](../.agents/skills/test-writing/SKILL.md).

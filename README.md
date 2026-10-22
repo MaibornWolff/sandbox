@@ -149,13 +149,13 @@ It starts a host agent with the Sandbox docs and configuration paths in context.
 
 - [Configuration reference](docs/CONFIGURATION.md): paths, merge rules, environment variables, and all configuration fields.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): diagnose startup, login, build, and network failures.
-- [Documentation index](docs/README.md): user guides and maintainer documentation.
+- [Documentation index](docs/README.md): user guides.
 - `sandbox --help` and `sandbox <command> --help`: commands and options for your installed version.
 
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) to build, test, or change Sandbox.
-Start with the short [architecture guide](docs/ARCHITECTURE.md) to understand the system.
+Start with the short [architecture guide](contributing/ARCHITECTURE.md) to understand the system.
 Report vulnerabilities through [SECURITY.md](SECURITY.md).
 Sandbox uses the [BSD 3-Clause License](LICENSE).
 

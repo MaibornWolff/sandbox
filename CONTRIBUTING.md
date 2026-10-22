@@ -36,7 +36,9 @@ Run the end-to-end tests when your change affects container behavior:
 bun run test:e2e
 ```
 
-Read [docs/TESTING.md](docs/TESTING.md) for test design and test commands.
+For test design, use the repository's [test-writing skill](.agents/skills/test-writing/SKILL.md).
+For architecture and ownership, read the [architecture guide](contributing/ARCHITECTURE.md).
+For merge gates and repository settings, read [CI and dependency updates](contributing/CI.md).
 
 ## Changes
 
@@ -62,7 +64,7 @@ Docker and Podman end-to-end jobs before you accept a runner image update.
 
 ## Releases
 
-Maintainers start releases manually. See [docs/RELEASING.md](docs/RELEASING.md) for
+Maintainers start releases manually. See [release instructions](contributing/RELEASING.md) for
 version selection, dry runs, npm setup, and recovery.
 
 ## Pull Requests

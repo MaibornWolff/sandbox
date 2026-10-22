@@ -1,204 +1,56 @@
 # Sandbox Development Guide
 
-## User Communication
+## Working with the user
 
-- You MUST use ASD-STE100 Simplified Technical English when talking to the user.
-- You MUST organize confirmation prompts for consequential host changes into labeled sections for purpose, changes, risks, recovery, and confirmation.
+- Use ASD-STE100 Simplified Technical English. Write short, direct responses without filler, em dashes, or semicolons.
+- For consequential host changes, request confirmation under labeled sections: purpose, changes, risks, recovery, and confirmation.
+- Get explicit confirmation in the current chat before each push. Approval applies only to that push.
+- Publish releases only when the user explicitly requests them.
 
-## Commands
+## Workflow
 
-- **Check all:** `bun check` (typecheck + deprecations + lint + test + build + cpd + knip)
+- Follow repository migration notices and confirm the active repository before making product changes.
+- Reproduce bugs with a failing test before fixing them. Verify CLI fixes with the reported command when the required runtime is available.
+- For startup optimizations, record timings with the reported CLI command before and after each change.
+- Run `bun check` after changes to code, scripts, or configuration. Use individual checks only for targeted debugging.
+- For documentation-only changes, check links and run `git diff --check`. Run `bun check` only if the user requests it.
+- Keep deprecation diagnostics fatal and fix their causes rather than suppressing them.
+- For user-visible changes, update `CHANGELOG.md` under `Unreleased` and include migration steps for breaking changes. Write for product users, not contributors. Keep released sections unchanged except for factual corrections.
+- Create repository worktrees under `.agents/worktrees/`.
 
-Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, optimized `bun check` command otherwise:
+## Code
 
-- **Typecheck:** `bun run typecheck`
-- **Lint/Format:** `bun run lint`
-- **Test:** `bun run test`
-- **Build:** `bun run build`
-- **Shell script tests:** `bun run test:shell` (needs `sh`, `bash`, and `zsh` on the host, runs in CI on Linux)
-- **E2E tests:** `bun run test:e2e`
-  - When running inside Sandbox, run focused host E2E tests with `sandbox escape -- bun test <test-file>`.
-  - When running inside Sandbox, run all host E2E tests with `sandbox escape -- bun test:e2e`.
-- You SHOULD pin CI toolchain dependencies to major versions unless stricter reproducibility is explicitly requested.
-- You SHOULD keep runtime and dependency versions open within compatible release lines, with minimum versions for required security fixes.
-- You MUST avoid duplicate branch and merge-request pipelines for the same commit.
-- You MUST run slow container E2E jobs only on `main` pushes, Renovate bot PRs, or explicit manual requests.
+- Keep production code compatible with Node.js and Windows. Use Bun-specific APIs only in tests.
+- Load synchronous and asynchronous disposal polyfills before application code in each Node.js entrypoint.
+- Use concrete types and supported APIs rather than `any`, `@ts-ignore`, or `biome-ignore`.
+- Reuse existing helpers before adding abstractions. When changing an internal signature, update its callers rather than adding compatibility shims unless requested.
+- Use disposables for cleanup. Await asynchronous work before leaving its disposal scope.
+- Preserve child-process exit codes and report specific errors. Add verbose logs for main actions and warnings or errors for unexpected behavior.
+- Use `chalk.cyan()` for commands and resource names, `chalk.dim()` for paths, and `chalk.bold()` for emphasis in logs.
+- Preserve user-configured package registries unless the user requests an override.
+- Resolve project-relative paths with `getRepoRootPath(process.cwd())`. Use `getSandboxConfigDir()` and `getDataHomeDir()` for platform- and XDG-aware configuration and data paths.
 
-## Key Rules
+## Architecture
 
-- You MUST run `bun check` after every task
-- You MUST follow repository migration notices and confirm the active repository before making product changes.
-- You MUST NOT use `any`, `@ts-ignore`, or `biome-ignore`.
-- You MUST reproduce bugs with a failing test first.
-- You MUST verify CLI bug fixes with the reported command when the required runtime is available.
-- You MUST verify each startup optimization with the reported CLI command and record its timings before proceeding to the next optimization.
-- You MUST NOT weaken E2E tests by replacing failing external fixtures with less equivalent ones without investigating the failure.
-- You SHOULD fetch only the relevant tail of long CI logs unless earlier output is needed.
-- You MUST keep code Node.js-compatible (no Bun-specific APIs outside tests).
-- You MUST load synchronous and asynchronous disposal polyfills in each Node.js entrypoint before application code runs.
-- You MUST ensure solutions work on Windows (no reliance on Unix-only system commands like `diff`, `which`, etc.).
-- You MUST co-locate tests: `foo.ts` → `foo.test.ts`.
-- You MUST use `getRepoRootPath(process.cwd())` for project-relative paths, not `process.cwd()` directly.
-- You MUST run Docker-backed tests through `sandbox escape` when permitted and ask for manual testing only when host execution is unavailable.
-- You MUST select the configured container runtime explicitly when running host E2E tests.
-- You MUST bundle image setup package actions by package manager.
-- You SHOULD prefer Debian-managed packages for the base image and verify Debian security backports before replacing them with upstream binaries.
-- You MUST keep runtime-only code changes from triggering rebuilds of system, user, and project tool images.
-- You MUST keep startup paths performant and avoid redundant container-runtime operations.
-- You MUST expose Docker and Podman operations only through the `ContainerRuntime` interface.
-- You MUST keep native terminal scrolling available while users review long output.
-- You SHOULD size interactive terminal views from the available terminal height.
-- You MUST calculate terminal mouse hit regions from rendered physical rows, including wrapped lines.
-- You MUST use semantic input actions instead of translating keys into raw terminal escape sequences outside terminal adapters and tests.
-- You MUST create repository worktrees under `.agents/worktrees/`.
-- You SHOULD use the fewest subagents needed and keep each work package complete and focused.
+- Keep dependencies inward: apps can use modules, platform, and shared code. Modules can use modules, platform, and shared code. Platform can use platform and shared code. Shared code depends only on shared code. Avoid cycles.
+- Keep declared architecture dependencies identical to direct production dependencies.
+- Give each capability, runtime resource, and technical boundary one component owner. Construct resource paths in that owner and expose complete operations rather than internal steps.
+- Expose component APIs through `index.ts`. Use `#apps/*`, `#modules/*`, `#platform/*`, `#shared/*`, or `#test/*` aliases across components and relative imports with explicit file extensions within a component.
+- Export only APIs used outside their defining module. Keep exports in their owning component rather than re-exporting another component's APIs.
+- Construct technical integrations once at composition roots. Keep configuration code concerned with data, not operational services.
+- Access Docker and Podman only through `ContainerRuntime`. Keep runtime CLI logic in `src/platform/container-runtime/`.
+- Keep runtime-only changes from rebuilding system, user, or project tool images.
 
-## Response Style
+## Task-specific guidance
 
-Use these rules when talking to the user:
+- When changing component boundaries or lifecycle, read [architecture](contributing/ARCHITECTURE.md) and update it if core concepts change.
+- When implementing behavior, fixing bugs, or adding or changing tests, use the [test-writing skill](.agents/skills/test-writing/SKILL.md) to decide what to test and at which level.
+- Before publishing or recovering a release, follow [release instructions](contributing/RELEASING.md).
 
-- You MUST NOT use em dashes (—) or semicolons. Use colons, regular hyphens (-), or rephrase.
-- You MUST NOT use filler affirmations ("Certainly!", "Great!", "Absolutely!").
-- You MUST NOT use hollow transition words ("Furthermore", "Moreover", "Additionally", "In conclusion").
-- You MUST NOT use AI-favored vocabulary ("leverage", "delve", "it's worth noting", "in the realm of").
-- You SHOULD write concisely and directly. Prefer plain words over formal or elaborate phrasing.
-- You SHOULD keep CLI option help focused on user actions and omit internal lifecycle details.
-- You SHOULD link relevant technologies to official documentation and factual claims to primary sources unless links are explicitly discouraged.
-- You SHOULD order feature guides by reader task and introduce core workflows before optional integrations.
-- You MUST identify the target file or environment for configuration examples and show how to preserve existing entries.
+## Maintaining guidance
 
-## Code Style
-
-- You MUST preserve user-configured package registries unless the user explicitly requests an override.
-
-- You MUST keep deprecation diagnostics fatal in `bun check` and use supported, non-deprecated APIs without suppressing warnings.
-- You MUST block dependency updates and releases on critical non-denial-of-service security findings or scanner errors. Ignore denial-of-service advisories and report other lower-severity findings as non-blocking warnings.
-- You MUST use specific error messages and preserve exit codes from child processes.
-- You SHOULD use an options object for >3 parameters or confusable types.
-- You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
-- You SHOULD prefer removing unused dependencies or using maintained replacements over custom forks and broad rewrites to clear audit findings.
-- You SHOULD use extensible enum values for feature modes and reuse existing configuration merge strategies.
-- You SHOULD keep functions under 150 lines and cognitive complexity under 15.
-- You MUST include code size, readability, and shared-helper opportunities in code reviews.
-- You SHOULD use explicit branches and named phases for lifecycle logic instead of nested ternaries or compressed expressions.
-- You SHOULD reuse shared timeout and cancellation helpers instead of repeating timer races and cleanup.
-- You SHOULD extract compound validation conditions into named functions when this makes the rule easier to read.
-- You SHOULD extract non-trivial mapping and parsing callbacks into named functions.
-- If `bun cpd` reports clones, you MUST extract into a shared utility.
-- You MUST use `chalk` to highlight key terms in log messages: `chalk.cyan()` for commands and resource names (images, containers, volumes), `chalk.dim()` for file paths, `chalk.bold()` for emphasis. Plain strings for descriptions.
-- You SHOULD avoid try/catch/finally. For cleanup prefer disposable. Only catch errors in central places and keep application code simple with minimal branching.
-- You MUST await asynchronous operations before leaving an `AsyncDisposable` scope.
-
-## Testing
-
-- You MUST NOT add unit tests whose only subject is E2E assertion helpers or fixture validation.
-- You MUST put executable test-fixture work behind a main guard and keep imported test helpers free of process or filesystem side effects.
-- You SHOULD verify simple development-script wiring directly instead of adding isolated tests that only restate command arguments.
-- You SHOULD keep regression tests concise and put repeated boundary setup in small owner-local fixtures.
-- You MUST NOT add tests for config files.
-- You MUST use separate tests for different outcomes and avoid copying production polling loops into tests.
-- You MUST NOT use `mock.module()` because it causes flaky tests due to parallel execution.
-- You MUST NOT use `try`/`finally` for test cleanup and MUST use `DisposableStack`, `Disposable`, or `AsyncDisposable` instead.
-- You MUST use real temporary filesystems for filesystem behavior and deterministic scoped clocks for time behavior.
-- You MUST use explicit platform fixtures in tests and MUST NOT branch or skip based on the host platform.
-- You MUST replace only external technical boundaries and keep product commands, parsers, configuration, and orchestration real.
-- You MUST keep test-harness primitives generic and expose scenario behavior only through thin owner-local fixtures.
-- You MUST model test interaction scopes after real shared resources, including one global TUI input stream and screen per application.
-- You MUST improve coverage through missing user, contract, failure, or edge behavior and MUST NOT add redundant tests only to satisfy metrics.
-- You SHOULD prefer user-flow tests through existing test harnesses over verbose or duplicated unit tests.
-- You MUST test behavior at the lowest level that can validate it and reserve E2E tests for real external boundaries. Examples: test config parsing in a unit test and CLI orchestration in an integration test. Negative example: start Docker only to inspect generated arguments.
-- You SHOULD test behavior, not types. You SHOULD NOT test language features (`typeof`, `constructor.name`).
-- You SHOULD build test harnesses from generic interaction primitives and keep scenario-specific helpers as thin wrappers.
-- You SHOULD avoid scoped test-harness handles when the underlying interaction target is global.
-- You MUST assert observable behavior, logic, or parsed structure instead of only checking generated source, scripts, configuration, or text. Examples: assert resolved configuration data and execute an installed tool. Negative example: assert that a generated Dockerfile contains a string.
-- You MUST NOT add tests that only restate tool registry values or generated output implied by them.
-- You SHOULD use `createTestDir()`/`cleanupTestDir()` from `src/test/utils.ts` for temp directories.
-- Coverage: aim for 100% on utils, test config/docker logic, commands MAY use integration-style tests.
-
-## Releases
-
-- You MUST get explicit confirmation in the current chat before each push. Earlier push approval does not apply to later changes.
-- You MUST update `CHANGELOG.md` under `Unreleased` for user-visible changes and include migration steps for breaking changes.
-- You MUST keep released changelog sections unchanged except for factual corrections.
-- You SHOULD name relevant CVEs in security notes and scope exploitability assessments to reviewed behavior without guaranteeing that exploitation is impossible.
-- You MUST write changelog and release notes only for product users. Include user-facing capabilities, behavior, fixes, security, required migration steps, and relevant command or configuration examples. Exclude CI, tests, release processes, development workflows, and internal implementation.
-- You MUST follow `docs/RELEASING.md` for release work and must not publish without an explicit user request.
-
-## Logging
-
-- You MUST add verbose logs for all main actions. This is CRUCIAL for debugging. The user can activate verbose logs using `--verbose`.
-- You MUST log warnings or errors on unexpected behavior. NEVER skip errors silently.
-- You SHOULD make user facing logs look modern and colorful. Highlight important elements, like paths or commands in the logs using `chalk`.
-
-## Code Structure
-
-### Components
-
-- `src/apps/` contains executable composition roots for the host CLI and container tools.
-- `src/modules/` contains product capabilities and their command APIs.
-- `src/platform/` contains side effects and technical integrations.
-- `src/shared/` contains pure product-independent helpers.
-- `tests/e2e/` contains Docker-backed end-to-end tests. Follow `tests/e2e/AGENTS.md` when you work there.
-- `docs/` contains architecture documentation. Update it when you change core concepts.
-- Dependencies MUST point inward: apps may use modules, platform, and shared code. Modules may use modules, platform, and shared code. Platform code may use platform and shared code. Shared code may only use shared code.
-- You MUST NOT create circular dependencies.
-- You MUST keep declared architecture dependencies identical to direct production dependencies.
-- You SHOULD keep component directories flat and use subfolders only for exceptional cohesive responsibilities.
-
-### Ownership
-
-- You MUST assign one component owner to each product capability, runtime resource, and technical boundary.
-- You MUST construct resource paths in the owning component and reuse its public path APIs elsewhere.
-- You MUST keep container runtime CLI logic inside `src/platform/container-runtime/**`.
-- You MUST NOT call container runtime binaries outside the container runtime component.
-- Configuration code MUST return configuration data without constructing operational runtime services.
-- You MUST construct each technical edge once at the composition root.
-- You MUST NOT repeat dependency defaults across layers.
-- You MUST NOT introduce or expand optional dependency bags during component composition.
-
-### Public APIs
-
-- Each component MUST expose its public API through `index.ts`.
-- Cross-component imports MUST use the owning component's `index.ts` facade.
-- Cross-component imports under `src` MUST use the `#apps/*`, `#modules/*`, `#platform/*`, `#shared/*`, or `#test/*` aliases.
-- Imports within one component MUST use relative paths with explicit file extensions.
-- You MUST NOT re-export APIs or types owned by another component.
-- You MUST export only functions, types, and interfaces that are used outside the defining module.
-
-### Abstractions
-
-- You MUST prefer small, deep APIs that hide complete workflows.
-- You SHOULD prefer one shared workflow across container runtimes and keep necessary runtime differences inside adapters.
-- Callers MUST NOT coordinate another component's internal steps.
-- You MUST keep intermediate plans and transport formats private unless callers need them to decide behavior.
-- Lifecycle operation names MUST state their phase when timing changes behavior.
-- You SHOULD keep composition roots linear and delegate complete operations to their owners.
-- You SHOULD model separate resource concerns with separate types.
-- You SHOULD expose resource completion on its handle instead of a global wait method.
-
-### Files
-
-- You MUST name CLI command files `<name>-command.ts`.
-- You MUST NOT use `*-command-registration.ts`.
-
-## Key Files and Concepts
-
-- You SHOULD keep runtime selection in user configuration examples and keep project templates focused on common project settings.
-
-Paths are platform/XDG-dependent. Use `getSandboxConfigDir()` (`{config}`) and `getDataHomeDir()` (`{data}`) — never hardcode `~/.config` or `~/.local/share`.
-
-- `{config}/config.toml` — global user config
-- `{config}/docker/Dockerfile` — user-level Dockerfile
-- `{config}/settings/` — synced into container home
-- `{data}/state.json` - persistent CLI state owned by `platform/state`
-- `{data}/global/` — persist volumes shared across projects
-- `{data}/{project-slug}/` — persist volumes per project
-- `.sandbox/config.toml` — project-level config
-- `.sandbox/docker/Dockerfile` — project-level Dockerfile override
-
-## Learning
-
-If the user gives you feedback that can be generalized, you MUST add it as a concise rule to the relevant `AGENTS.md` (root or subfolder). Rules MUST be one-liners using "You MUST/SHOULD/MAY" and avoid verbose code examples. ONLY add rules that should be applied in general, DO NOT add rules that are very specific for only one task.
-
-- You MUST NOT run `bun check` for documentation-only changes unless the user explicitly asks for it.
-- You MUST save feedback as guidance only when it applies broadly to future tasks, not when it concerns minor visual preferences or task-specific adjustments.
+- Treat every rule as an attention cost. Keep only intentional, repository-specific guidance that changes future decisions.
+- Treat feedback as evidence to consider, not an automatic instruction to add a rule. Add guidance only when it changes future decisions across tasks, and first check whether an existing rule can be sharpened.
+- Put conditional guidance in the narrowest relevant scope and state when to read it. Leave commands, layouts, and configuration details in their authoritative files when they are easy to find.
+- Write product usage, configuration, and operation guides in `docs/`, contributor guides in `contributing/`, and agent workflows and decision rules in repository-local skills. Keep only essential rules and activation pointers in `AGENTS.md`.
+- Write direct instructions without uppercase requirement labels. Remove repetition, conflicts, and rules the agent follows without being told.

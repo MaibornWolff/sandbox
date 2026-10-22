@@ -30,11 +30,4 @@ Start with the [quickstart](../README.md#quickstart) to run your first agent.
 - [Troubleshooting](TROUBLESHOOTING.md): diagnose failures.
 - [Apple runtime settings](APPLE-CONTAINER.md): configure DNS and resources.
 
-## Maintain Sandbox
-
-Read [Contributing](../CONTRIBUTING.md) before changing the product.
-
-- [Architecture](ARCHITECTURE.md): system boundaries and design choices.
-- [Testing](TESTING.md): choose tests and use the test harnesses.
-- [CI and dependency updates](CI.md): merge gates and repository settings.
-- [Releasing](RELEASING.md): publish a release and recover failed publication.
+For development and maintenance, see [Contributing](../CONTRIBUTING.md).

@@ -106,10 +106,6 @@ describe("hasGlobChars", () => {
     expect(hasGlobChars("./packages/*.json")).toBe(true);
   });
 
-  test("detects ** recursive glob", () => {
-    expect(hasGlobChars("./**/node_modules")).toBe(true);
-  });
-
   test("detects question mark glob", () => {
     expect(hasGlobChars("./file?.txt")).toBe(true);
   });

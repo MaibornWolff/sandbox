@@ -1,72 +1,51 @@
 # CI and dependency updates
 
-## Pull request checks
+Read this guide when changing checks or repository merge settings.
+Workflows live in [`.github/workflows/`](../.github/workflows/).
 
-Every pull request to `main` runs fast checks, shell tests, a dependency audit,
-license and package checks, and CodeQL analysis.
+## Merge gates
 
-Docker and Podman end-to-end (E2E) tests run automatically on pull requests
-created by the `renovate[bot]` account. Other pull requests do not run E2E tests
-unless a maintainer adds the `run-e2e` label. Each new commit reruns the applicable
-checks. Remove the label to stop requesting E2E on later commits.
+Pull requests run fast validation, shell tests, dependency security, license checks, and [CodeQL](https://codeql.github.com/docs/).
+Container E2E tests run for Renovate pull requests and when a maintainer adds `run-e2e`.
+Main pushes run both Docker and Podman E2E jobs.
 
-For a branch without a pull request, manually start the CI workflow on that
-branch with **run_e2e** enabled. This branch run does not replace pull request
-checks or main-push checks.
+For a branch without a pull request, dispatch CI with `run_e2e` enabled.
+That run does not replace pull-request or main-push checks.
 
-The `Merge gate` job requires fast checks and dependency security to succeed.
-For Renovate pull requests, it also requires both E2E jobs to succeed. For other
-pull requests, skipped E2E is permitted, but failed requested E2E blocks merging.
-All main pushes run both E2E jobs.
+Require these status checks on `main`:
 
-## Required GitHub settings
+- `Merge gate`.
+- `License and SBOM`.
+- `Analyze JavaScript and TypeScript`.
 
-Configure the rules for `main` to require these status checks:
+Require up-to-date branches.
+Do not require conditional E2E job names for every pull request.
+`Merge gate` permits skipped E2E where appropriate, but blocks failed requested E2E and requires both jobs for Renovate.
 
-- `Merge gate`
-- `License and SBOM`
-- `Analyze JavaScript and TypeScript`
+Repository files do not configure GitHub branch rules or grant Renovate merge permissions.
+Set those separately without bypassing review or required checks.
 
-Require branches to be up to date before merging. Do not mark the conditional
-E2E job names as required checks for every pull request. `Merge gate` applies
-that requirement only when needed.
+## Dependency updates
 
-Renovate must have permission to merge pull requests. Existing review rules
-still apply. Do not grant a bypass that allows Renovate to skip required checks.
-A self-hosted Renovate identity needs an explicit update to the bot identity
-condition in CI before automerge is enabled for it.
+[Renovate](https://docs.renovatebot.com/) waits seven days after a dependency release where timestamps are available.
+Versions without timestamps are held.
+The delay is not a guarantee against compromised releases.
 
-The repository configuration does not change GitHub rules or install Renovate.
-Configure those settings before enabling unattended merges.
+Only npm minor and patch updates can automerge.
+Major updates require approval.
+Actions and runner changes do not automerge.
+Security-fix updates can bypass the delay, but require human review and cannot automerge.
 
-## Renovate policy
+The required security audit checks the resolved lockfile, including development and transitive dependencies.
+Critical non-denial-of-service findings and scanner errors block merging.
+Denial-of-service advisories are ignored.
+Other severities are reported as warnings.
+Advisory coverage is not a complete security guarantee.
 
-Renovate waits seven days after each dependency version's release. Versions
-without a release timestamp are held. The waiting period applies where the
-datasource provides release timestamps, not to immutable digests as a separate
-supply-chain guarantee. A waiting period reduces exposure to newly compromised
-versions but does not prevent zero-day vulnerabilities.
+For a different Renovate bot identity, update the workflow identity condition before enabling automerge.
 
-Only npm patch and minor updates are eligible for automerge. Major updates
-require Dependency Dashboard approval and manual merging. GitHub Actions and
-runner updates are not automatically merged. Renovate rebases branches when
-`main` advances so checks run against the current base.
+## Release checks
 
-GitHub and OSV vulnerability alerts propose fixes for existing vulnerable
-dependencies. They are not a complete filter for all proposed upgrade versions.
-The required `bun run security` check audits the resolved lockfile, including
-development and transitive dependencies. Critical findings block merging, except denial-of-service findings, which are
-ignored. Other high, moderate, and low findings remain visible as non-blocking
-warnings. Scanner and registry errors block merging. This protection depends on advisory
-database coverage and the data available when the audit runs.
-
-Security-fix updates can bypass Renovate's normal release-age delay. They require
-human review and are not eligible for automerge. Review the target release age
-before approving a security fix. An urgent exception to the seven-day policy
-must be an explicit maintainer decision.
-
-## Releases
-
-Releases reuse successful main-push checks for the exact source commit. They
-still test installation and publishing from the saved npm package. See
-[Releasing Sandbox](RELEASING.md) for CI gating, candidate reuse, and recovery.
+Releases reuse successful main-push checks for the exact source commit.
+The saved npm candidate also passes installation and publication dry-run tests.
+See [releasing](RELEASING.md) for publication, candidate reuse, and recovery.

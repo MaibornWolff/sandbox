@@ -63,6 +63,9 @@ Use these rules when talking to the user:
 - You MUST NOT use AI-favored vocabulary ("leverage", "delve", "it's worth noting", "in the realm of").
 - You SHOULD write concisely and directly. Prefer plain words over formal or elaborate phrasing.
 - You SHOULD keep CLI option help focused on user actions and omit internal lifecycle details.
+- You SHOULD link relevant technologies to official documentation and factual claims to primary sources unless links are explicitly discouraged.
+- You SHOULD order feature guides by reader task and introduce core workflows before optional integrations.
+- You MUST identify the target file or environment for configuration examples and show how to preserve existing entries.
 
 ## Code Style
 

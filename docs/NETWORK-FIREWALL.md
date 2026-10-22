@@ -1,121 +1,84 @@
-# Network Firewall
+# Network access
 
-Sandbox restricts outbound container traffic to an allowlist of domains. This reduces the risk that an agent sends project data to an unauthorized service.
+Sandbox restricts outbound traffic to allowed domains.
+The generated user configuration allows many AI services, code hosts, and package registries.
+Review that list and remove services you do not need.
 
-## Security Boundary
+## Allow a service
 
-The firewall controls external network access from the container. It does not control communication with mounted files or allowed services.
-
-An allowed domain can receive data from the agent. Keep the allowlist small. Avoid wildcard domains unless they are required.
-
-## Network Model
-
-The network system uses three layers:
-
-1. Domain resolution rejects domains outside the allowlist.
-2. A domain-aware proxy routes supported outbound traffic.
-3. IPv4 and IPv6 firewalls block direct outbound connections.
-
-The agent user cannot change the network policy after container startup.
-
-```mermaid
-flowchart LR
-  Agent[Agent process] --> Resolver[Domain resolver]
-  Resolver -->|Allowed domain| Proxy[Domain-aware proxy]
-  Resolver -->|Blocked domain| Deny[Reject request]
-  Proxy --> Firewall[Network firewall]
-  Firewall --> Service[Allowed external service]
-  Agent -.->|Direct connection| Firewall
-  Firewall -.->|Block bypass| Deny
-```
-
-This design keeps domain checks in the request path. It also blocks applications that try to connect directly to an external address.
-
-The IPv6 firewall permits only address configuration messages, established traffic, and required resolver traffic in restricted mode. Only the dnsmasq user can contact a selected IPv6 resolver. The rule restricts the destination address, guest interface, port 53, and TCP or User Datagram Protocol (UDP). Other direct IPv6 Domain Name System (DNS) and external traffic is blocked.
-
-## Supported Traffic
-
-Hypertext Transfer Protocol (HTTP), secure HTTP (HTTPS), Secure Shell (SSH), and Git over SSH use the proxy path.
-
-Another protocol must support tunneling through the proxy. A direct custom protocol might not work in restricted mode.
-
-Container-local services remain available. Restricted mode does not permit direct access to private Internet Protocol (IP) ranges.
-
-Exact runtime host aliases resolve to the reachable host gateway. The aliases do not permit gateway ports. For a normal session, Sandbox temporarily permits only the authenticated host-command broker port for the agent user. Sandbox removes this rule when the session ends. Sandbox does not create wildcard host aliases.
-
-## Configure the Allowlist
-
-Add required domains to `allow_network`:
+Add an entry to the configuration:
 
 ```toml
 allow_network = [
   "api.example.com",
-  "db.example.com:5432",
+  "*.example.net",
   "git.example.com:{22,443}",
-  "*.example.net:443",
+  "db.example.com:5432",
   "service.example.org:*",
-  "*.internal.example.org:{*}",
 ]
 ```
 
-Ports 80 and 443 apply when an entry does not specify a port.
-
-Proxy requests that use a literal IPv4 address require an explicit entry in the same allowlist, such as `"192.0.2.10:443"`. A reverse DNS match to an allowed domain does not permit the request. Use the allowed hostname when possible.
-
-Use `host:*` or `host:{*}` to allow all Transmission Control Protocol (TCP) ports for one host. The traffic must still use the managed proxy.
-
-A wildcard such as `*.example.net` matches the base domain and all subdomains. Wildcards increase the available network surface.
-
-Allowlist entries accumulate across configuration layers. See [Configuration Cascade](./CONFIG-CASCADE.md).
-
-## Full-Network Mode
-
-Use full-network mode when the task requires unrestricted outbound access:
+Or allow one for a single run:
 
 ```bash
-sandbox --full-network
+sandbox --allow-network api.example.com run claude
 ```
 
-Full-network mode disables domain filtering. Network traffic still uses the managed network path and remains visible in network logs.
+Without a port, entries allow ports 80 and 443.
+`*.example.net` includes the base domain and all subdomains.
+`host:*` and `host:{*}` allow all TCP ports for that host.
 
-Use this mode only for trusted code.
+Entries accumulate across configuration layers.
+Remove an unwanted entry from the file that defines it.
 
-## Network Logs
+## Find a blocked request
 
-Show blocked requests:
+While the affected container is running:
 
 ```bash
 sandbox network logs
-```
-
-Show allowed and blocked requests:
-
-```bash
 sandbox network logs --status=all
+sandbox network allow
 ```
 
-Capture detailed diagnostic data while the affected container is running:
+The first command shows blocked requests.
+The second includes allowed requests.
+The third lets you select logged destinations and add them to configuration.
+
+Check for redirect and download hosts as well as the original service.
+For a detailed diagnostic bundle:
 
 ```bash
 sandbox network logs --raw > sandbox-network-debug.log
 ```
 
-Use the logs to identify a missing domain. Add only the domains that the task requires.
+Use `--no-resolve` to skip reverse DNS lookups.
+Logs can omit repeated blocked traffic and IPv6 connections.
+Reported names can differ from requested names when services share an IP address.
+Review logs for sensitive data before sharing them.
 
-Network logs can omit repeated high-volume blocked traffic. A reported hostname can also differ from the requested hostname when several domains use one Internet Protocol (IP) address.
+## Protocol limits
 
-## Remaining Risks
+HTTP, HTTPS, SSH, and Git over SSH use the managed proxy.
+Other protocols must support proxy tunneling.
+Allowing `db.example.com:5432` does not make a direct database connection work automatically.
 
-The firewall does not prevent:
+IPv4 and IPv6 firewall rules block direct external connections in restricted mode.
+Private addresses are not a general bypass.
+Exact runtime host aliases resolve to a host gateway, but do not grant access to its ports.
+Literal IPv4 proxy destinations require an explicit allowlist entry for that address.
 
-- data transfer to an allowed domain
-- data in subdomain names under an allowed wildcard domain
-- access to permitted private network services
-- attacks that break the container or runtime security boundary
+## Unrestricted access
 
-The firewall reduces available network access. It does not prove that an allowed service is safe.
+```bash
+sandbox --full-network run claude
+```
 
-## See Also
+This disables domain filtering.
+The proxy remains active unless you also use `--no-proxy`.
+Use unrestricted access only when you accept the wider network access.
+Prefer logs over disabling restrictions to diagnose a missing domain.
 
-- [Architecture](./ARCHITECTURE.md)
-- [Configuration Cascade](./CONFIG-CASCADE.md)
+The agent user cannot change the firewall after startup, but container root can.
+Allowed domains can still receive project data.
+See [security limits](SECURITY.md).

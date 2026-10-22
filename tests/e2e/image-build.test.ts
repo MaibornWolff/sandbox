@@ -29,7 +29,7 @@ test("builds and executes a project image with working base tools", async () => 
   const first = await sb.build();
   expect(first.exitCode, first.stderr).toBe(0);
   const result = await sb.run(
-    "/usr/bin/node",
+    "/usr/local/bin/node",
     "-e",
     "console.log(process.env.SANDBOX_IMAGE_TEST_MARKER)",
   );
@@ -44,3 +44,34 @@ test("builds and executes a project image with working base tools", async () => 
   expect(jq.exitCode, jq.stderr).toBe(0);
   expect(jq.stdout.trim()).toBe("available");
 }, 600_000);
+
+test("provides a patched root-owned Node runtime for the sandbox user", async () => {
+  const result = await sb.run(
+    "/usr/local/bin/node",
+    "--input-type=module",
+    "-e",
+    `
+import { statSync } from 'node:fs';
+import { userInfo } from 'node:os';
+const binary = statSync(process.execPath);
+console.log(JSON.stringify({
+  version: process.versions.node,
+  executable: process.execPath,
+  owner: binary.uid,
+  writableByOthers: (binary.mode & 0o022) !== 0,
+  user: userInfo().username,
+  uid: process.getuid(),
+}));
+`,
+  );
+  expect(result.exitCode, result.stderr).toBe(0);
+  const runtime = JSON.parse(result.stdout.trim());
+  expect(runtime).toMatchObject({
+    executable: "/usr/local/bin/node",
+    owner: 0,
+    writableByOthers: false,
+    user: "sandbox",
+  });
+  expect(runtime.uid).toBeGreaterThan(0);
+  expect(Bun.semver.satisfies(runtime.version, "^24.22.1")).toBe(true);
+}, 60_000);

@@ -23,6 +23,7 @@ Bringing AI coding agents into your team? [MaibornWolff](https://www.maibornwolf
 
 ### Prerequisites
 
+- Use Node.js 24.22.1 or a later Node.js 24 release on the host.
 - Install and start Docker, Podman, or Apple `container`.
   - On Windows, use Rancher Desktop with the Windows Subsystem for Linux 2 (WSL2) backend or use Podman.
   - On macOS or Linux, use Docker with [Colima](https://colima.run/), Rancher Desktop, or Podman.

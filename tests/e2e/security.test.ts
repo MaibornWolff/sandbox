@@ -36,7 +36,7 @@ function proxyRequest(url: string, ...args: string[]) {
 
 async function assertGuest(script: string): Promise<void> {
   const result = await sb.run(
-    "/usr/bin/node",
+    "/usr/local/bin/node",
     "--input-type=module",
     "-e",
     `

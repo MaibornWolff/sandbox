@@ -20,12 +20,14 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
   - When running inside Sandbox, run focused host E2E tests with `sandbox escape -- bun test <test-file>`.
   - When running inside Sandbox, run all host E2E tests with `sandbox escape -- bun test:e2e`.
 - You SHOULD pin CI toolchain dependencies to major versions unless stricter reproducibility is explicitly requested.
+- You SHOULD keep runtime and dependency versions open within compatible release lines, with minimum versions for required security fixes.
 - You MUST avoid duplicate branch and merge-request pipelines for the same commit.
 - You MUST run slow container E2E jobs only on `main` pushes, Renovate bot PRs, or explicit manual requests.
 
 ## Key Rules
 
 - You MUST run `bun check` after every task
+- You MUST follow repository migration notices and confirm the active repository before making product changes.
 - You MUST NOT use `any`, `@ts-ignore`, or `biome-ignore`.
 - You MUST reproduce bugs with a failing test first.
 - You MUST verify CLI bug fixes with the reported command when the required runtime is available.
@@ -38,7 +40,9 @@ Run individual commands ONLY for targeted debugging, ALWAYS prefer the full, opt
 - You MUST co-locate tests: `foo.ts` → `foo.test.ts`.
 - You MUST use `getRepoRootPath(process.cwd())` for project-relative paths, not `process.cwd()` directly.
 - You MUST run Docker-backed tests through `sandbox escape` when permitted and ask for manual testing only when host execution is unavailable.
+- You MUST select the configured container runtime explicitly when running host E2E tests.
 - You MUST bundle image setup package actions by package manager.
+- You SHOULD prefer Debian-managed packages for the base image and verify Debian security backports before replacing them with upstream binaries.
 - You MUST keep runtime-only code changes from triggering rebuilds of system, user, and project tool images.
 - You MUST keep startup paths performant and avoid redundant container-runtime operations.
 - You MUST expose Docker and Podman operations only through the `ContainerRuntime` interface.
@@ -69,6 +73,7 @@ Use these rules when talking to the user:
 - You MUST use specific error messages and preserve exit codes from child processes.
 - You SHOULD use an options object for >3 parameters or confusable types.
 - You MUST NOT keep backward compatibility for internal function signatures unless explicitly requested.
+- You SHOULD prefer removing unused dependencies or using maintained replacements over custom forks and broad rewrites to clear audit findings.
 - You SHOULD use extensible enum values for feature modes and reuse existing configuration merge strategies.
 - You SHOULD keep functions under 150 lines and cognitive complexity under 15.
 - You MUST include code size, readability, and shared-helper opportunities in code reviews.
@@ -112,6 +117,7 @@ Use these rules when talking to the user:
 - You MUST get explicit confirmation in the current chat before each push. Earlier push approval does not apply to later changes.
 - You MUST update `CHANGELOG.md` under `Unreleased` for user-visible changes and include migration steps for breaking changes.
 - You MUST keep released changelog sections unchanged except for factual corrections.
+- You SHOULD name relevant CVEs in security notes and scope exploitability assessments to reviewed behavior without guaranteeing that exploitation is impossible.
 - You MUST write changelog and release notes only for product users. Include user-facing capabilities, behavior, fixes, security, required migration steps, and relevant command or configuration examples. Exclude CI, tests, release processes, development workflows, and internal implementation.
 - You MUST follow `docs/RELEASING.md` for release work and must not publish without an explicit user request.
 

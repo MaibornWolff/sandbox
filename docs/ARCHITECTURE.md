@@ -149,6 +149,8 @@ Sandbox uses three image layers:
 
 A change rebuilds the affected layer and its child layers. This design keeps user and project customization separate.
 
+The base layer uses the official `node:24-trixie-slim` image. Container tools use its root-owned `/usr/local/bin/node`, separate from the host CLI's Node.js runtime and user-selected mise runtimes. The inherited `node` user is removed so Sandbox can match the host UID/GID. System packages remain Debian-managed. Pull an updated base image and rebuild affected images to apply Node.js updates.
+
 Runtime program files are separate from image layers. `modules/sandbox-runtime` owns their package validation, identity, host cache paths, atomic publication, preparation leases, and cleanup. The leases prevent cleanup from removing a runtime between cache preparation and container creation. `modules/sandbox-containers` combines the cached runtime bind mount with a tool image at startup. Configuration does not construct these resources.
 
 Runtime files are copied into the Sandbox data directory and mounted read-only. Runtime-only changes select a different container without rebuilding tool images. The container runtime does not need access to the host installation path.

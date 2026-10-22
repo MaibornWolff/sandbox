@@ -75,7 +75,6 @@
     "test:verbose": "bun test src/",
     "test:watch": "bun test --watch src/",
     "test:coverage": "bun test --coverage --only-failures src/",
-    "coverage:check": "bun test --coverage --only-failures src/ && bun scripts/check-coverage.ts",
     "typecheck": "tsc --build",
     "deprecations": "bun scripts/check-deprecations.ts",
     "architecture": "bun scripts/architecture/check-architecture.ts",

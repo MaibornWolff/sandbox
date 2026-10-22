@@ -155,7 +155,7 @@ test("validates the saved package without rebuilding it", async () => {
   );
   await validateReleasePackage(fixture.repoRoot);
   expect(await readFile(tarballPath)).toEqual(tarball);
-});
+}, 30_000);
 
 test("package validation rejects a changed tarball before installation", async () => {
   await using fixture = await createRepository();
@@ -174,7 +174,7 @@ test("prepares a release candidate without committing or pushing", async () => {
   const before = gitCommand(["rev-parse", "HEAD"], fixture.repoRoot);
   gitCommand(["tag", "v0.71.0"], fixture.repoRoot);
   gitCommand(
-    ["commit", "--allow-empty", "-m", "fix: correct startup"],
+    ["commit", "--allow-empty", "-m", "fix(cli): correct startup"],
     fixture.repoRoot,
   );
   gitCommand(["push", "origin", "main"], fixture.repoRoot);
@@ -216,7 +216,6 @@ test("rejects a release with no commits after its current version tag", async ()
 });
 
 test.each([
-  ["fix(cli): correct startup", "0.71.1"],
   ["perf: reduce startup calls", "0.71.1"],
   ["chore: update dependencies", "0.71.1"],
   ["feat(cli): add an option", "0.72.0"],

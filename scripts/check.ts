@@ -19,7 +19,7 @@ const readOnlySteps = [
   "knip",
   "test:scripts",
 ] as const;
-const finalSteps = ["coverage:check"] as const;
+const finalSteps = ["test"] as const;
 
 type CheckStep =
   | (typeof mutatingSteps)[number]

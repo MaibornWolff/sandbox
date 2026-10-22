@@ -22,6 +22,12 @@
 
 - Select a running container runtime when no runtime is configured. Previously, Sandbox selected the first installed runtime even when its daemon was stopped, for example Docker when only Podman was running. If no runtime is running, Sandbox still selects the first installed one.
 - Check the configured runtime in the environment check at the end of `sandbox init`. Previously, the check ignored the `runtime` setting in your user `config.toml` and could report Docker when you had set Podman.
+- Allow trusted projects to mount folders outside the project, such as a shared library in a sibling folder.
+  The project root is the default mount, not a limit on the host files you can choose to share.
+  Sandbox shows the resolved host paths, container destinations, and access modes for requested mounts before you approve the project configuration.
+  If a symbolic link changes where a mount points, Sandbox asks for approval again.
+  After updating, review and approve previously trusted projects once more.
+  See the [security model](docs/SECURITY.md#project-trust-and-external-mounts).
 
 ## [0.73.2] - 2026-11-03
 

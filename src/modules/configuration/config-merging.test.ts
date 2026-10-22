@@ -11,10 +11,30 @@ import {
 import { runWithConfigurationTestScope } from "./__test__/index.js";
 import type { Config } from "./config.js";
 import { applyTomlConfig as applyTomlConfigInScope } from "./config-merging.js";
+import { resolveExistingMounts } from "./mount-path-resolution.js";
 import type { TomlConfig } from "./toml-config-schema.js";
 
-const applyTomlConfig: typeof applyTomlConfigInScope = (...args) =>
-  runWithConfigurationTestScope(() => applyTomlConfigInScope(...args));
+function applyTomlConfig(
+  config: Config,
+  toml: TomlConfig,
+  source: "global" | "project",
+  projectRoot: string,
+  variables: Readonly<Record<string, string>>,
+): void {
+  runWithConfigurationTestScope(() =>
+    applyTomlConfigInScope({
+      config,
+      toml,
+      source,
+      mounts: resolveExistingMounts(
+        toml.mounts ?? [],
+        projectRoot,
+        source === "project",
+      ),
+      variables,
+    }),
+  );
+}
 
 function createBaseConfig(): Config {
   return createTestConfig();

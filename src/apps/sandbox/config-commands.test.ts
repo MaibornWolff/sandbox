@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { stripAnsi } from "#test/utils.js";
 import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
@@ -78,6 +80,166 @@ describe("config commands through the sandbox application", () => {
     expect(result.exitCode).toBe(0);
     expect(output).toContain(`${app.workspace.homeRoot}/.npmrc`);
     expect(result.stderr).toBe("");
+  });
+
+  test("shows and accepts external project mounts before saving trust", async () => {
+    await using app = await setupSandboxAppTest();
+    app.workspace.writeRootFile("[Team] shared/guide.txt", "reference");
+    app.workspace.writeHomeFile("demo-cache/data.txt", "cache");
+    app.workspace.writeHomeFile("global-only.txt", "global");
+    app.global.writeConfig('mounts = ["~/global-only.txt"]\n');
+    app.project.writeConfig(
+      'mounts = ["../[Team] shared/guide.txt:/reference", "~/demo-cache:/cache:rw"]\n',
+    );
+    const reference = fs.realpathSync(
+      path.join(app.workspace.root, "[Team] shared", "guide.txt"),
+    );
+    const cache = fs.realpathSync(
+      path.join(app.workspace.homeRoot, "demo-cache"),
+    );
+    const execution = app.cli.run("config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    const prompt = stripAnsi(app.tui.output());
+    expect(prompt).toContain(
+      `READ ONLY  ${JSON.stringify(reference)} → "/reference"`,
+    );
+    expect(prompt).toContain(`READ WRITE  ${JSON.stringify(cache)} → "/cache"`);
+    expect(prompt).not.toContain("global-only.txt");
+    expect(prompt).toContain(
+      "Trust also approves the other settings in .sandbox.",
+    );
+    expect(app.workspace.configFileExists("trusted-projects.json")).toBe(false);
+    await app.tui.user.type("y");
+    const accepted = await execution;
+    expect(accepted.exitCode).toBe(0);
+    expect(stripAnsi(accepted.stdout)).toContain(
+      `${reference} → /reference ro`,
+    );
+    expect(stripAnsi(accepted.stdout)).toContain(`${cache} → /cache rw`);
+    const next = await app.cli.run("config", "show");
+    expect(next.exitCode).toBe(0);
+    expect(stripAnsi(next.stderr)).not.toContain("Trust this project config?");
+  });
+
+  test("declines external project mounts without recording trust", async () => {
+    await using app = await setupSandboxAppTest();
+    app.workspace.writeRootFile("shared/guide.txt", "reference");
+    app.project.writeConfig('mounts = ["../shared/guide.txt:/reference"]\n');
+    const execution = app.cli.run("config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    await app.tui.user.enter();
+    const result = await execution;
+    expect(result.exitCode).toBe(1);
+    expect(app.workspace.configFileExists("trusted-projects.json")).toBe(false);
+  });
+
+  test("requires new approval when a project mount symlink changes target", async () => {
+    await using app = await setupSandboxAppTest();
+    app.workspace.writeRootFile("shared/first.txt", "first");
+    app.workspace.writeRootFile("shared/second.txt", "second");
+    const first = fs.realpathSync(
+      path.join(app.workspace.root, "shared", "first.txt"),
+    );
+    const second = fs.realpathSync(
+      path.join(app.workspace.root, "shared", "second.txt"),
+    );
+    const link = path.join(app.project.root, "reference");
+    fs.symlinkSync(first, link);
+    app.project.writeConfig('mounts = ["./reference:/reference"]\n');
+    expect((await app.cli.run("--trust", "config", "show")).exitCode).toBe(0);
+    fs.unlinkSync(link);
+    fs.symlinkSync(second, link);
+    const execution = app.cli.run("config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    const prompt = stripAnsi(app.tui.output());
+    expect(prompt).toContain("Project config or mount access has changed");
+    expect(prompt).toContain(
+      `READ ONLY  ${JSON.stringify(second)} → "/reference"`,
+    );
+    await app.tui.user.type("y");
+    const result = await execution;
+    expect(result.exitCode).toBe(0);
+    expect(stripAnsi(result.stdout)).toContain(`${second} → /reference ro`);
+  });
+
+  test("escapes untrusted mount diagnostics before approval, including verbose output", async () => {
+    await using app = await setupSandboxAppTest();
+    const control = "\u001b]52;c;ZGVtbw==\u0007";
+    app.project.writeConfig(
+      `mounts = [${JSON.stringify(`/fictional/missing/${control}:/reference`)}]\n`,
+    );
+    const execution = app.cli.run("--verbose", "config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    const output = app.tui.output();
+    expect(output).not.toContain(control);
+    expect(output).toContain("\\u001b]52;c;ZGVtbw==\\u0007");
+    await app.tui.user.type("n");
+    const result = await execution;
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).not.toContain(control);
+  });
+
+  test("rejects a reviewed mount source replaced while approval is pending", async () => {
+    await using app = await setupSandboxAppTest();
+    const reference = path.join(app.project.root, "reference");
+    fs.mkdirSync(reference);
+    app.workspace.writeRootFile("private/secret.txt", "private data");
+    const privateDirectory = fs.realpathSync(
+      path.join(app.workspace.root, "private"),
+    );
+    app.project.writeConfig('mounts = ["./reference:/reference:rw"]\n');
+    const execution = app.cli.run("config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    fs.rmdirSync(reference);
+    fs.symlinkSync(privateDirectory, reference);
+    await app.tui.user.type("y");
+    const result = await execution;
+    expect(result.exitCode).toBe(1);
+    expect(stripAnsi(result.stderr)).toContain(
+      "Project configuration or mount access changed during approval. Run the command again to review it.",
+    );
+    expect(app.workspace.configFileExists("trusted-projects.json")).toBe(false);
+  });
+
+  test("shows the full current mount list when project configuration changes", async () => {
+    await using app = await setupSandboxAppTest();
+    app.workspace.writeRootFile("shared/guide.txt", "reference");
+    app.project.writeConfig('mounts = ["../shared/guide.txt:/reference"]\n');
+    expect((await app.cli.run("--trust", "config", "show")).exitCode).toBe(0);
+    app.project.writeConfig('mounts = ["../shared/guide.txt:/reference:rw"]\n');
+    const source = fs.realpathSync(
+      path.join(app.workspace.root, "shared", "guide.txt"),
+    );
+    const execution = app.cli.run("config", "show");
+    await app.tui.waitForText("Trust this project config?");
+    const prompt = stripAnsi(app.tui.output());
+    expect(prompt).toContain(
+      `READ WRITE  ${JSON.stringify(source)} → "/reference"`,
+    );
+    expect(prompt).not.toContain("NEW ");
+    expect(prompt).not.toContain("CHANGED ");
+    await app.tui.user.type("n");
+    expect((await execution).exitCode).toBe(1);
+  });
+
+  test("rejects newly available project mount access without non-interactive approval", async () => {
+    await using app = await setupSandboxAppTest({ interactive: false });
+    app.project.writeConfig('mounts = ["../shared/guide.txt:/reference"]\n');
+    const initial = await app.cli.run("--trust", "config", "show");
+    expect(initial.exitCode).toBe(0);
+    expect(stripAnsi(initial.stderr)).toContain(
+      "Skipping mount because source path does not exist",
+    );
+    app.workspace.writeRootFile("shared/guide.txt", "reference");
+    const rejected = await app.cli.run("config", "show");
+    expect(rejected.exitCode).toBe(1);
+    expect(stripAnsi(rejected.stderr)).toContain("Untrusted project config");
+    const accepted = await app.cli.run("--trust", "config", "show");
+    expect(accepted.exitCode).toBe(0);
+    expect(stripAnsi(accepted.stdout)).toContain(" → /reference ro");
+    expect(stripAnsi(accepted.stderr)).not.toContain(
+      "Trust this project config?",
+    );
   });
 
   test("accepts an untrusted project after confirmation", async () => {

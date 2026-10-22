@@ -35,7 +35,6 @@ export {
   setPathModifiedTime,
   tryCreateDirectory,
   tryCreateHardLink,
-  validateSymlinkWithin,
   writeTextFile,
 } from "./file.js";
 export { globPaths } from "./glob.js";

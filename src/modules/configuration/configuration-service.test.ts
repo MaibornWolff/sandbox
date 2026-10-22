@@ -219,7 +219,10 @@ pattern = ["docker", ["compose", "run"]]
       ["bun", "run", "test:e2e"],
       ["tool", { repeat: ["one", "two"], min: 1, max: 2 }],
     ]);
-    fs.appendFileSync(configPath, "readonly = true\n");
+    fs.writeFileSync(
+      configPath,
+      `readonly = true\n${fs.readFileSync(configPath, "utf8")}`,
+    );
     await expect(
       withConfiguration(root, (service) => service.load({}), {}),
     ).rejects.toThrow("Project config is not trusted.");

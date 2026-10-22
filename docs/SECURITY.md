@@ -19,6 +19,23 @@ The [network allowlist](NETWORK-FIREWALL.md) restricts outbound destinations.
 These controls reduce the reach of mistakes and prompt injection.
 They do not detect malicious instructions or stop destructive edits to writable files.
 
+## Project trust and external mounts
+
+The project root defines the default mount, not the limit of approved host filesystem access.
+A trusted project can request additional mounts, including parent folders, sibling folders, and symbolic links to paths outside the project.
+This lets a project use shared code or data without copying it into the repository.
+
+The trust decision covers the complete project configuration.
+Before interactive approval, Sandbox shows the resolved host sources, container destinations, and access modes for the requested project mounts.
+Changes to the configuration or to resolved project mount access require approval again.
+A read-only mount still gives the agent access to the contents.
+See [file mounts](MOUNTS.md#expose-another-host-path) for how to review and grant that access.
+
+In a security review, distinguish approved access from access beyond the approved scope.
+An external mount requested by a trusted project is not a vulnerability on its own.
+Treat access without the required approval, access to a different target than the one approved, or write access through a read-only mount as potential vulnerabilities.
+Preserve approved external mounts when fixing an approval or isolation failure.
+
 ## What remains exposed
 
 - The agent can read secrets in project files, mounts, settings, persisted credentials, and forwarded environment variables.

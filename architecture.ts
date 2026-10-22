@@ -282,7 +282,7 @@ export const architecture = defineArchitecture({
     },
     websocket: { dependencies: ["dependency-injection"] },
     clock: { dependencies: ["dependency-injection"] },
-    filesystem: { dependencies: ["environment", "logging", "errors", "text"] },
+    filesystem: { dependencies: ["environment", "logging", "errors"] },
     environment: {
       dependencies: ["logging", "dependency-injection"],
     },

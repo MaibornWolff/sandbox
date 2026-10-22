@@ -3,7 +3,6 @@ import { parseEnvList } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import type { Config } from "./config.js";
 import { parseAllowedNetwork, parsePort } from "./config-value-parsing.js";
-import { resolveExistingMounts } from "./mount-path-resolution.js";
 import {
   normalizePersistPath,
   normalizeSettingsEntry,
@@ -27,22 +26,15 @@ function applySessionWrapperOverride(
   config.session.commandWrapper = [...wrapper];
 }
 
-/**
- * Apply TOML configuration to a Config object according to merge rules.
- *
- * @param config - Config object to mutate
- * @param toml - TOML configuration to apply
- * @param source - Source of the configuration (global or project)
- * @param projectDir - Project directory for resolving relative paths
- */
-export async function applyTomlConfig(
-  config: Config,
-  toml: TomlConfig,
-  source: "global" | "project",
-  projectDir: string,
-  variables: Readonly<Record<string, string>>,
-): Promise<void> {
-  const isProjectConfig = source === "project";
+/** Project mounts must be resolved and approved before merging. */
+export function applyTomlConfig(options: {
+  readonly config: Config;
+  readonly toml: TomlConfig;
+  readonly source: "global" | "project";
+  readonly mounts: readonly string[];
+  readonly variables: Readonly<Record<string, string>>;
+}): void {
+  const { config, toml, source, mounts, variables } = options;
   getLogger().debug(
     `${source === "global" ? "Global" : "Project"} config contributions:`,
   );
@@ -61,17 +53,10 @@ export async function applyTomlConfig(
   }
 
   // Mounts (accumulate)
-  if (toml.mounts !== undefined) {
-    const mounts = resolveExistingMounts(
-      toml.mounts,
-      projectDir,
-      isProjectConfig,
-    );
-    config.mounts.push(...mounts);
-    getLogger().debug(`  Mounts: ${mounts.length} added`);
-  }
+  config.mounts.push(...mounts);
+  getLogger().debug(`  Mounts: ${mounts.length} added`);
 
-  applySessionWrapperOverride(config, toml, isProjectConfig);
+  applySessionWrapperOverride(config, toml, source === "project");
 
   // Environment variables (accumulate)
   if (toml.env !== undefined) {

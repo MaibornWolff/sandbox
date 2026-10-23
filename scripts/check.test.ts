@@ -8,16 +8,21 @@ const success = (): CheckCommandResult => ({
   stderr: "",
 });
 
-function thresholdViolation(): CheckCommandResult {
-  return {
-    exitCode: 1,
-    stdout: "Coverage threshold not met",
-    stderr: "",
-  };
+async function successfulRunSteps(): Promise<string[]> {
+  const started: string[] = [];
+  await runChecks({
+    verbose: false,
+    log: () => undefined,
+    runStep: async (step) => {
+      started.push(step);
+      return success();
+    },
+  });
+  return started;
 }
 
 describe("check runner", () => {
-  test("runs mutating gates before parallel read-only gates and coverage last", async () => {
+  test("runs mutating gates before parallel read-only gates and tests last", async () => {
     const started: string[] = [];
     let activeReadOnlySteps = 0;
     let maximumActiveReadOnlySteps = 0;
@@ -28,7 +33,7 @@ describe("check runner", () => {
       runStep: async (step) => {
         started.push(step);
         if (step === "lint" || step === "build") return success();
-        if (step === "coverage:check") {
+        if (step === "test") {
           expect(activeReadOnlySteps).toBe(0);
           return success();
         }
@@ -45,7 +50,7 @@ describe("check runner", () => {
 
     expect(result.exitCode).toBe(0);
     expect(started.slice(0, 2)).toEqual(["lint", "build"]);
-    expect(started.at(-1)).toBe("coverage:check");
+    expect(started.at(-1)).toBe("test");
     expect(maximumActiveReadOnlySteps).toBeGreaterThan(1);
   });
 
@@ -57,7 +62,7 @@ describe("check runner", () => {
       log: () => undefined,
       runStep: async (step) => {
         started.push(step);
-        return step === "lint" || step === "coverage:check"
+        return step === "lint" || step === "test"
           ? { ...success(), exitCode: 1 }
           : success();
       },
@@ -66,19 +71,9 @@ describe("check runner", () => {
     expect(result.exitCode).toBe(1);
     expect(result.failures.map((failure) => failure.step)).toEqual([
       "lint",
-      "coverage:check",
+      "test",
     ]);
-    expect(started).toEqual([
-      "lint",
-      "build",
-      "typecheck",
-      "deprecations",
-      "architecture",
-      "cpd",
-      "knip",
-      "test:scripts",
-      "coverage:check",
-    ]);
+    expect(started).toEqual(await successfulRunSteps());
   });
 
   test("collects thrown runner failures and runs every remaining phase", async () => {
@@ -108,18 +103,7 @@ describe("check runner", () => {
         output: "Step runner failed: build runner rejected",
       },
     ]);
-    expect(started).toEqual([
-      "lint",
-      "build",
-      "typecheck",
-      "deprecations",
-      "architecture",
-      "cpd",
-      "knip",
-      "test:scripts",
-      "coverage:check",
-    ]);
-    expect(started.at(-1)).toBe("coverage:check");
+    expect(started).toEqual(await successfulRunSteps());
   });
 
   test("fails when deprecated APIs are reported", async () => {
@@ -139,20 +123,6 @@ describe("check runner", () => {
     expect(result.exitCode).toBe(1);
     expect(result.failures).toMatchObject([
       { step: "deprecations", output: "src/example.ts:3:1: Deprecated API" },
-    ]);
-  });
-
-  test("fails through the coverage gate path", async () => {
-    const result = await runChecks({
-      verbose: false,
-      log: () => undefined,
-      runStep: async (step) =>
-        step === "coverage:check" ? thresholdViolation() : success(),
-    });
-
-    expect(result.exitCode).toBe(1);
-    expect(result.failures.map((failure) => failure.step)).toEqual([
-      "coverage:check",
     ]);
   });
 });

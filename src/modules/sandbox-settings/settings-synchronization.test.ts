@@ -64,6 +64,8 @@ describe("settings manifest parsing", () => {
 describe("syncNewContainerSettings", () => {
   test("copies real literal, directory, recursive, exclusion, and symlink matches", async () => {
     const root = createTestDir("settings-sync");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
     const fixture = setup(
       root,
       [
@@ -75,68 +77,64 @@ describe("syncNewContainerSettings", () => {
       ],
       true,
     );
-    try {
-      fs.mkdirSync(path.join(fixture.homeDirectory, "directory"), {
-        recursive: true,
-      });
-      fs.mkdirSync(path.join(fixture.homeDirectory, "glob"), {
-        recursive: true,
-      });
-      fs.mkdirSync(fixture.settingsDirectory, { recursive: true });
-      fs.writeFileSync(
-        path.join(fixture.homeDirectory, "literal.json"),
-        "literal",
-      );
-      fs.writeFileSync(
-        path.join(fixture.homeDirectory, "directory", "nested"),
-        "nested",
-      );
-      fs.writeFileSync(
-        path.join(fixture.homeDirectory, "glob", "keep.json"),
-        "keep",
-      );
-      fs.writeFileSync(
-        path.join(fixture.homeDirectory, "glob", "excluded.json"),
-        "excluded",
-      );
-      const externalFile = path.join(root, "external.json");
-      fs.writeFileSync(externalFile, "linked");
-      fs.symlinkSync(
-        externalFile,
-        path.join(fixture.homeDirectory, "linked.json"),
-      );
+    fs.mkdirSync(path.join(fixture.homeDirectory, "directory"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(fixture.homeDirectory, "glob"), {
+      recursive: true,
+    });
+    fs.mkdirSync(fixture.settingsDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(fixture.homeDirectory, "literal.json"),
+      "literal",
+    );
+    fs.writeFileSync(
+      path.join(fixture.homeDirectory, "directory", "nested"),
+      "nested",
+    );
+    fs.writeFileSync(
+      path.join(fixture.homeDirectory, "glob", "keep.json"),
+      "keep",
+    );
+    fs.writeFileSync(
+      path.join(fixture.homeDirectory, "glob", "excluded.json"),
+      "excluded",
+    );
+    const externalFile = path.join(root, "external.json");
+    fs.writeFileSync(externalFile, "linked");
+    fs.symlinkSync(
+      externalFile,
+      path.join(fixture.homeDirectory, "linked.json"),
+    );
 
-      expect(await fixture.run()).toEqual([
-        "literal.json",
-        "directory",
-        "linked.json",
-        "glob/keep.json",
-      ]);
-      expect(
-        fs.readFileSync(
-          path.join(fixture.settingsDirectory, "literal.json"),
-          "utf8",
-        ),
-      ).toBe("literal");
-      expect(
-        fs.existsSync(
-          path.join(fixture.settingsDirectory, "glob", "excluded.json"),
-        ),
-      ).toBe(false);
-      expect(
-        fs
-          .lstatSync(path.join(fixture.settingsDirectory, "linked.json"))
-          .isFile(),
-      ).toBe(true);
-      expect(fixture.terminal.stdout()).toContain(
-        "→ Synced ~/literal.json to host\n",
-      );
-      expect(fixture.terminal.stderr()).toContain(
-        "[settings] synced: literal.json\n",
-      );
-    } finally {
-      cleanupTestDir(root);
-    }
+    expect((await fixture.run()).toSorted()).toEqual([
+      "directory",
+      "glob/keep.json",
+      "linked.json",
+      "literal.json",
+    ]);
+    expect(
+      fs.readFileSync(
+        path.join(fixture.settingsDirectory, "literal.json"),
+        "utf8",
+      ),
+    ).toBe("literal");
+    expect(
+      fs.existsSync(
+        path.join(fixture.settingsDirectory, "glob", "excluded.json"),
+      ),
+    ).toBe(false);
+    expect(
+      fs
+        .lstatSync(path.join(fixture.settingsDirectory, "linked.json"))
+        .isFile(),
+    ).toBe(true);
+    expect(fixture.terminal.stdout()).toContain(
+      "→ Synced ~/literal.json to host\n",
+    );
+    expect(fixture.terminal.stderr()).toContain(
+      "[settings] synced: literal.json\n",
+    );
   });
 
   test("syncs new home-prefixed matches without overwriting seeded settings", async () => {

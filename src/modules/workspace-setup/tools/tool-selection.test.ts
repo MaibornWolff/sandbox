@@ -29,11 +29,6 @@ describe("getToolsById", () => {
 });
 
 describe("preSelectedIds filtering", () => {
-  test("valid preSelectedId from registry is kept", () => {
-    const result = filterPreSelectedIds(["node"], TOOL_REGISTRY, new Set());
-    expect(result).toContain("node");
-  });
-
   test("invalid preSelectedId not in registry is filtered out", () => {
     const result = filterPreSelectedIds(
       ["node", "nonexistent-tool"],

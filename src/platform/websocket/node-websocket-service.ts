@@ -343,7 +343,8 @@ async function listen(
 async function startServer(
   options: StartWebSocketServerOptions,
 ): Promise<WebSocketServer> {
-  const { server: httpServer, certificate } = await createListener();
+  const { server: httpServer, certificate } =
+    await createListener(SOCKET_TIMEOUT_MS);
   const maxConnections = options.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
   httpServer.headersTimeout = SOCKET_TIMEOUT_MS;
   httpServer.requestTimeout = SOCKET_TIMEOUT_MS;
@@ -352,6 +353,8 @@ async function startServer(
   httpServer.on("connection", (socket) => {
     sockets.add(socket);
     socket.once("close", () => sockets.delete(socket));
+  });
+  httpServer.on("secureConnection", (socket) => {
     socket.setTimeout(SOCKET_TIMEOUT_MS, () => socket.destroy());
   });
   const nodeServer = new NodeWebSocketServer({

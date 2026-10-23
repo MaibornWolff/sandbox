@@ -39,6 +39,7 @@ export {
   writeTextFile,
   writeTextFileAtomically,
 } from "./file.js";
+export { globPaths } from "./glob.js";
 export {
   getPackageRootPath,
   readPackageVersion,

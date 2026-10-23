@@ -58,7 +58,7 @@ async function prepareNodeWrapper(
       : "/opt/sandbox-cli/dist/apps/sandbox/main.js";
   const wrapper = (await readFile(sourcePath, "utf8"))
     .replace(imageEntry, entryPath)
-    .replace("/usr/bin/node", nodePath);
+    .replace("/usr/local/bin/node", nodePath);
 
   await Promise.all([
     writeFile(wrapperPath, wrapper),

@@ -1,8 +1,11 @@
 import path from "node:path";
-import fg from "fast-glob";
 import { hasGlobChars } from "#modules/configuration/index.js";
 import type { Mount } from "#modules/storage/index.js";
-import { exists, resolveRealPath } from "#platform/filesystem/index.js";
+import {
+  exists,
+  globPaths,
+  resolveRealPath,
+} from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { isPathInside } from "#shared/text/index.js";
@@ -63,7 +66,7 @@ async function expandPattern(
 
   if (hasGlobChars(cleanPattern)) {
     try {
-      return await fg.glob(cleanPattern, {
+      return await globPaths(cleanPattern, {
         cwd: settingsDir,
         dot: true,
         onlyFiles: false,

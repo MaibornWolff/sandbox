@@ -30,11 +30,14 @@ Make technical documents easy to read.
 - Put conditions before the required action.
 - Put commands and file paths in code formatting.
 - Keep examples close to the instruction that they explain.
+- Identify the target file or environment for each configuration example and explain how to preserve existing entries.
+- Order feature guides by reader task, with core workflows before optional integrations.
 - Explicitly call a skill a "skill," such as "Run the `commit` skill."
 - Do not repeat guidance that has one authoritative location.
 - Keep instructions that apply to every task in the main document.
 - Move conditional guidance to a referenced document or skill.
 - Make each reference state when the reader must follow it.
+- Link relevant technologies to their official documentation and factual claims to primary sources unless links are explicitly discouraged.
 - Do not copy commands, paths, or configuration that are easy to find in the repository.
 - Document conventions, reasons, and hazards that the repository does not express.
 - Focus architecture documentation on high-level architecture and system design.

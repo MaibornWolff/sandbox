@@ -4,6 +4,7 @@
 
 ### Security
 
+- Preserve existing file permissions when updating configuration and state files. New files are readable and writable only by their owner.
 - Keep environment values for Docker and Podman containers out of the runtime command line. Sandbox now passes only variable names as `-e NAME` and sends the values through the process environment, so API keys and the host bridge token no longer appear in `ps` output or `/proc/<pid>/cmdline`.
 - Reject invalid host names in `sandbox network allow`. Names from sandbox DNS and proxy logs can no longer inject extra entries or break `config.toml`.
 - Block proxy requests to allowed domains that resolve to loopback, link-local, or private network addresses. Host access names and explicit IP entries in `allow_network`, for example `"192.168.1.5:443"`, stay allowed.

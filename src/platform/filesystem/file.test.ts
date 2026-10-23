@@ -244,6 +244,32 @@ describe("ensurePath", () => {
 });
 
 describe("writeTextFileAtomically", () => {
+  it.each([0o600, 0o640])("preserves existing file permissions: %o", (mode) => {
+    const target = path.join(testDir, "config.toml");
+    fs.writeFileSync(target, "before", { mode });
+    fs.chmodSync(target, mode);
+    const originalMode = fs.statSync(target).mode & 0o777;
+
+    writeTextFileAtomically(target, "after");
+
+    expect(fs.readFileSync(target, "utf8")).toBe("after");
+    expect(fs.statSync(target).mode & 0o777).toBe(originalMode);
+    expect(fs.readdirSync(testDir)).toEqual(["config.toml"]);
+  });
+
+  it("creates new files with owner-only permissions", () => {
+    const reference = path.join(testDir, "reference");
+    const target = path.join(testDir, "state.json");
+    fs.writeFileSync(reference, "", { mode: 0o600 });
+
+    writeTextFileAtomically(target, "{}");
+
+    expect(fs.readFileSync(target, "utf8")).toBe("{}");
+    expect(fs.statSync(target).mode & 0o777).toBe(
+      fs.statSync(reference).mode & 0o777,
+    );
+  });
+
   it("removes the temporary file when the rename fails", () => {
     const target = path.join(testDir, "target");
     fs.mkdirSync(path.join(target, "child"), { recursive: true });

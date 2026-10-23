@@ -61,10 +61,10 @@ describe.skipIf(process.env.SANDBOX_E2E_EXTENDED !== "1")(
     });
 
     test("installs Xdebug with mode off until XDEBUG_MODE enables it", async () => {
-      const script = "echo ini_get('xdebug.mode');";
+      const script = "echo json_encode(xdebug_info('mode'));";
       const defaultMode = await sb.run("php", "-r", script);
       assertSandboxSuccess(defaultMode);
-      expect(defaultMode.stdout.trim()).toBe("off");
+      expect(JSON.parse(defaultMode.stdout)).toEqual([]);
 
       const enabled = await sb.run(
         "sh",
@@ -72,7 +72,7 @@ describe.skipIf(process.env.SANDBOX_E2E_EXTENDED !== "1")(
         `XDEBUG_MODE=debug php -r "${script}"`,
       );
       assertSandboxSuccess(enabled);
-      expect(enabled.stdout.trim()).toBe("debug");
+      expect(JSON.parse(enabled.stdout)).toEqual(["debug"]);
     });
 
     test("installs executable Composer", async () => {

@@ -103,7 +103,7 @@ describe("Docker container operations", () => {
       "--label",
       "project=alpha",
       "-e",
-      "SANDBOX=1",
+      "SANDBOX",
       "-v",
       "C:\\project:/workspace:ro",
       "-p",
@@ -128,6 +128,7 @@ describe("Docker container operations", () => {
     });
     await operations.startDetached(createSpec());
     expect(commands.events()[0]?.args).toEqual(expected);
+    expect(commands.events()[0]?.options?.env).toEqual({ SANDBOX: "1" });
   });
 
   test("keeps host ownership for Podman bind mounts and starts the entrypoint as root", async () => {
@@ -239,6 +240,26 @@ describe("Docker container operations", () => {
     expect((await operations.inspect("container-1"))?.state).toBe("stopping");
   });
 
+  test.each([
+    ["docker", "Error: No such object: missing"],
+    ["podman", 'Error: no such object: "missing"'],
+  ] as const)(
+    "returns null when %s inspect reports a missing object",
+    async (binaryName, stderr) => {
+      const commands = createStatefulRuntimeCommandExecutor();
+      commands.givenFailure(
+        { command: binaryName, args: ["inspect", "missing"] },
+        new ExecError(stderr, 1, { stderr }),
+      );
+      const operations = createDockerContainerOperations({
+        binaryName,
+        runtime: binaryName,
+        exec: commands.executor,
+      });
+      await expect(operations.inspect("missing")).resolves.toBeNull();
+    },
+  );
+
   test("returns null for absence and throws for malformed output", async () => {
     const missing = createStatefulRuntimeCommandExecutor();
     missing.givenFailure(
@@ -265,6 +286,23 @@ describe("Docker container operations", () => {
     await expect(malformedOperations.inspect("broken")).rejects.toThrow(
       "invalid JSON",
     );
+  });
+
+  test("passes exec environment values through the process environment", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    const args = ["exec", "-e", "TOKEN", "container-1", "env"];
+    commands.givenOutput({ command: "docker", args }, "TOKEN=secret");
+    const operations = createDockerContainerOperations({
+      binaryName: "docker",
+      runtime: "docker",
+      exec: commands.executor,
+    });
+    await operations.exec("container-1", {
+      command: ["env"],
+      environment: { TOKEN: "secret" },
+    });
+    expect(commands.events()[0]?.args).toEqual(args);
+    expect(commands.events()[0]?.options?.env).toEqual({ TOKEN: "secret" });
   });
 
   test("returns command output and nonzero exit codes", async () => {

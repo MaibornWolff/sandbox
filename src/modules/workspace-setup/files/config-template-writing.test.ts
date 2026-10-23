@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parse as parseToml } from "smol-toml";
 import { injectNamedVolumePersistPaths } from "./config-template-writing.js";
 
 describe("injectNamedVolumePersistPaths", () => {
@@ -45,5 +46,20 @@ describe("injectNamedVolumePersistPaths", () => {
     ]);
     expect(result).toContain('use_named_volume = "nix"');
     expect(result).toContain('use_named_volume = "mydata"');
+  });
+
+  test("appends persist_paths before the first table so it stays top-level", () => {
+    const content = '[[allow_host_commands]]\npattern = ["git"]\n';
+    const result = injectNamedVolumePersistPaths(content, [
+      { path: "~/.cache", use_named_volume: "cache" },
+    ]);
+    const parsed = parseToml(result) as {
+      persist_paths: { path: string; use_named_volume?: string }[];
+      allow_host_commands: { pattern: string[] }[];
+    };
+    expect(parsed.persist_paths).toEqual([
+      { path: "~/.cache", use_named_volume: "cache" },
+    ]);
+    expect(parsed.allow_host_commands).toEqual([{ pattern: ["git"] }]);
   });
 });

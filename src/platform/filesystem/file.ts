@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import * as fs from "node:fs";
 import * as fsPromises from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +19,28 @@ export function readTextFile(filePath: string): string {
 
 export function writeTextFile(filePath: string, content: string): void {
   fs.writeFileSync(filePath, content);
+}
+
+/**
+ * Write a file through a sibling temporary file and rename it into place, so
+ * readers never observe a truncated or half-written file.
+ */
+export function writeTextFileAtomically(
+  filePath: string,
+  content: string,
+): void {
+  const temporaryPath = `${filePath}.${randomBytes(8).toString("hex")}.tmp`;
+  try {
+    const mode = pathExists(filePath)
+      ? fs.statSync(filePath).mode & 0o777
+      : 0o600;
+    fs.writeFileSync(temporaryPath, content, { mode: 0o600, flag: "wx" });
+    fs.chmodSync(temporaryPath, mode);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    fs.rmSync(temporaryPath, { force: true });
+    throw error;
+  }
 }
 
 export function readJsonRecord(filePath: string): Record<string, unknown> {

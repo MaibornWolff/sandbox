@@ -11,6 +11,7 @@ import {
   getExternalWorktreePath,
   getGitRootPath,
   getRepoRootPath,
+  resolveRepositoryContext,
 } from "./git.js";
 
 describe("Git facade", () => {
@@ -29,6 +30,32 @@ describe("Git facade", () => {
   function scoped<T>(operation: () => T): T {
     git.prepare();
     return processes.run(operation);
+  }
+
+  function givenRoots(options: {
+    readonly queriedPath: string;
+    readonly worktreeRoot: string;
+    readonly gitCommonDir: string;
+  }): void {
+    processes
+      .expectStart({
+        match: {
+          command: "git",
+          args: [
+            "-C",
+            options.queriedPath,
+            "rev-parse",
+            "--show-toplevel",
+            "--path-format=absolute",
+            "--git-common-dir",
+          ],
+        },
+      })
+      .resolveResult({
+        exitCode: 0,
+        stdout: `${options.worktreeRoot}\n${options.gitCommonDir}\n`,
+        stderr: "",
+      });
   }
 
   test("constructs Git commands and resolves a repository root", async () => {
@@ -78,6 +105,49 @@ describe("Git facade", () => {
     expect(await scoped(() => getRepoRootPath(repositoryRoot))).toBe(
       repositoryRoot,
     );
+  });
+
+  test("uses the submodule worktree as main root instead of the parent .git/modules directory", async () => {
+    const repositoryRoot = path.join(root, "repository");
+    const submodule = path.join(repositoryRoot, "libs", "sub");
+    fs.mkdirSync(submodule, { recursive: true });
+    givenRoots({
+      queriedPath: submodule,
+      worktreeRoot: submodule,
+      gitCommonDir: path.join(repositoryRoot, ".git", "modules", "sub"),
+    });
+
+    expect(await scoped(() => getGitRootPath(submodule))).toBe(submodule);
+  });
+
+  test("uses the linked worktree as main root for a bare repository", async () => {
+    const bareRepository = path.join(root, "repo.git");
+    const worktree = path.join(root, "feature");
+    fs.mkdirSync(worktree, { recursive: true });
+    givenRoots({
+      queriedPath: worktree,
+      worktreeRoot: worktree,
+      gitCommonDir: bareRepository,
+    });
+
+    expect(await scoped(() => getRepoRootPath(worktree))).toBe(worktree);
+    expect(await scoped(() => getExternalWorktreePath(worktree))).toBeNull();
+  });
+
+  test("reports a Git failure and falls back to the queried directory", async () => {
+    const projectPath = path.join(root, "owned-by-root");
+    fs.mkdirSync(projectPath);
+    git.givenFailure({
+      projectPath,
+      operation: "roots",
+      exitCode: 128,
+      stderr: "fatal: detected dubious ownership in repository",
+    });
+
+    const context = await scoped(() => resolveRepositoryContext(projectPath));
+    expect(context.mainRepoRoot).toBeNull();
+    expect(context.projectRoot).toBe(projectPath);
+    expect(context.lookupFailure).toContain("dubious ownership");
   });
 
   test("returns null and preserves failed process observations outside Git", async () => {

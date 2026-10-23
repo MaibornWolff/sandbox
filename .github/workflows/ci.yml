@@ -46,13 +46,6 @@ jobs:
         run: bun run test:shell
       - name: Check for generated changes
         run: git diff --exit-code
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: coverage/lcov.info
-          if-no-files-found: warn
 
   security:
     name: Dependency security
@@ -156,7 +149,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
       - name: Require the applicable checks
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           CHECK_RESULT: ${{ needs.check.result }}
           SECURITY_RESULT: ${{ needs.security.result }}

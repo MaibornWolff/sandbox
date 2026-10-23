@@ -1,6 +1,6 @@
 ---
 name: test-coverage-fix
-description: Repair meaningful test coverage gaps. Use when coverage checks fail, thresholds regress, or the user asks to inspect or improve test coverage. Do not use to add tests solely for a percentage target.
+description: Find missing behavioral tests. Use when the user asks to inspect or improve test coverage, not to meet a percentage target.
 ---
 
 # Test Coverage Fix
@@ -9,7 +9,7 @@ Improve coverage by finding missing behavior and testing it at the narrowest rea
 
 ## Workflow
 
-1. Run `bun run coverage:check` and read its uncovered-file diagnostics.
+1. Run `bun run test:coverage` and inspect `coverage/lcov.info` for untested behavior.
 2. Inspect each relevant uncovered branch or function and its callers.
 3. Name the missing user, contract, failure, or edge behavior before writing a test.
 4. Investigate uncovered dead code for a missing caller or unfinished feature before deleting it.
@@ -19,7 +19,7 @@ Improve coverage by finding missing behavior and testing it at the narrowest rea
    - Pure test for parsing, validation, sorting, formatting, path calculation, or argument construction.
 6. Add or update the narrowest meaningful behavior test, then implement the required fix.
 7. Repeat only for distinct behavior gaps.
-8. Run `bun run coverage:check` and then `bun check`.
+8. Run the focused tests and then `bun check`.
 
 ## Rules
 
@@ -33,8 +33,8 @@ Improve coverage by finding missing behavior and testing it at the narrowest rea
 - Do not invent impossible states or add test-only production branches.
 - Do not replace product commands, parsers, configuration, orchestration, or use cases with mocks.
 - Do not retain dead code solely to preserve coverage. Trace history and callers before removal.
-- Do not lower checked-in thresholds unless the user approves a documented baseline correction.
+- Use coverage reports as diagnostics, not percentage targets or merge gates.
 
 ## Completion Report
 
-Report the missing behavior covered, the test level chosen, the files changed, the exact verification commands, and the resulting function and line coverage.
+Report the missing behavior covered, the test level chosen, the files changed, and the verification results.

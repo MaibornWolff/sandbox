@@ -1,4 +1,4 @@
-import fg from "fast-glob";
+import { globPaths } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 
 import { getErrorMessage } from "#shared/errors/index.js";
@@ -7,9 +7,8 @@ import { getErrorMessage } from "#shared/errors/index.js";
  * Directories to not recurse INTO (but can still match them).
  * These are common heavy directories that would slow down glob traversal.
  *
- * Uses `**\/X\/**\/*` pattern (not `**\/X\/**`) because fast-glob's ignore
- * applies to results too, not just traversal. The `\/*` suffix ensures
- * we only ignore contents, not the directories themselves.
+ * Ignore directory contents, not the directories themselves, so heavy
+ * directories can still be selected for persistence.
  * @testonly
  */
 export const GLOB_IGNORE_PATTERNS = [
@@ -41,7 +40,6 @@ export async function expandGlob(opts: ExpandGlobOptions): Promise<string[]> {
   const { cwd, pattern } = opts;
   const logger = getLogger();
 
-  // Convert ./pattern to pattern for fast-glob (expects relative without ./)
   const globPattern = pattern.startsWith("./") ? pattern.slice(2) : pattern;
 
   // Handle edge case: empty pattern after stripping ./
@@ -54,7 +52,7 @@ export async function expandGlob(opts: ExpandGlobOptions): Promise<string[]> {
 
   let rawMatches: string[];
   try {
-    rawMatches = await fg.glob(globPattern, {
+    rawMatches = await globPaths(globPattern, {
       cwd,
       onlyDirectories: true,
       dot: true,

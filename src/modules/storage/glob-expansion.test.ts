@@ -64,6 +64,34 @@ describe("expandGlob", () => {
     expect(result).not.toContain("./packages/ui/node_modules");
   });
 
+  test.each([
+    "./{apps,packages}/*/node_modules",
+    "./{apps/{web,api},packages/ui}/node_modules",
+  ])("supports brace alternatives in %s", async (pattern) => {
+    const result = await expandGlob({ cwd: testDir, pattern });
+    expect(result.sort()).toEqual([
+      "./apps/api/node_modules",
+      "./apps/web/node_modules",
+      "./packages/ui/node_modules",
+    ]);
+  });
+
+  test("supports numeric brace ranges", async () => {
+    await createDirs(testDir, [
+      "apps/1/node_modules",
+      "apps/2/node_modules",
+      "apps/3/node_modules",
+    ]);
+    const result = await expandGlob({
+      cwd: testDir,
+      pattern: "./apps/{1..2}/node_modules",
+    });
+    expect(result.sort()).toEqual([
+      "./apps/1/node_modules",
+      "./apps/2/node_modules",
+    ]);
+  });
+
   // Edge cases
   test("returns empty array when no matches", async () => {
     const result = await expandGlob({

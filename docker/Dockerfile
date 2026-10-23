@@ -1,8 +1,8 @@
 # Docker Sandbox - Base Image
-# Debian with mise and Python - runtimes and tools are installed via user Dockerfile
+# Node.js on Debian with mise and Python - project tools are installed via user Dockerfile
 # Run `sandbox init` to configure your sandbox and select tools to install
 
-FROM debian:trixie
+FROM node:24-trixie-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
 
@@ -19,7 +19,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget unzip git openssh-client bash zsh jq less neovim tmux \
-    nodejs python3 python-is-python3 python3-pip \
+    python3 python-is-python3 python3-pip \
     build-essential pkg-config ripgrep fd-find fzf netcat-openbsd socat rsync \
     xvfb xauth xclip xsel imagemagick x11-utils \
     ffmpeg libavcodec-extra \
@@ -37,9 +37,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && apt-get update \
     && apt-get install -y --no-install-recommends mise;
 
-# Create sandbox group and user with host UID/GID (NO sudo access)
+# Remove the inherited user so UID/GID 1000 remain available for host matching.
 # Handle case where GID already exists with different name (e.g., "users" on Windows)
-RUN if getent group ${HOST_GID} >/dev/null; then \
+RUN userdel -r node \
+  && if getent group ${HOST_GID} >/dev/null; then \
       existing_group=$(getent group ${HOST_GID} | cut -d: -f1); \
       if [ "$existing_group" != "sandbox" ]; then \
         groupmod -n sandbox "$existing_group"; \

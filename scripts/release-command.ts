@@ -25,12 +25,41 @@ export class ReleaseCommandError extends Error {
   }
 }
 
+// Output of `git rev-parse --local-env-vars`. Git hooks export some of these,
+// which would redirect commands away from the requested working directory.
+const GIT_REPOSITORY_VARIABLES = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+]);
+
+function releaseCommandEnvironment(): NodeJS.ProcessEnv {
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([name]) => !GIT_REPOSITORY_VARIABLES.has(name),
+    ),
+  );
+  return { ...environment, HUSKY: "0" };
+}
+
 export const runReleaseCommand: ReleaseCommand = (command, args, cwd) => {
   console.error(`Running ${chalk.cyan([command, ...args].join(" "))}`);
   const result = crossSpawn.sync(command, [...args], {
     cwd,
     encoding: "utf8",
-    env: { ...process.env, HUSKY: "0" },
+    env: releaseCommandEnvironment(),
   });
   if (result.error) throw result.error;
   return {

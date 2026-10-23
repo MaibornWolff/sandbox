@@ -13,6 +13,7 @@ export { assertSandboxSuccess } from "#test/e2e-sandbox-helpers.js";
 
 import { findExecutable } from "./executable.js";
 import { log, logError, logLines } from "./log.js";
+import { getE2eRuntime } from "./runtime.js";
 
 const SANDBOX_BIN = resolve(
   process.env.SANDBOX_BIN ?? "./dist/apps/sandbox/main.js",
@@ -256,7 +257,7 @@ export function createSandbox(opts?: SandboxOptions) {
   createE2eGlobalConfig({
     templatePath: templateConfigPath,
     configPath: join(configDir, "config.toml"),
-    runtime: process.env.SANDBOX_TEST_RUNTIME,
+    runtime: getE2eRuntime(),
     appleDns: process.env.SANDBOX_TEST_APPLE_DNS,
   });
 

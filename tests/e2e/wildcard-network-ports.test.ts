@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
+import { getE2eHostName } from "./utils/host-service.js";
 import {
   cleanupProject,
   createTempProject,
@@ -11,14 +12,10 @@ let projectDir: string;
 let sb: SandboxInstance;
 let hostServer: Server;
 let hostPort: number;
-let hostName = "host.docker.internal";
-if (process.env.SANDBOX_TEST_RUNTIME === "podman") {
-  hostName = "host.containers.internal";
-} else if (process.env.SANDBOX_TEST_RUNTIME === "apple-container") {
-  hostName = "host.container.internal";
-}
+let hostName: string;
 
 beforeAll(async () => {
+  hostName = getE2eHostName();
   hostServer = createServer((_request, response) => {
     response.writeHead(200, { "content-type": "text/plain" });
     response.end("wildcard-port-service\n");

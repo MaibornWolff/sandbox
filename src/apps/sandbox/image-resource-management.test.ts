@@ -90,6 +90,26 @@ describe("sandbox build and upgrade", () => {
     expect(app.runtime.images.builds()).toHaveLength(beforeProject);
   });
 
+  test("rewrites legacy parent image references before building", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeDockerfile("FROM sandbox--base:latest\nRUN echo user\n");
+    app.project.writeDockerfile(
+      "FROM sandbox--user:latest\nRUN echo project\n",
+    );
+    await app.project.givenConfig({ allowNetwork: [] });
+
+    const result = await app.cli.run("build");
+
+    expect(result.exitCode).toBe(0);
+    expect(app.workspace.readConfigFile("docker/Dockerfile")).toBe(
+      "FROM sandbox-base:latest\nRUN echo user\n",
+    );
+    expect(app.workspace.readProjectFile(".sandbox/docker/Dockerfile")).toBe(
+      "FROM sandbox-user:latest\nRUN echo project\n",
+    );
+    expect(result.stderr).toContain("Updated legacy image references");
+  });
+
   test("rejects conflicting targets without resolving a runtime", async () => {
     await using app = await setupSandboxAppTest();
     const result = await app.cli.run("build", "--user", "--project");

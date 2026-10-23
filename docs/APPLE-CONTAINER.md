@@ -1,47 +1,62 @@
-# Apple container runtime
+# Apple runtime settings
 
-## Recommended resource defaults
+Use [Apple `container`](https://github.com/apple/container) on Apple silicon with macOS 26 or newer and runtime version 1.4.1 or newer.
+Select it in your user configuration:
 
-Set generous CPU and memory defaults for agent workloads. Builds, language servers, and parallel agents can need more resources than the Apple runtime defaults provide.
+```toml
+runtime = "apple-container"
+```
 
-Sandbox does not set CPU or memory limits for Apple containers. New containers use the Apple runtime defaults.
+## DNS
 
-1. Open `~/.config/container/config.toml`. Create the file if it does not exist.
-2. Set the values in the existing `[container]` section, or add the section:
+The default keeps the runtime resolver unchanged.
+If its DNS proxy does not answer, select a host resolver:
 
-   ```toml
-   [container]
-   cpus = 12
-   memory = "24g"
-   ```
+```toml
+[runtimes.apple-container]
+dns = "host"
+```
 
-   This is an example for a host with enough CPU and memory. Use values that leave resources for macOS and other applications. Each container has its own limit. These values are not a shared resource pool, so account for the number of containers you run at the same time.
+- `"default"`: use the runtime default.
+- `"host"`: use a reachable server from the primary macOS DNS configuration.
+  Local-only servers and domain-specific VPN resolvers are not selected.
+  Sandbox does not substitute public DNS.
+- `"host-ipv6"`: use the macOS bridge IPv6 resolver.
+  This requires a working host IPv6 DNS proxy.
 
-   Keep other settings in the file unchanged. You do not need to copy all runtime defaults into it.
+In host modes, Sandbox checks the shared builder resolver before image builds.
+If a running builder has different settings, wait for its builds to finish, run `container builder stop`, and retry.
+For an abandoned DNS lock, confirm that no Sandbox builds are running before removing the reported lock file.
 
-3. Stop active Sandbox sessions before you restart the service. The restart stops running containers:
+Host services use `host.container.internal`, with `host.docker.internal` as a compatibility alias.
+These are exact names, not wildcard domains.
+The service must listen on an address reachable from the container gateway, not only on localhost.
+The network allowlist still applies.
 
-   ```bash
-   container system stop
-   container system start
-   ```
+## CPU and memory
 
-4. Check the active defaults:
+Sandbox does not set Apple container CPU or memory limits.
+Use the runtime's `~/.config/container/config.toml` to change defaults.
+For a host with enough resources, an example is:
 
-   ```bash
-   container system property list
-   ```
+```toml
+[container]
+cpus = 12
+memory = "24g"
+```
 
-   The output should include:
+Each container gets its own limit.
+Leave enough resources for macOS and other containers.
+Builder resources use the separate `[build]` section.
 
-   ```toml
-   [container]
-   cpus = 12
-   memory = "24gb"
-   ```
+After saving:
 
-5. Recreate existing Sandbox containers. A restart of an existing container does not apply new resource defaults. Check new containers with `container list`.
+1. End active sessions.
+   Restarting the service stops running containers.
+2. Run `container system stop`, then `container system start`.
+3. Check `container system property list`.
+4. Recreate existing Sandbox containers.
+   Restarting an old container does not apply new defaults.
+5. Verify new containers with `container list`.
 
-The `[build]` section controls builder resources separately. The `[container]` settings do not change the builder limits.
-
-See Apple's [system configuration tutorial](https://github.com/apple/container/blob/main/docs/tutorials/container-system-config-tutorial.md) and [system configuration reference](https://github.com/apple/container/blob/main/docs/container-system-config.md) for more options.
+See Apple's [configuration tutorial](https://github.com/apple/container/blob/main/docs/tutorials/container-system-config-tutorial.md) and [configuration reference](https://github.com/apple/container/blob/main/docs/container-system-config.md).

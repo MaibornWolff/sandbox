@@ -16,7 +16,7 @@ We aim to acknowledge reports within five business days. We will coordinate a di
 
 Reports about isolation failures, permission bypasses, secret exposure, or network-policy bypasses are in scope. Reports about vulnerabilities in third-party tools inside a user-configured image should go to the relevant upstream project.
 
-Read the [security model](README.md#security-model) before you report expected behavior as a vulnerability.
+Read the [security model](docs/SECURITY.md) before you report expected behavior as a vulnerability.
 
 ## Safe Harbor
 

@@ -158,7 +158,7 @@ describe("proxy resilience", () => {
     // Browsers half-close plain HTTP proxy connections when they stop. One
     // half-close must not stop the proxy, because a proxy exit ends every session.
     const result = await sb.run(
-      "/usr/bin/node",
+      "/usr/local/bin/node",
       "--input-type=module",
       "-e",
       `

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { splitColonString } from "./index.js";
 import {
   isAbsolutePath,
+  isPathInside,
   isWindowsDrivePath,
   normalizePath,
   parseWindowsDrivePath,
@@ -194,6 +195,19 @@ describe("isAbsolutePath", () => {
   test("rejects invalid Windows-like patterns", () => {
     expect(isAbsolutePath("C:noSlash")).toBe(false); // Missing slash after colon
     expect(isAbsolutePath("CC:/invalid")).toBe(false); // Two letters
+  });
+});
+
+describe("isPathInside", () => {
+  test.each([
+    ["/settings", true],
+    ["/settings/.claude", true],
+    ["/settings/..claude", true],
+    ["/settings-other", false],
+    ["/", false],
+    ["/home", false],
+  ])("%s inside /settings is %p", (candidate, expected) => {
+    expect(isPathInside(candidate, "/settings")).toBe(expected);
   });
 });
 

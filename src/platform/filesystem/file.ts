@@ -6,6 +6,7 @@ import chalk from "chalk";
 import { getLogger } from "#platform/logging/index.js";
 
 import { getErrorMessage, isFileNotFoundError } from "#shared/errors/index.js";
+import { isPathInside } from "#shared/text/index.js";
 
 export function pathExists(filePath: string): boolean {
   return fs.existsSync(filePath);
@@ -258,12 +259,7 @@ export function validateSymlinkWithin(
     if (!fs.lstatSync(linkPath).isSymbolicLink()) return;
     const realPath = fs.realpathSync(linkPath);
     const realParentDirectory = fs.realpathSync(parentDirectory);
-    const relativePath = path.relative(realParentDirectory, realPath);
-    if (
-      relativePath === ".." ||
-      relativePath.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativePath)
-    ) {
+    if (!isPathInside(realPath, realParentDirectory)) {
       throw new Error(`Symlink ${linkPath} escapes project directory`);
     }
   } catch (error: unknown) {

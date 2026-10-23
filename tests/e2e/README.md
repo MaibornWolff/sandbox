@@ -8,7 +8,7 @@ Install these dependencies:
 
 - Docker, Podman, or Apple `container` 1.4.1 or newer
 - macOS 26 or newer for Apple `container`
-- Node.js 24 or newer
+- Node.js 24.22.1 or a later Node.js 24 release
 - GNU `timeout` or `gtimeout`
 - util-linux `script` on Linux, or the built-in BSD `script` on macOS
 - Git
@@ -23,7 +23,7 @@ bun run test:e2e
 
 The command runs the core container-boundary suite. It creates a temporary runtime package and builds the command-line interface (CLI) directly into that package. All tests use this immutable snapshot.
 
-PHP and Devbox installation tests are separate and require an explicit command:
+Slow tests, including PHP and Devbox installation and long-running host command escape, are separate and require an explicit command:
 
 ```bash
 bun run test:e2e:extended
@@ -31,7 +31,16 @@ bun run test:e2e:extended
 
 The extended command runs only `tests/e2e-extended/`. It does not run as part of `bun check`, `bun test:e2e`, or any CI trigger, including manual CI runs. To run an extended file against an existing CLI, set `SANDBOX_E2E_EXTENDED=1` explicitly.
 
-Set a different runtime when required:
+Run the long-running host command regression on its own:
+
+```bash
+SANDBOX_E2E_EXTENDED=1 bun test tests/e2e-extended/host-command-escape.test.ts \
+  --test-name-pattern 'quiet host command' --timeout 120000
+```
+
+Tests use the runtime selected in your global user configuration by default. `SANDBOX_CONFIG_DIR` and platform config paths work as they do in the CLI. Only the runtime selection is copied into the isolated test configuration. Project configuration and other user settings are not copied. If no user runtime is selected, the CLI uses its normal runtime auto-detection.
+
+Override the runtime when required:
 
 ```bash
 SANDBOX_TEST_RUNTIME=podman bun run test:e2e
@@ -57,7 +66,7 @@ Apple containers require a self-hosted Apple silicon runner with macOS 26 or new
 
 ## Apple Runtime Selection
 
-The test harness creates isolated configuration. It does not use your normal user or repository configuration. Select Apple and its DNS mode explicitly:
+The test harness copies only the runtime selection from your global user configuration. All other test configuration stays isolated. Select Apple and its DNS mode explicitly when required:
 
 ```bash
 SANDBOX_TEST_RUNTIME=apple-container \
@@ -127,4 +136,4 @@ Do not use the isolated tests as evidence that native clipboard support is quali
 
 Use the deterministic application harness for exhaustive business rules and state combinations. Test matching rules and credential lifetime below E2E. Runtime-cache publication uses independent Node processes and a real shared filesystem.
 
-The explicit extended suite retains PHP/Composer installation and the Nix/Devbox login-shell and launcher checks.
+The explicit extended suite retains PHP/Composer installation, the Nix/Devbox login-shell and launcher checks, and the quiet eight-second host command regression.

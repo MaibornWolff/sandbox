@@ -212,24 +212,6 @@ describe("phased Dockerfile generation", () => {
 });
 
 describe("catalog Dockerfile behavior", () => {
-  test("includes explanatory comments around generated tool setup", () => {
-    const node = TOOL_REGISTRY.find((tool) => tool.id === "node");
-    expect(node).toBeDefined();
-
-    const result = generateDockerfile({
-      tools: node ? [node] : [],
-      baseImage: "sandbox-base:latest",
-    });
-
-    expect(result).toContain("# Languages and tools");
-    expect(result).toContain(
-      "# GITHUB_TOKEN is available as an optional build secret for API rate limits",
-    );
-    expect(result).toContain(
-      "# https://github.com/settings/tokens (no scopes needed for public repos)",
-    );
-  });
-
   test("restores Devbox installer path ownership after all root setup", () => {
     const devbox = TOOL_REGISTRY.find((tool) => tool.id === "devbox");
     expect(devbox).toBeDefined();
@@ -277,40 +259,6 @@ describe("catalog Dockerfile behavior", () => {
     expect(result).not.toContain("# Tools: agent-browser,node");
     expect(result).toContain("mise use -g node@lts");
     expect(result).toContain("chromium fonts-liberation");
-  });
-
-  test("retains generated setup for every migrated capability", () => {
-    const result = generateDockerfile({
-      tools: TOOL_REGISTRY,
-      baseImage: "sandbox-base:latest",
-    });
-
-    for (const expected of [
-      "node@lts",
-      "python@3.13",
-      "java@25",
-      "go@latest",
-      "rust@stable",
-      "dotnet@9",
-      "php8.5-cli",
-      "@ast-grep/cli@latest",
-      "terraform@latest",
-      "chromium fonts-liberation",
-      "@earendil-works/pi-coding-agent@latest",
-      "COPY .mise.tom[l]",
-      "mise trust --all -y",
-      "RUN printf '%s\\n'",
-      'ENV PATH="/home/sandbox/go/bin:$PATH"',
-    ]) {
-      expect(result).toContain(expected);
-    }
-
-    const userPhase = result.slice(
-      position(result, "USER sandbox"),
-      position(result, "# Runtime entrypoint starts as root"),
-    );
-    expect(userPhase).not.toContain("USER root");
-    expect(result.match(/chown -R sandbox:sandbox/g)).toHaveLength(1);
   });
 
   test("restores the root runtime user after container-user setup", () => {

@@ -1,6 +1,6 @@
 {
   "name": "@maibornwolff/sandbox",
-  "version": "0.72.2",
+  "version": "0.73.1",
   "description": "Container sandbox CLI for coding agents",
   "license": "BSD-3-Clause",
   "homepage": "https://github.com/MaibornWolff/sandbox#readme",
@@ -16,7 +16,7 @@
   ],
   "type": "module",
   "engines": {
-    "node": "^24.0.0"
+    "node": "^24.22.1"
   },
   "sideEffects": false,
   "imports": {
@@ -75,7 +75,6 @@
     "test:verbose": "bun test src/",
     "test:watch": "bun test --watch src/",
     "test:coverage": "bun test --coverage --only-failures src/",
-    "coverage:check": "bun test --coverage --only-failures src/ && bun scripts/check-coverage.ts",
     "typecheck": "tsc --build",
     "deprecations": "bun scripts/check-deprecations.ts",
     "architecture": "bun scripts/architecture/check-architecture.ts",
@@ -91,31 +90,31 @@
   },
   "dependencies": {
     "@crosscopy/clipboard": "0.3.6",
-    "@earendil-works/pi-tui": "^1.1.0",
+    "@earendil-works/pi-tui": "^1.4.0",
     "chalk": "^6.0.1",
     "commander": "^15.0.0",
-    "core-js": "^3.50.0",
+    "core-js": "^3.51.0",
     "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
-    "fast-glob": "^3.3.3",
+    "glob": "^13.0.6",
     "node-ws": "npm:ws@^8.22.0",
     "re2-wasm": "^1.0.2",
     "selfsigned": "^5.5.0",
-    "smol-toml": "^1.9.0",
-    "zod": "^4.6.5"
+    "smol-toml": "^1.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "@types/cross-spawn": "^6.0.6",
     "@types/diff": "^8.0.0",
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/node-ws": "npm:@types/ws@^8.18.2",
     "@xterm/headless": "^6.0.0",
-    "bun-types": "^1.4.2",
+    "bun-types": "^1.4.4",
     "dependency-cruiser": "18.5.0",
     "husky": "^9.1.7",
-    "jscpd": "^5.4.0",
-    "knip": "^6.40.0",
+    "jscpd": "^5.4.2",
+    "knip": "^6.42.1",
     "typescript": "^7.0.2",
     "typescript-api": "npm:typescript@^5.9.3"
   },

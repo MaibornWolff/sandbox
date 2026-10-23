@@ -8,6 +8,7 @@ import {
   readSymbolicLink,
   resolveRealPath,
 } from "#platform/filesystem/index.js";
+import { isPathInside } from "#shared/text/index.js";
 import {
   createSettingsManifest,
   serializeSettingsManifest,
@@ -90,12 +91,9 @@ async function assertSupportedLinks(
   if (type === "symbolic-link") {
     const target = await readSymbolicLink(currentPath);
     const resolvedTarget = await resolveRealPath(currentPath);
-    const relativeTarget = path.relative(settingsDirectory, resolvedTarget);
     if (
       path.isAbsolute(target) ||
-      relativeTarget === ".." ||
-      relativeTarget.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relativeTarget)
+      !isPathInside(resolvedTarget, settingsDirectory)
     ) {
       throw new Error(
         `Cannot copy setting source ${currentPath}: symbolic link target must be relative and stay inside ${settingsDirectory}`,

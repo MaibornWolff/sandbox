@@ -44,7 +44,7 @@ export function assertReleaseSourceUnchanged(
 ): void {
   if (remoteCommit(repoRoot, "refs/heads/main") !== plan.sourceCommit) {
     throw new Error(
-      "main changed after release preparation. Do not overwrite it. See docs/RELEASING.md for recovery",
+      "main changed after release preparation. Do not overwrite it. See contributing/RELEASING.md for recovery",
     );
   }
 }

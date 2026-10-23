@@ -1,12 +1,12 @@
 import * as path from "node:path";
 import chalk from "chalk";
-import fg from "fast-glob";
 import { getProjectDockerfilePath } from "#modules/configuration/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import {
   copyDirectory,
   copyFile,
   ensureDirectory,
+  globPaths,
   isDirectoryPath,
   pathExists,
   readTextFile,
@@ -75,7 +75,7 @@ async function resolveGlobPattern(
   destinationPrefix: string,
   searchRoot: string,
 ): Promise<Array<{ sourcePath: string; destination: string }>> {
-  const matches = await fg.glob(pattern, {
+  const matches = await globPaths(pattern, {
     cwd: searchRoot,
     dot: true,
     onlyFiles: false,

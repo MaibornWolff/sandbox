@@ -21,6 +21,7 @@ import {
   SANDBOX_MANAGED_IMAGE_LABEL,
 } from "../image-cleanup.js";
 import { getFinalImage } from "./final-image-selection.js";
+import { migrateLegacyDockerfiles } from "./legacy-dockerfile-migration.js";
 
 type SandboxImageServices = SandboxRuntimeSelection;
 
@@ -232,6 +233,7 @@ export async function buildImages(
   );
   logger.debug(`Resolved project root: ${projectRoot}`);
 
+  migrateLegacyDockerfiles(projectRoot);
   const plan = await planLayerBuilds(service.runtime, {
     projectRoot,
     targetLayer,

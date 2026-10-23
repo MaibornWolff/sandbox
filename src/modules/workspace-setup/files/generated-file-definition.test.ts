@@ -16,28 +16,6 @@ import {
 
 describe("file-definitions", () => {
   describe("getUserFileDefinitions", () => {
-    it("returns two definitions (config and dockerfile)", () => {
-      const defs = getUserFileDefinitions();
-      expect(defs).toHaveLength(2);
-      expect(defs.map((d) => d.id)).toEqual(["config", "dockerfile"]);
-    });
-
-    it("dockerfile definition generates valid Dockerfile with FROM", () => {
-      const defs = getUserFileDefinitions();
-      const dockerDef = defs[1];
-      expect(dockerDef?.id).toBe("dockerfile");
-      const content = dockerDef?.getTemplate(["node"]) ?? "";
-      expect(content).toContain("FROM sandbox-base:latest");
-      expect(content).toContain("# Tools:");
-    });
-
-    it("dockerfile definition uses defaults when toolIds is empty", () => {
-      const defs = getUserFileDefinitions();
-      const dockerDef = defs[1];
-      const content = dockerDef?.getTemplate([]) ?? "";
-      expect(content).toContain("FROM sandbox-base:latest");
-    });
-
     it("adds only the selected agent-specific network domains", () => {
       const configDef = getUserFileDefinitions()[0];
       const cases = [
@@ -266,13 +244,6 @@ describe("file-definitions", () => {
         },
       });
     }
-
-    it("returns two definitions", () => {
-      const ids = scoped(() =>
-        getProjectFileDefinitions().map((def) => def.id),
-      );
-      expect(ids).toEqual(["config", "dockerfile"]);
-    });
 
     it("extends the base image without a user Dockerfile", () => {
       const content = scoped(

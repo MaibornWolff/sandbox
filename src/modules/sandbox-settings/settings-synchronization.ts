@@ -1,9 +1,9 @@
 import path from "node:path";
-import fg from "fast-glob";
 import { getSandboxEnvironment } from "#platform/environment/index.js";
 import {
   copyPathFollowingLinks,
   ensureDirectory,
+  globPaths,
   pathExists,
 } from "#platform/filesystem/index.js";
 import {
@@ -48,12 +48,11 @@ export async function syncNewContainerSettings(): Promise<readonly string[]> {
     .map((pattern) => (pattern.endsWith("/") ? pattern.slice(0, -1) : pattern))
     .map(normalizeHomePattern)
     .filter(Boolean);
-  const matches = await fg([...patterns], {
+  const matches = await globPaths(patterns, {
     cwd: homeDirectory,
     dot: true,
     onlyFiles: false,
     followSymbolicLinks: true,
-    unique: true,
   });
   const synced: string[] = [];
   const failures: string[] = [];

@@ -35,10 +35,7 @@ export function registerConfigCommands(program: Command): void {
   config
     .command("update")
     .description("Update configuration from latest templates")
-    .option(
-      "-p, --project",
-      "Update project-level config (instead of user-level)",
-    )
+    .option("--project", "Update project-level config (instead of user-level)")
     .action(async (options) => {
       requireHost("config update");
       await configUpdateCommand(options);

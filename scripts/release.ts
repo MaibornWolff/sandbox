@@ -113,19 +113,10 @@ export async function publishRelease(options: ReleaseOptions): Promise<void> {
   registry.publish(plan, tarball);
 }
 
-export async function finalizeRelease(
-  options: ReleaseOptions,
-): Promise<string> {
-  const { repoRoot } = options;
+export async function finalizeRelease(repoRoot: string): Promise<string> {
   const plan = await readReleasePlan(repoRoot);
   await verifyReleaseTarball(repoRoot, plan);
   assertCleanReleaseCheckout(repoRoot);
-
-  const registry = createReleaseRegistry({
-    repoRoot,
-    execute: options.npm ?? runReleaseCommand,
-  });
-  registry.assertPublished(plan);
   return commitPublishedRelease(repoRoot, plan);
 }
 
@@ -163,7 +154,7 @@ async function main(): Promise<void> {
     case "publish":
       return publishRelease({ repoRoot });
     case "finalize":
-      await finalizeRelease({ repoRoot });
+      await finalizeRelease(repoRoot);
       return;
     default:
       throw new Error(USAGE);

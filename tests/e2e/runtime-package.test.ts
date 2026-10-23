@@ -33,7 +33,7 @@ beforeAll(async () => {
     projectDir,
     ".sandbox/docker/Dockerfile",
     `FROM sandbox-base:latest
-RUN /usr/bin/node -e "require('node:fs').writeFileSync('/opt/tool-build-id', require('node:crypto').randomUUID())"
+RUN /usr/local/bin/node -e "require('node:fs').writeFileSync('/opt/tool-build-id', require('node:crypto').randomUUID())"
 `,
   );
   sb = createSandbox({
@@ -67,7 +67,7 @@ test("updates the runtime cache without a tool-image rebuild or installation mou
   expect((await sb.build()).exitCode).toBe(0);
   const hostVersion = await sb.exec(["--version"]);
   const first = await sb.run(
-    "/usr/bin/node",
+    "/usr/local/bin/node",
     "--input-type=module",
     "-e",
     inspectRuntime,
@@ -87,7 +87,7 @@ test("updates the runtime cache without a tool-image rebuild or installation mou
   const oldSession = sb.start([
     "run",
     "--",
-    "/usr/bin/node",
+    "/usr/local/bin/node",
     "--input-type=module",
     "-e",
     `
@@ -106,7 +106,7 @@ const timer = setInterval(() => {
     "second",
   );
   const updated = await sb.run(
-    "/usr/bin/node",
+    "/usr/local/bin/node",
     "--input-type=module",
     "-e",
     inspectRuntime,

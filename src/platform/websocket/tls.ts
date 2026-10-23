@@ -2,7 +2,7 @@ import type * as http from "node:http";
 import * as https from "node:https";
 import { generate } from "selfsigned";
 
-export async function createListener(): Promise<{
+export async function createListener(handshakeTimeout: number): Promise<{
   server: https.Server;
   certificate: string;
 }> {
@@ -29,7 +29,12 @@ export async function createListener(): Promise<{
   );
   return {
     server: https.createServer(
-      { key: identity.private, cert: identity.cert, minVersion: "TLSv1.2" },
+      {
+        key: identity.private,
+        cert: identity.cert,
+        minVersion: "TLSv1.2",
+        handshakeTimeout,
+      },
       respond,
     ),
     certificate: identity.cert,

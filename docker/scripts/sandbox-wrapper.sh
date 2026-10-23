@@ -6,4 +6,4 @@ if [ ! -f "$CLI_ENTRY" ]; then
   echo "The Sandbox runtime package is missing. Start this container through Sandbox on the host." >&2
   exit 1
 fi
-exec /usr/bin/node "$CLI_ENTRY" "$@"
+exec /usr/local/bin/node "$CLI_ENTRY" "$@"

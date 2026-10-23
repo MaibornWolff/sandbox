@@ -179,6 +179,7 @@ export const architecture = defineArchitecture({
         "logging",
         "terminal",
         "errors",
+        "text",
       ],
     },
     storage: {
@@ -279,7 +280,7 @@ export const architecture = defineArchitecture({
     },
     websocket: { dependencies: ["dependency-injection"] },
     clock: { dependencies: ["dependency-injection"] },
-    filesystem: { dependencies: ["environment", "logging", "errors"] },
+    filesystem: { dependencies: ["environment", "logging", "errors", "text"] },
     environment: {
       dependencies: ["logging", "dependency-injection"],
     },

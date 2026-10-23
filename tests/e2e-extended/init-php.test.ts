@@ -41,6 +41,40 @@ describe.skipIf(process.env.SANDBOX_E2E_EXTENDED !== "1")(
       expect(result.stdout).toContain("zip");
     });
 
+    test("loads the database, cache, and misc extensions", async () => {
+      const result = await sb.run("php", "-m");
+      assertSandboxSuccess(result);
+      for (const extension of [
+        "mysqli",
+        "pdo_mysql",
+        "pdo_pgsql",
+        "redis",
+        "apcu",
+        "amqp",
+        "pcov",
+        "soap",
+        "imagick",
+        "ldap",
+      ]) {
+        expect(result.stdout).toContain(extension);
+      }
+    });
+
+    test("installs Xdebug with mode off until XDEBUG_MODE enables it", async () => {
+      const script = "echo json_encode(xdebug_info('mode'));";
+      const defaultMode = await sb.run("php", "-r", script);
+      assertSandboxSuccess(defaultMode);
+      expect(JSON.parse(defaultMode.stdout)).toEqual([]);
+
+      const enabled = await sb.run(
+        "sh",
+        "-c",
+        `XDEBUG_MODE=debug php -r "${script}"`,
+      );
+      assertSandboxSuccess(enabled);
+      expect(JSON.parse(enabled.stdout)).toEqual(["debug"]);
+    });
+
     test("installs executable Composer", async () => {
       const result = await sb.run("composer", "--version");
       assertSandboxSuccess(result);

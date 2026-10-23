@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Install the MySQL, PostgreSQL, Redis, APCu, AMQP, Xdebug, PCOV, SOAP, Imagick, and LDAP extensions with the PHP tool. Xdebug starts with `xdebug.mode=off`. Enable it per command, for example `XDEBUG_MODE=debug php script.php`.
+
 ## [0.73.1] - 2026-10-23
 
 ### Fixed

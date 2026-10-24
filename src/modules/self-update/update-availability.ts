@@ -13,6 +13,10 @@ import {
   startUpdateRefresh,
 } from "#platform/state/index.js";
 import { writeStandardError } from "#platform/terminal/index.js";
+import {
+  HOMEBREW_UPDATE_COMMAND,
+  isHomebrewInstallation,
+} from "./installation.js";
 import { getVersion, isNewerVersion } from "./package-version.js";
 
 const PACKAGE_NAME = "@maibornwolff/sandbox";
@@ -22,6 +26,7 @@ export const UPDATE_CHECK_WORKER_ARGUMENT = "--internal-update-check";
 export function formatAvailableUpdateWarning(
   currentVersion: string,
   latestVersion: string | null,
+  packageRoot: string = getPackageRootPath(),
 ): string | null {
   if (
     currentVersion === "0.0.0-development" ||
@@ -30,7 +35,10 @@ export function formatAvailableUpdateWarning(
   ) {
     return null;
   }
-  return `${chalk.yellow("↑ Sandbox update available:")} ${chalk.dim(currentVersion)} → ${chalk.cyan.bold(latestVersion)}  (run ${chalk.cyan.bold("sandbox update")})\n`;
+  const updateCommand = isHomebrewInstallation(packageRoot)
+    ? HOMEBREW_UPDATE_COMMAND
+    : "sandbox update";
+  return `${chalk.yellow("↑ Sandbox update available:")} ${chalk.dim(currentVersion)} → ${chalk.cyan.bold(latestVersion)}  (run ${chalk.cyan.bold(updateCommand)})\n`;
 }
 
 function reportFailure(error: unknown): string {

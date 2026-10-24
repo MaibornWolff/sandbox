@@ -12,7 +12,13 @@ Main pushes run both Docker and Podman E2E jobs.
 For a branch without a pull request, dispatch CI with `run_e2e` enabled.
 That run does not replace pull-request or main-push checks.
 
-Require these status checks on `main`:
+Before enforcing required checks on `main`, configure a dedicated release identity.
+The [release finalization step](RELEASING.md#one-time-setup) pushes a metadata commit directly after npm publication.
+That new commit has no CI results yet, so required checks would block the push after publication.
+Give only the release identity a bypass for this operation.
+Do not give every GitHub Actions workflow a bypass.
+
+Then require these status checks on `main`:
 
 - `Merge gate`.
 - `License and SBOM`.
@@ -30,6 +36,10 @@ Set those separately without bypassing review or required checks.
 [Renovate](https://docs.renovatebot.com/) waits seven days after a dependency release where timestamps are available.
 Versions without timestamps are held.
 The delay is not a guarantee against compromised releases.
+
+Renovate evaluates CI results itself with `platformAutomerge: false`.
+Keep CI, compliance, and CodeQL workflows enabled for every Renovate pull request.
+This client-side gate does not replace server-side protection for manual merges or direct pushes.
 
 Only npm minor and patch updates can automerge.
 Major updates require approval.

@@ -75,7 +75,7 @@
     "test:verbose": "bun test src/",
     "test:watch": "bun test --watch src/",
     "test:coverage": "bun test --coverage --only-failures src/",
-    "typecheck": "tsc --build",
+    "typecheck": "node node_modules/typescript-native/bin/tsc --build",
     "deprecations": "bun scripts/check-deprecations.ts",
     "architecture": "bun scripts/architecture/check-architecture.ts",
     "lint": "biome check --write .",
@@ -115,10 +115,7 @@
     "husky": "^9.1.7",
     "jscpd": "^5.4.2",
     "knip": "^6.42.1",
-    "typescript": "^7.0.2",
-    "typescript-api": "npm:typescript@^5.9.3"
-  },
-  "patchedDependencies": {
-    "dependency-cruiser@18.6.0": "patches/dependency-cruiser@18.6.0.patch"
+    "typescript": "^5.9.3",
+    "typescript-native": "npm:typescript@^7.0.2"
   }
 }

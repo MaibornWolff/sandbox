@@ -3,7 +3,7 @@ import "core-js/stable/async-disposable-stack/index.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import chalk from "chalk";
-import ts from "typescript-api";
+import ts from "typescript";
 import { getRepoRootPath } from "#platform/git/index.js";
 
 export interface DeprecationViolation {

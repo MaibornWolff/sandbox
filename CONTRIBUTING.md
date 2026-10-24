@@ -10,7 +10,7 @@ Thank you for contributing to Sandbox.
 
 ## Development
 
-Install Bun, Node.js 24 or later, and Docker or Podman. Then install the dependencies:
+Install Bun, Node.js 24.22.1 or later, and Docker or Podman. Then install the dependencies:
 
 ```bash
 bun install

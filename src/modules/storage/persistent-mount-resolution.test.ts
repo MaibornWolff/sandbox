@@ -516,3 +516,32 @@ describe("glob patterns", () => {
     expect(result.mounts[0]?.containerPath).toContain("myapp/.venv");
   });
 });
+
+describe("persist path containment", () => {
+  test("skips a persist path whose host path escapes persist storage", async () => {
+    const escapedDir = path.join(
+      getProjectPersistDir(projectPath),
+      "..",
+      "escaped",
+    );
+    fs.rmSync(escapedDir, { recursive: true, force: true });
+
+    const result = await getPersistentMounts(projectPath, [
+      createPersistPath("~/../escaped"),
+      createPersistPath("./../escaped", { default: "owned" }),
+    ]);
+
+    expect(result.mounts).toHaveLength(0);
+    expect(fs.existsSync(escapedDir)).toBe(false);
+  });
+
+  test("skips a persist path that selects the storage root itself", async () => {
+    const result = await getPersistentMounts(projectPath, [
+      createPersistPath("~/"),
+      createPersistPath("./"),
+      createPersistPath("/home/sandbox/"),
+    ]);
+
+    expect(result.mounts).toHaveLength(0);
+  });
+});

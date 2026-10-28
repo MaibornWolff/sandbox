@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Security
+
+- Reject `persist_paths` entries with `.`, `..`, empty, or backslash segments, and entries such as `~/` that select a whole directory root. A trusted project config could previously create files and read-write mounts outside the Sandbox data directory on the host.
+
 ## [0.73.1] - 2026-10-23
 
 ### Fixed

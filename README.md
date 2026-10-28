@@ -58,7 +58,7 @@ Read the [security guide](docs/SECURITY.md) for the complete boundary and safer 
 
 ### 1. Install the prerequisites
 
-- [Node.js](https://nodejs.org/en/download) 24.22.1 or a later Node.js 24 release on the host.
+- [Node.js](https://nodejs.org/en/download) 24.22.1 or later on the host.
 - A running container runtime: [Docker](https://docs.docker.com/engine/), [Podman](https://podman.io/docs/installation), or [Apple `container`](https://github.com/apple/container).
   Follow [runtime setup](docs/RUNTIMES.md) before installing one, especially on Windows or Apple silicon.
 

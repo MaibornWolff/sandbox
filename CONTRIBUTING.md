@@ -57,10 +57,11 @@ request. GitHub Actions updates share a separate pull request, including major
 versions. Major npm, container image, and runner updates need approval in the
 Dependency Dashboard before Renovate opens a pull request.
 
-Keep `typescript-api` on TypeScript 5. The check scripts use its JavaScript
-compiler API, which the TypeScript 7 native compiler does not provide. Review
-changes to the dependency-cruiser patch when you update that package. Run the
-Docker and Podman end-to-end jobs before you accept a runner image update.
+Keep `typescript` on TypeScript 5. The check scripts and dependency-cruiser use
+its JavaScript compiler API. Build and type-check commands use the separate
+`typescript-native` alias for the TypeScript 7 native compiler. This separation
+lets dependency-cruiser update without a package patch. Run the Docker and
+Podman end-to-end jobs before you accept a runner image update.
 
 ## Releases
 

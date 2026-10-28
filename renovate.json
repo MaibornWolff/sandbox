@@ -42,7 +42,7 @@
       "groupName": null
     },
     {
-      "matchDepNames": ["typescript-api"],
+      "matchDepNames": ["typescript"],
       "allowedVersions": "<6.0.0"
     },
     {

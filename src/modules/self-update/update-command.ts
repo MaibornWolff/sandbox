@@ -6,6 +6,7 @@ import {
   haveTemplatesChanged,
   saveTemplateHashes,
 } from "#modules/workspace-setup/index.js";
+import { getPackageRootPath } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import {
   fetchLatestVersion,
@@ -16,6 +17,10 @@ import {
   writeStandardOutput,
 } from "#platform/terminal/index.js";
 import { getErrorMessage, isPromptCancellation } from "#shared/errors/index.js";
+import {
+  HOMEBREW_UPDATE_COMMAND,
+  isHomebrewInstallation,
+} from "./installation.js";
 import { getVersion, isNewerVersion } from "./package-version.js";
 import { updateInstalledTemplates } from "./template-updating.js";
 
@@ -88,7 +93,9 @@ async function handleTemplateUpdates(): Promise<boolean> {
 }
 
 /** Update the installed CLI and then migrate installed configuration templates. */
-export async function updateCommand(): Promise<void> {
+export async function updateCommand(
+  packageRoot: string = getPackageRootPath(),
+): Promise<void> {
   const logger = getLogger();
   try {
     logger.info("Checking for updates...");
@@ -96,6 +103,12 @@ export async function updateCommand(): Promise<void> {
     if (!result) return;
 
     printVersionComparison(result.currentVersion, result.latestVersion);
+    if (isHomebrewInstallation(packageRoot)) {
+      logger.info(
+        `Sandbox was installed with Homebrew. Run ${chalk.cyan(HOMEBREW_UPDATE_COMMAND)} to update it.`,
+      );
+      return;
+    }
     const shouldUpdate = await promptSelectionConfirmation({
       message: `Update to ${result.latestVersion}?`,
       default: true,

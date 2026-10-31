@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Support Node.js 26 on the host. Sandbox now runs on Node.js 24.22.1 or later.
+
+### Changed
+
+- For a Homebrew installation, `sandbox update` and the update notice tell you to run `brew upgrade sandbox`. Sandbox no longer installs a second copy through npm.
+
 ## [0.73.1] - 2026-10-23
 
 ### Fixed

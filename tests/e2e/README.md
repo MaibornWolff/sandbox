@@ -8,7 +8,7 @@ Install these dependencies:
 
 - Docker, Podman, or Apple `container` 1.4.1 or newer
 - macOS 26 or newer for Apple `container`
-- Node.js 24.22.1 or a later Node.js 24 release
+- Node.js 24.22.1 or later
 - GNU `timeout` or `gtimeout`
 - util-linux `script` on Linux, or the built-in BSD `script` on macOS
 - Git

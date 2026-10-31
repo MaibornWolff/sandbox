@@ -22,16 +22,20 @@ concurrency:
 
 jobs:
   check:
-    name: Check
+    name: ${{ matrix.node == '24' && 'Check' || format('Check (Node.js {0})', matrix.node) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["24", "26"]
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -70,13 +74,17 @@ jobs:
       (github.event_name == 'pull_request' &&
       ((github.event.pull_request.user.login == 'renovate[bot]' && github.event.pull_request.user.type == 'Bot') ||
       contains(github.event.pull_request.labels.*.name, 'run-e2e')))
-    name: End-to-end tests (${{ matrix.runtime }})
+    name: ${{ matrix.node == '24' && format('End-to-end tests ({0})', matrix.runtime) || format('End-to-end tests ({0}, Node.js {1})', matrix.runtime, matrix.node) }}
     runs-on: ubuntu-26.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         runtime: [docker, podman]
+        node: ["24"]
+        include:
+          - runtime: docker
+            node: "26"
     env:
       SANDBOX_TEST_RUNTIME: ${{ matrix.runtime }}
       SANDBOX_TEST_TMP: /tmp/sandbox-e2e
@@ -91,7 +99,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:

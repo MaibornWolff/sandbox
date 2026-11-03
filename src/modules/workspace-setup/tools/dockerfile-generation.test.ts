@@ -135,8 +135,9 @@ describe("phased Dockerfile generation", () => {
     expect(result.match(/apt-get update/g)).toHaveLength(1);
     expect(result.match(/mise use -g/g)).toHaveLength(1);
     expect(result).toContain(
-      "RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN mise use -g",
+      "RUN --mount=type=secret,id=GITHUB_TOKEN,mode=0444",
     );
+    expect(result).not.toContain("env=GITHUB_TOKEN");
     expect(result.match(/RUN npm install -g/g)).toHaveLength(1);
     expect(result).toContain("curl git");
     expect(result).toContain("node@lts");

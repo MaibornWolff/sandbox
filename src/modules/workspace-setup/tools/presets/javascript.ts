@@ -1,6 +1,6 @@
 import { defineCategory } from "../category-definition.js";
 import { hasExecutable, hasPath } from "../detection.js";
-import { installMiseTools, runImageSetupCommands } from "../image-setup.js";
+import { installMiseTools } from "../image-setup.js";
 import { definePreset } from "../preset-definition.js";
 import type { ToolDefinition } from "../tool-definition.js";
 
@@ -23,10 +23,7 @@ export const nodeTool = {
     duringProjectInit: [hasPath("./package.json")],
   },
   imageSetup: {
-    asContainerUser: [
-      installMiseTools(["node@lts"]),
-      runImageSetupCommands(["corepack enable"]),
-    ],
+    asContainerUser: [installMiseTools(["node@lts"])],
   },
   url: "https://nodejs.org",
 } satisfies ToolDefinition<typeof javascript>;
@@ -59,9 +56,7 @@ const pnpmTool = {
     ],
   },
   imageSetup: {
-    asContainerUser: [
-      runImageSetupCommands(["corepack install -g pnpm@latest"]),
-    ],
+    asContainerUser: [installMiseTools(["pnpm@latest"])],
   },
   requires: [nodeTool],
   showWhen: ["node"],

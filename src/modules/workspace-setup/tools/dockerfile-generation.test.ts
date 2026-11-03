@@ -212,6 +212,19 @@ describe("phased Dockerfile generation", () => {
 });
 
 describe("catalog Dockerfile behavior", () => {
+  test("installs Node and pnpm through mise without Corepack", () => {
+    const resolved = resolveTools(["pnpm"]);
+    const result = generateDockerfile({
+      tools: resolved.dependencyClosure,
+      baseImage: "sandbox-base:latest",
+    });
+
+    expect(result).toContain("node@lts");
+    expect(result).toContain("pnpm@latest");
+    expect(result.match(/mise use -g/g)).toHaveLength(1);
+    expect(result).not.toContain("corepack");
+  });
+
   test("restores Devbox installer path ownership after all root setup", () => {
     const devbox = TOOL_REGISTRY.find((tool) => tool.id === "devbox");
     expect(devbox).toBeDefined();

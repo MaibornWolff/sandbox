@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.73.2] - 2026-11-03
+
 ### Fixed
 
 - Fix generated mise tool images on Podman 5.7 by using file-backed GitHub token secrets instead of unsupported environment-backed secret mounts.

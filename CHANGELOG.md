@@ -6,6 +6,30 @@
 
 - Install the MySQL, PostgreSQL, Redis, APCu, AMQP, Xdebug, PCOV, SOAP, Imagick, and LDAP extensions with the PHP tool. Xdebug starts with `xdebug.mode=off`. Enable it per command, for example `XDEBUG_MODE=debug php script.php`.
 
+## [0.73.2] - 2026-11-03
+
+### Fixed
+
+- Fix generated mise tool images on Podman 5.7 by using file-backed GitHub token secrets instead of unsupported environment-backed secret mounts.
+- Install pnpm through mise instead of Corepack, so generated tool images build with Node.js 25 and later, which no longer bundle Corepack.
+
+### Breaking Changes
+
+- Generated Node.js tool images no longer enable Corepack or provide Yarn implicitly.
+  Install Yarn explicitly if needed.
+  Sandbox no longer provides Corepack's `packageManager` dispatch. Declare project tool versions in `mise.toml` and select `mise-env` with `sandbox init --project --tools node,pnpm,mise-env`.
+  Preserve other tool selections when you update an existing project.
+
+  Existing user Dockerfiles are not changed automatically.
+  After updating the CLI, run this on the host from your project directory to migrate with an agent:
+
+  ```bash
+  sandbox assist "Migrate my existing user Dockerfile from Corepack to mise. Remove corepack enable. Replace Corepack pnpm installation commands with mise use -g pnpm at the same requested version, using pnpm@latest if no version was specified. Preserve the parent image, other tools, custom setup, and final USER root instruction. Ask me whether I want to keep Yarn. Install Yarn explicitly through mise only if I confirm. Check project Dockerfiles for the same changes and move any Corepack-managed project version requirements into mise configuration without discarding existing settings. Show me the changes before rebuilding."
+  ```
+
+  Review the changes, then run `sandbox build --user` to rebuild user and project images.
+  See [custom tools and images](docs/LAYERED-IMAGES.md#javascript-package-managers) for manual migration.
+
 ## [0.73.1] - 2026-10-23
 
 ### Fixed

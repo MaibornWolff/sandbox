@@ -32,7 +32,7 @@ async function compileHostApplication(): Promise<void> {
   const typescriptCli = path.join(
     repoRoot,
     "node_modules",
-    "typescript",
+    "typescript-native",
     "bin",
     "tsc",
   );

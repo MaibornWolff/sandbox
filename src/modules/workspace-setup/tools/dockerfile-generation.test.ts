@@ -135,8 +135,9 @@ describe("phased Dockerfile generation", () => {
     expect(result.match(/apt-get update/g)).toHaveLength(1);
     expect(result.match(/mise use -g/g)).toHaveLength(1);
     expect(result).toContain(
-      "RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN mise use -g",
+      "RUN --mount=type=secret,id=GITHUB_TOKEN,mode=0444",
     );
+    expect(result).not.toContain("env=GITHUB_TOKEN");
     expect(result.match(/RUN npm install -g/g)).toHaveLength(1);
     expect(result).toContain("curl git");
     expect(result).toContain("node@lts");
@@ -212,6 +213,19 @@ describe("phased Dockerfile generation", () => {
 });
 
 describe("catalog Dockerfile behavior", () => {
+  test("installs Node and pnpm through mise without Corepack", () => {
+    const resolved = resolveTools(["pnpm"]);
+    const result = generateDockerfile({
+      tools: resolved.dependencyClosure,
+      baseImage: "sandbox-base:latest",
+    });
+
+    expect(result).toContain("node@lts");
+    expect(result).toContain("pnpm@latest");
+    expect(result.match(/mise use -g/g)).toHaveLength(1);
+    expect(result).not.toContain("corepack");
+  });
+
   test("restores Devbox installer path ownership after all root setup", () => {
     const devbox = TOOL_REGISTRY.find((tool) => tool.id === "devbox");
     expect(devbox).toBeDefined();

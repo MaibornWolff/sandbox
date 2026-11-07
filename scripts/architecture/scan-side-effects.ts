@@ -1,6 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import ts from "typescript-api";
+import ts from "typescript";
 import type { ArchitectureDefinition } from "./define-architecture.js";
 
 const FORBIDDEN_IMPORTS = new Map([

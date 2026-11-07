@@ -143,10 +143,12 @@ function formatPackageRun(
 
 function formatMiseRun(tools: readonly string[]): string {
   const command = formatPackageRun("mise use -g", tools);
-  return command.replace(
-    "RUN ",
-    "RUN --mount=type=secret,id=GITHUB_TOKEN,env=GITHUB_TOKEN ",
-  );
+  return [
+    "RUN --mount=type=secret,id=GITHUB_TOKEN,mode=0444 \\",
+    "    if [ -f /run/secrets/GITHUB_TOKEN ]; then \\",
+    '      GITHUB_TOKEN="$(cat /run/secrets/GITHUB_TOKEN)" && export GITHUB_TOKEN; \\',
+    `    fi && ${command.slice("RUN ".length)}`,
+  ].join("\n");
 }
 
 function generateAction(action: ImageSetupAction): string[] {

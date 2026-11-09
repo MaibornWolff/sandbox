@@ -41,10 +41,11 @@ export function registerLifecycleCommands(program: Command): void {
   program
     .command("status")
     .description("Show sandbox container status")
-    .action(async (_options, cmd) => {
+    .option("--json", "Print the status as JSON for other tools")
+    .action(async (options, cmd) => {
       requireHost("status");
       const globalOpts = cmd.parent.opts();
-      await statusCommand(globalOpts);
+      await statusCommand({ ...globalOpts, ...options });
     });
 
   program

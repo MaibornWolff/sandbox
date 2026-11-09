@@ -333,6 +333,8 @@ export function createAppleContainerOperations(options: {
         .filter((container) => matchesQuery(container, query));
     },
     inspect,
+    // Apple container has no statistics command.
+    readResourceUsage: async () => null,
     async startDetached(spec) {
       await using network = await networking.prepareRun();
       const id = await create(spec, network, false);

@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+
+- Show the CPU, memory, and process count of each running container in `sandbox status` on Docker and Podman.
+- Add `sandbox status --json` so scripts and other tools can read containers, sessions, and resource usage with one command instead of running their own container commands.
+
 ## [0.73.2] - 2026-11-03
 
 ### Fixed

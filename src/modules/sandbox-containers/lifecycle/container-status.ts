@@ -1,6 +1,9 @@
 import { getConfigurationService } from "#modules/configuration/index.js";
 import { getClock } from "#platform/clock/index.js";
-import type { SandboxRuntime } from "#platform/container-runtime/index.js";
+import type {
+  SandboxInstanceResourceUsage,
+  SandboxRuntime,
+} from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { buildSessionDetailsCommand } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
@@ -20,11 +23,14 @@ export interface SessionInfo {
 }
 
 export interface ContainerStatusInfo {
+  id: string;
   name: string;
   image: string;
+  startedAt: string | null;
   uptime: string;
   hash: string | null;
   sessions: SessionInfo[];
+  resources: SandboxInstanceResourceUsage | null;
 }
 
 export interface SandboxStatus {
@@ -37,15 +43,7 @@ export interface SandboxStatus {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Get human-readable uptime for a container.
- * @testonly
- */
-export async function getContainerUptime(
-  service: SandboxRuntime,
-  containerId: string,
-): Promise<string> {
-  const startedAt = (await service.instances.inspect(containerId))?.startedAt;
+function formatUptime(startedAt: Date | null): string {
   if (!startedAt) return "unknown";
   const seconds = Math.max(
     0,
@@ -56,6 +54,32 @@ export async function getContainerUptime(
   if (minutes < 60) return `Up ${minutes} minutes`;
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `Up ${hours} hours` : `Up ${Math.floor(hours / 24)} days`;
+}
+
+async function getContainerStart(
+  service: SandboxRuntime,
+  containerId: string,
+): Promise<{ startedAt: string | null; uptime: string }> {
+  const startedAt =
+    (await service.instances.inspect(containerId))?.startedAt ?? null;
+  return {
+    startedAt: startedAt?.toISOString() ?? null,
+    uptime: formatUptime(startedAt),
+  };
+}
+
+async function getResourceUsage(
+  service: SandboxRuntime,
+  containerId: string,
+): Promise<SandboxInstanceResourceUsage | null> {
+  try {
+    return await service.instances.readResourceUsage(containerId);
+  } catch (error) {
+    getLogger().debug(
+      `Could not read resource usage of ${containerId}: ${getErrorMessage(error)}`,
+    );
+    return null;
+  }
 }
 
 /**
@@ -120,18 +144,22 @@ export async function getSandboxStatus(
   // Gather details for each container in parallel
   const containerStatuses = await Promise.all(
     containers.map(async (container): Promise<ContainerStatusInfo> => {
-      const [uptime, hash, sessions] = await Promise.all([
-        getContainerUptime(runtime, container.id),
+      const [start, hash, sessions, resources] = await Promise.all([
+        getContainerStart(runtime, container.id),
         getContainerHash(runtime, container.id),
         getSessionDetails(runtime, container.name),
+        getResourceUsage(runtime, container.id),
       ]);
 
       return {
+        id: container.id,
         name: container.name,
         image: container.image,
-        uptime,
+        startedAt: start.startedAt,
+        uptime: start.uptime,
         hash,
         sessions,
+        resources,
       };
     }),
   );

@@ -2,6 +2,7 @@ import { getProcessManager } from "#platform/process/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import type {
   ContainerOperations as ContainerOperationGroup,
+  ContainerResourceUsage,
   ContainerSpec,
   ExecSpec,
   TerminalSessionOptions,
@@ -121,6 +122,10 @@ export type ContainerRuntimeEvent =
       readonly containerId: string;
     }
   | {
+      readonly type: "container.resources";
+      readonly containerId: string;
+    }
+  | {
       readonly type: "container.signal";
       readonly containerId: string;
       readonly signal: NodeJS.Signals;
@@ -155,6 +160,7 @@ export type RuntimeFailurePoint =
   | "container.label"
   | "container.logs"
   | "container.uptime"
+  | "container.resources"
   | "container.signal"
   | "container.stop"
   | "container.remove"
@@ -564,6 +570,18 @@ class StatefulRuntimeWorld {
     };
   }
 
+  private async readContainerResources(
+    id: string,
+  ): Promise<ContainerResourceUsage | null> {
+    this.takeFailure("container.resources");
+    const container = this.findContainer(id);
+    this.recordedEvents.push({
+      type: "container.resources",
+      containerId: container.id,
+    });
+    return container.snapshot().resources;
+  }
+
   private groupedContainerOperations(
     legacy: LegacyContainerOperations,
   ): ContainerOperationGroup {
@@ -622,6 +640,7 @@ class StatefulRuntimeWorld {
           );
       },
       inspect,
+      readResourceUsage: (id) => this.readContainerResources(id),
       startDetached: create,
       async runAttached(spec) {
         await create(spec);

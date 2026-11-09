@@ -58,6 +58,17 @@ describe("update availability", () => {
     );
   });
 
+  it("advises a Homebrew upgrade for a Homebrew installation", () => {
+    const warning = formatAvailableUpdateWarning(
+      "1.0.0",
+      "2.0.0",
+      "/opt/homebrew/Cellar/sandbox/1.0.0/libexec/lib/node_modules/@maibornwolff/sandbox",
+    );
+
+    expect(warning).toContain("brew upgrade sandbox");
+    expect(warning).not.toContain("sandbox update");
+  });
+
   it("returns immediately and leaves a pending detached worker alive at shutdown", async () => {
     const root = createTestDir("update-no-wait");
     using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(root) };

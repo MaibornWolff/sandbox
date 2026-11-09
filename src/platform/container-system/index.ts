@@ -17,9 +17,14 @@ export {
 export { CONTAINER_READY_FILE } from "./container-paths.js";
 /** @lintignore Public container-system diagnostic contract. */
 export {
+  CONTAINER_LOG_SOURCES,
+  type ContainerLogBundle,
   type ContainerLogSource,
   collectPassiveNetworkState,
+  parseContainerLogBundle,
   readContainerLog,
+  readContainerLogBundle,
+  serializeContainerLogBundle,
 } from "./diagnostics.js";
 /** @lintignore Public container-system DNS contract. */
 export { isIpAddress, reverseDns } from "./dns.js";

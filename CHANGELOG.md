@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Give each session a unique `SANDBOX_SESSION_ID`. Allowed host commands also receive the session ID, host project directory, container name, and runtime as environment variables.
+
 ## [0.73.2] - 2026-11-03
 
 ### Fixed

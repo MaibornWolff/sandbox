@@ -36,6 +36,13 @@ if (operation === "io") {
   const input = readFileSync(0, "utf8");
   process.stdout.write(\`stdout:\${input}\`);
   process.stderr.write("stderr:separate\\n");
+} else if (operation === "context") {
+  console.log(JSON.stringify({
+    sessionId: process.env.SANDBOX_SESSION_ID,
+    projectDir: process.env.SANDBOX_PROJECT_DIR,
+    container: process.env.SANDBOX_CONTAINER,
+    runtime: process.env.SANDBOX_RUNTIME,
+  }));
 } else if (operation === "exit") {
   process.exit(Number(target));
 } else if (operation === "effect") {
@@ -57,6 +64,9 @@ if (operation === "io") {
     ".sandbox/config.toml",
     `[[allow_host_commands]]
 pattern = [${tomlString(process.execPath)}, ${tomlString(fixturePath)}, "io"]
+
+[[allow_host_commands]]
+pattern = [${tomlString(process.execPath)}, ${tomlString(fixturePath)}, "context"]
 
 [[allow_host_commands]]
 pattern = [${tomlString(process.execPath)}, ${tomlString(fixturePath)}, "exit", "47"]
@@ -108,6 +118,50 @@ describe("host command escape", () => {
       "47",
     );
     expect(exited.exitCode).toBe(47);
+  });
+
+  test("passes the session and resolved caller context to host commands", async () => {
+    const result = await sb.exec(
+      [
+        "run",
+        "--",
+        "sh",
+        "-c",
+        `printf 'session:%s\\n' "$SANDBOX_SESSION_ID"; sandbox escape -- "$1" "$2" context`,
+        "sh",
+        process.execPath,
+        fixturePath,
+      ],
+      {
+        env: {
+          SANDBOX_SESSION_ID: "inherited-session",
+          SANDBOX_PROJECT_DIR: "inherited-project",
+          SANDBOX_CONTAINER: "inherited-container",
+          SANDBOX_RUNTIME: "inherited-runtime",
+        },
+      },
+    );
+    expect(result.exitCode, result.stderr).toBe(0);
+    const sessionId = result.stdout.match(/session:([^\s]+)/)?.[1];
+    const contextLine = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("{"));
+    expect(contextLine).toBeDefined();
+    const context = JSON.parse(contextLine ?? "{}");
+    expect(sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(context.sessionId).toBe(sessionId);
+    expect(context.projectDir).toBe(projectDir);
+    expect(context.container).toBeTruthy();
+    expect(context.container).not.toBe("inherited-container");
+    expect(["docker", "podman", "apple-container"]).toContain(context.runtime);
+    const status = await sb.exec(["status"]);
+    expect(status.exitCode).toBe(0);
+    const resolvedRuntime = status.stdout.match(/^\s*Runtime\s+(\S+)/m)?.[1];
+    expect(resolvedRuntime).toBeDefined();
+    expect(context.runtime).toBe(resolvedRuntime);
+    expect(status.stdout).toContain(context.container);
   });
 
   test("denies unmatched commands before they can create a host effect", async () => {

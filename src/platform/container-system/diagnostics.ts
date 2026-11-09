@@ -48,6 +48,7 @@ export function readContainerLog(source: ContainerLogSource): string {
   }
 }
 
+/** Read every log source once. Missing files yield their documented placeholder text, never an error. */
 export function readContainerLogBundle(): ContainerLogBundle {
   return {
     firewall: readContainerLog("firewall"),
@@ -57,12 +58,14 @@ export function readContainerLogBundle(): ContainerLogBundle {
   };
 }
 
+/** Write the bundle as one JSON line so a host can read it from a single command output. */
 export function serializeContainerLogBundle(
   bundle: ContainerLogBundle,
 ): string {
   return `${JSON.stringify(bundle)}\n`;
 }
 
+/** Throw a specific error when the output is not a complete bundle, so callers can report partial container tools. */
 export function parseContainerLogBundle(output: string): ContainerLogBundle {
   let parsed: unknown;
   try {

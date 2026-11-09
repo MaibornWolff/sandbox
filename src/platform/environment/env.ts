@@ -4,6 +4,7 @@
  * Provides functions to expand $VAR and ${VAR} syntax in environment variable values.
  */
 
+import chalk from "chalk";
 import { getLogger } from "#platform/logging/index.js";
 
 /**
@@ -251,7 +252,10 @@ export function parseEnvList(
       env,
       results,
       (varName, fullEnv) => {
-        logger.warn(`Undefined variable $${varName} in env: ${fullEnv}`);
+        const [key] = fullEnv.split("=", 1);
+        logger.warn(
+          `Undefined variable ${chalk.cyan(`$${varName}`)} in env ${chalk.cyan(key ?? fullEnv)}`,
+        );
       },
       variables,
     );

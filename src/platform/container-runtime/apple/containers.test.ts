@@ -148,6 +148,22 @@ describe("Apple container process operations", () => {
     await expect(operations.inspect("sandbox-alpha")).resolves.toBeNull();
   });
 
+  test("lists exited instances with -a when only a state filter is present", async () => {
+    const { commands, operations } = createOperations();
+    commands.givenOutput(
+      { command: "container", args: ["list", "-a", "--format", "json"] },
+      containerInspection("sha256:alpha", "stopped", "2026-10-01T14:00:00Z"),
+    );
+    const containers = await operations.list({
+      all: false,
+      states: ["exited"],
+    });
+    expect(containers.map((container) => container.state)).toEqual(["exited"]);
+    expect(commands.events().map((event) => event.args)).toEqual([
+      ["list", "-a", "--format", "json"],
+    ]);
+  });
+
   test("distinguishes a never-started instance from a stopped instance", async () => {
     const { commands, operations } = createOperations();
     commands.givenOutput(

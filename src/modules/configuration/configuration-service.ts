@@ -1,3 +1,4 @@
+import chalk from "chalk";
 import { getClock } from "#platform/clock/index.js";
 import {
   createDependency,
@@ -124,7 +125,13 @@ export function createConfigurationService(): ConfigurationService {
       const repositoryContext = await resolveRepositoryContext(
         environment.currentWorkingDirectory,
       );
-      const { projectRoot, ...repositoryRoots } = repositoryContext;
+      const { projectRoot, lookupFailure, ...repositoryRoots } =
+        repositoryContext;
+      if (lookupFailure) {
+        logger.debug(
+          `Git repository lookup failed for ${chalk.dim(projectRoot)}, treating it as a plain directory: ${lookupFailure}`,
+        );
+      }
       const globalConfig = loadTomlConfig(globalConfigPath);
       const sandboxDir = getProjectSandboxDir(projectRoot);
       if (pathExists(sandboxDir))

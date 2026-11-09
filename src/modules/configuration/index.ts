@@ -4,6 +4,7 @@ export {
   readNetworkConfigFile,
   writeNetworkConfigFile,
 } from "./allowed-network-config-update.js";
+export { injectTomlArrayEntries } from "./toml-array-injection.js";
 /** @lintignore Public configuration model contract. */
 
 export { showActiveConfig } from "./active-config-display.js";

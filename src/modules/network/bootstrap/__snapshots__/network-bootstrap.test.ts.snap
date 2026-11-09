@@ -72,6 +72,10 @@ forward_timeout 120 seconds
 server_persistent_connections on
 client_persistent_connections on
 
+acl private_destinations dst 0.0.0.0/8 10.0.0.0/8 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 ::/128 ::1/128 fc00::/7 fe80::/10 ff00::/8
+acl private_exempt_hosts dstdomain -n host.docker.internal
+http_access deny !private_exempt_hosts private_destinations all
+
 acl allowed_domains_0 dstdomain -n "/var/run/proxy-allowed-domains-0.txt"
 acl allowed_ports_0 port 1-65535
 http_access allow allowed_domains_0 allowed_ports_0

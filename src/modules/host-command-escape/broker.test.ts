@@ -66,6 +66,7 @@ async function createSessionFixture(
     ["tool", { repeat: { regex: ".*" }, min: 0, max: 10 }],
   ],
   errorLogs: string[] = [],
+  debugLogs: string[] = [],
 ): Promise<SessionFixture> {
   const root = createTestDir("host-command-session");
   const hostProjectRoot = path.join(root, "project");
@@ -85,7 +86,7 @@ async function createSessionFixture(
     info: () => undefined,
     warn: () => undefined,
     error: (message) => errorLogs.push(message),
-    debug: () => undefined,
+    debug: (message) => debugLogs.push(message),
     startTiming: () => undefined,
     endTiming: () => undefined,
     setVerbose: () => undefined,
@@ -401,6 +402,87 @@ describe("host command escape session", () => {
     });
   });
 
+  test("blocks executable lookup from the working directory for every host command", async () => {
+    await using fixture = await createSessionFixture();
+    const child = fixture.processes.expectStart({ match: { command: "tool" } });
+    await using connection = await fixture.connect();
+    const messages = await startExecute(connection, ["tool", "status"]);
+    const request = await child.waitForStart();
+    expect(request.command).toBe("tool");
+    expect(request.args).toEqual(["status"]);
+    expect(request.env).toEqual({
+      HOST_ONLY: "unchanged",
+      PATH: process.env.PATH ?? "",
+      NoDefaultCurrentDirectoryInExePath: "1",
+    });
+    child.exit({ exitCode: 0 });
+    expect((await collectUntilExit(messages)).exitCode).toBe(0);
+  });
+
+  test("disables repository-controlled git hooks and fsmonitor commands", async () => {
+    await using fixture = await createSessionFixture([
+      ["git", ["status", "diff"]],
+    ]);
+    const child = fixture.processes.expectStart({ match: { command: "git" } });
+    await using connection = await fixture.connect();
+    const messages = await startExecute(connection, ["git", "status"]);
+    const request = await child.waitForStart();
+    expect(request.command).toBe("git");
+    expect(request.args).toEqual([
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "core.hooksPath=/dev/null",
+      "status",
+    ]);
+    child.exit({ exitCode: 0 });
+    expect((await collectUntilExit(messages)).exitCode).toBe(0);
+  });
+
+  test("warns once in verbose output that host command rules grant host code execution", async () => {
+    const debugLogs: string[] = [];
+    await using fixture = await createSessionFixture(
+      [["tool", "safe"]],
+      [],
+      debugLogs,
+    );
+    expect(fixture.processes.requests).toHaveLength(0);
+    const warnings = debugLogs.filter((message) =>
+      message.includes("run with host user permissions"),
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("1 host command rule");
+  });
+
+  test("keeps forwarding signals and the real exit code after the child closes its input", async () => {
+    await using fixture = await createSessionFixture();
+    const child = fixture.processes.expectStart({ match: { command: "tool" } });
+    await using connection = await fixture.connect();
+    const messages = await startExecute(connection);
+    await child.waitForStart();
+    child.pauseInput();
+    await connection.sendBinary(
+      encodeBinaryChannel(STREAM_CHANNEL.stdin, Buffer.from("pending")),
+    );
+    await child.waitForInput();
+    child.failInput(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    await connection.sendBinary(
+      encodeBinaryChannel(STREAM_CHANNEL.stdin, Buffer.from("ignored")),
+    );
+    await connection.sendText(encodeControlMessage({ type: "stdin-end" }));
+    await connection.sendText(
+      encodeControlMessage({ type: "signal", signal: "SIGINT" }),
+    );
+    expect(await child.waitForSignal()).toBe("SIGINT");
+    child.emitStdout("abc123");
+    child.exit({ exitCode: 7 });
+    expect(await collectUntilExit(messages)).toEqual({
+      stdout: "abc123",
+      stderr: "",
+      exitCode: 7,
+    });
+  });
+
   test("ends connections that do not submit an initial command", async () => {
     await using fixture = await createSessionFixture();
     await using connection = await fixture.connect();
@@ -567,6 +649,7 @@ describe("host command escape session", () => {
     expect(request.env).toEqual({
       HOST_ONLY: "unchanged",
       PATH: process.env.PATH ?? "",
+      NoDefaultCurrentDirectoryInExePath: "1",
     });
     child.emitStdout("client-out");
     child.emitStderr("client-err");

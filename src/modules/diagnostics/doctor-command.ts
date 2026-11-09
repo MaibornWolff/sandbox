@@ -1,5 +1,8 @@
 import chalk from "chalk";
-import { getConfigurationService } from "#modules/configuration/index.js";
+import {
+  getConfigurationService,
+  getGlobalConfigPath,
+} from "#modules/configuration/index.js";
 import { getClock } from "#platform/clock/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import { checkConfigurationDiagnostics } from "./configuration-diagnostics.js";
@@ -37,4 +40,9 @@ export async function doctorCommand(): Promise<void> {
   summary.warnings += settingsResult.warnings.length;
 
   displayDoctorSummary(summary);
+  if (!configurationResult.valid) {
+    throw new Error(
+      `Global config ${getGlobalConfigPath()} is invalid. Fix the errors listed above.`,
+    );
+  }
 }

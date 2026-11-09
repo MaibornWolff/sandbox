@@ -5,9 +5,11 @@ import {
 } from "#modules/configuration/index.js";
 import {
   getSquidDomainAclPath,
+  isIpAddress,
   type SquidDomainAclGroup,
 } from "#platform/container-system/index.js";
 import type { NetworkBootstrapRequest } from "./bootstrap-request-parsing.js";
+import type { GuestHostMapping } from "./guest-host-mappings.js";
 
 const SQUID_COMMON = `http_port 127.0.0.1:8888 tcpkeepalive=60,10,6
 cache deny all
@@ -45,6 +47,64 @@ server_persistent_connections on
 client_persistent_connections on
 `;
 
+/**
+ * Destination address ranges that an allowed domain must not resolve to.
+ * A DNS record under an allowed wildcard could otherwise point the proxy at
+ * loopback, link-local metadata services, or private networks.
+ */
+const PRIVATE_DESTINATION_RANGES = [
+  "0.0.0.0/8",
+  "10.0.0.0/8",
+  "127.0.0.0/8",
+  "169.254.0.0/16",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+  "224.0.0.0/4",
+  "::/128",
+  "::1/128",
+  "fc00::/7",
+  "fe80::/10",
+  "ff00::/8",
+] as const;
+
+/** @testonly */
+export interface SquidHostAccess {
+  readonly hostAccessName: string;
+  readonly hostMappings: readonly GuestHostMapping[];
+}
+
+/**
+ * Explicit request hosts that may reach private destinations: IP literals from
+ * the allowlist and the container runtime host access names. Squid matches
+ * them by name (`-n`), so a domain that resolves to a private address stays
+ * denied.
+ */
+function collectPrivateExemptHosts(
+  request: NetworkBootstrapRequest,
+  hostAccess: SquidHostAccess,
+): string[] {
+  const hosts = new Set<string>();
+  for (const { host, wildcard } of request.allowNetwork) {
+    if (!wildcard && isIpAddress(host)) hosts.add(host);
+  }
+  hosts.add(hostAccess.hostAccessName);
+  for (const { host } of hostAccess.hostMappings) hosts.add(host);
+  return [...hosts];
+}
+
+function renderPrivateDestinationPolicy(
+  request: NetworkBootstrapRequest,
+  hostAccess: SquidHostAccess,
+): string {
+  const exemptHosts = collectPrivateExemptHosts(request, hostAccess);
+  // The trailing `all` keeps the custom deny_info page for this rule.
+  return (
+    `acl private_destinations dst ${PRIVATE_DESTINATION_RANGES.join(" ")}\n` +
+    `acl private_exempt_hosts dstdomain -n ${exemptHosts.join(" ")}\n` +
+    "http_access deny !private_exempt_hosts private_destinations all\n"
+  );
+}
+
 const BLOCKED_ERROR_PAGE =
   "HTTP 403 Blocked: %H is not in the domain allowlist. Use 'sandbox network allow' to allow, or 'sandbox network logs' to inspect.\n";
 
@@ -63,7 +123,10 @@ function removeDomainsCoveredByWildcard(
 }
 
 /** @testonly */
-export function renderSquidConfig(request: NetworkBootstrapRequest): {
+export function renderSquidConfig(
+  request: NetworkBootstrapRequest,
+  hostAccess: SquidHostAccess,
+): {
   readonly config: string;
   readonly domainAclGroups?: readonly SquidDomainAclGroup[];
   readonly blockedErrorPage?: string;
@@ -108,8 +171,10 @@ export function renderSquidConfig(request: NetworkBootstrapRequest): {
     content: `${removeDomainsCoveredByWildcard(domains).join("\n")}\n`,
   }));
 
+  const privatePolicy = renderPrivateDestinationPolicy(request, hostAccess);
+
   return {
-    config: `${SQUID_COMMON}\n${aclConfig}${aclConfig ? "\n" : ""}deny_info ERR_SANDBOX_BLOCKED all
+    config: `${SQUID_COMMON}\n${privatePolicy}\n${aclConfig}${aclConfig ? "\n" : ""}deny_info ERR_SANDBOX_BLOCKED all
 error_directory /usr/share/squid/errors/custom
 http_access deny all
 `,

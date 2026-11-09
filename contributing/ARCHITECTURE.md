@@ -28,6 +28,11 @@ Host-command and clipboard permissions are separate capabilities.
 It is an explicit host access path, not part of filesystem isolation.
 See [security](../docs/SECURITY.md).
 
+The network proxy checks the resolved destination addresses of allowed domains.
+It denies loopback, link-local, private, unspecified, and multicast destinations.
+Explicitly allowed IP literals and container runtime host access names can reach private addresses.
+A domain under an allowed wildcard that resolves to a private address stays blocked.
+
 ## Code ownership
 
 Dependencies point inward:

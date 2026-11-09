@@ -40,7 +40,7 @@ interface DockerInspection {
 function isMissingContainer(error: unknown): boolean {
   return (
     error instanceof ExecError &&
-    /no such container|no container with name or id|container not found/iu.test(
+    /no such container|no such object|no container with name or id|container not found/iu.test(
       `${error.stderr}\n${error.stdout}\n${error.message}`,
     )
   );
@@ -163,6 +163,7 @@ export function createDockerContainerOperations(options: {
       { binaryName, signalContainer: signal },
       {
         args: buildContainerRunArgs(spec, "attached", runtime),
+        env: spec.environment,
         signalContainer: spec.name,
         ...(session.title ? { title: session.title } : {}),
         ...(session.forwardSignal
@@ -185,6 +186,7 @@ export function createDockerContainerOperations(options: {
       const output = await exec(
         binaryName,
         buildContainerRunArgs(spec, "detached", runtime),
+        { env: spec.environment },
       ).catch((error: unknown) => {
         if (
           error instanceof ExecError &&
@@ -222,6 +224,7 @@ export function createDockerContainerOperations(options: {
         exec,
         binaryName,
         buildContainerExecArgs(id, spec),
+        { env: spec.environment ?? {} },
       );
     },
     async openExec(id, spec) {
@@ -231,6 +234,7 @@ export function createDockerContainerOperations(options: {
           attachStdin: true,
           allocateTerminal: false,
         }),
+        spec.environment,
       );
     },
     execAttached(id, spec, session) {
@@ -238,6 +242,7 @@ export function createDockerContainerOperations(options: {
         { binaryName, signalContainer: signal },
         {
           args: buildContainerExecArgs(id, spec, session),
+          ...(spec.environment ? { env: spec.environment } : {}),
           ...(session.title ? { title: session.title } : {}),
           ...(session.forwardSignal
             ? { forwardSignal: session.forwardSignal }

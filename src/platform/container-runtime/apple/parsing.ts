@@ -47,6 +47,7 @@ function normalizeState(
     case "running":
     case "paused":
     case "restarting":
+    case "stopping":
     case "exited":
     case "dead":
       return value;

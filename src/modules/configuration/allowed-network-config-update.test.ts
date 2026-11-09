@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { injectAllowedDomains } from "./allowed-network-config-update.js";
+import { cleanupTestDir, createTestDir } from "#test/utils.js";
+import {
+  injectAllowedDomains,
+  readNetworkConfigFile,
+  writeNetworkConfigFile,
+} from "./allowed-network-config-update.js";
 
 describe("injectAllowedDomains", () => {
   test("empty content creates new allow_network section", () => {
@@ -127,5 +134,75 @@ describe("injectAllowedDomains", () => {
     expect(parsed.allow_network).toContain("github.com");
     expect(result).toContain("# note");
     expect(result).not.toMatch(/# note,/);
+  });
+
+  test("appends allow_network before the first table so it stays top-level", () => {
+    const content =
+      'runtime = "docker"\n\n[[allow_host_commands]]\npattern = ["git"]\n';
+    const result = injectAllowedDomains(content, ["github.com"]);
+    const parsed = parseToml(result) as {
+      allow_network: string[];
+      allow_host_commands: { pattern: string[] }[];
+    };
+    expect(parsed.allow_network).toEqual(["github.com"]);
+    expect(parsed.allow_host_commands).toEqual([{ pattern: ["git"] }]);
+  });
+
+  test("ignores a closing bracket inside a comment", () => {
+    const content = 'allow_network = [\n  "existing.com", # see [docs]\n]\n';
+    const result = injectAllowedDomains(content, ["github.com"]);
+    const parsed = parseToml(result) as { allow_network: string[] };
+    expect(parsed.allow_network).toEqual(["existing.com", "github.com"]);
+    expect(result).toContain("# see [docs]");
+  });
+
+  test.each([
+    'a.com","*.evil.com',
+    "a.com\nconf-file=/x",
+    "a.com b.com",
+    "",
+    "*",
+  ])("rejects %j as a network entry", (domain) => {
+    expect(() => injectAllowedDomains("", [domain])).toThrow(
+      /Invalid network entry/,
+    );
+  });
+
+  test.each([
+    "github.com",
+    "*.github.com:443",
+    "10.0.0.1:{80,443}",
+    "api.x.io:*",
+  ])("accepts %s as a network entry", (domain) => {
+    const parsed = parseToml(injectAllowedDomains("", [domain])) as {
+      allow_network: string[];
+    };
+    expect(parsed.allow_network).toEqual([domain]);
+  });
+});
+
+describe("readNetworkConfigFile", () => {
+  test("returns empty content for a missing file", () => {
+    const dir = createTestDir("network-config-read");
+    using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(dir) };
+    expect(readNetworkConfigFile(path.join(dir, "config.toml"))).toBe("");
+  });
+
+  test("throws for a path that cannot be read", () => {
+    const dir = createTestDir("network-config-read");
+    using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(dir) };
+    expect(() => readNetworkConfigFile(dir)).toThrow(/EISDIR/);
+  });
+});
+
+describe("writeNetworkConfigFile", () => {
+  test("creates parent directories and leaves no temporary files", () => {
+    const dir = createTestDir("network-config-write");
+    using _cleanup = { [Symbol.dispose]: () => cleanupTestDir(dir) };
+    const target = path.join(dir, "nested", "config.toml");
+    writeNetworkConfigFile(target, "a = 1\n");
+    writeNetworkConfigFile(target, "a = 2\n");
+    expect(fs.readFileSync(target, "utf8")).toBe("a = 2\n");
+    expect(fs.readdirSync(path.dirname(target))).toEqual(["config.toml"]);
   });
 });

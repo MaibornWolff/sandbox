@@ -7,6 +7,7 @@ import { getTerminal } from "#platform/terminal/index.js";
 
 interface InteractiveContainerRuntimeProcessOptions {
   readonly args: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
   readonly title?: string;
   readonly signalContainer?: string;
   readonly forwardSignal?: (signal: NodeJS.Signals) => Promise<boolean>;
@@ -40,6 +41,7 @@ export function startInteractiveContainerRuntimeProcess(
   return getProcessManager().start({
     command: runtime.binaryName,
     args: options.args,
+    ...(options.env ? { env: options.env } : {}),
     lifetime: "application",
     interaction: {
       mode: "interactive",

@@ -15,13 +15,15 @@ function formatPort(port: ContainerSpec["ports"][number]): string {
   return `${address}${port.hostPort}:${port.containerPort}/${port.protocol}`;
 }
 
-function pushEnvironment(
+/**
+ * Pass only the variable names. The values travel in the runtime client's
+ * process environment, so they never show up in `ps` or `/proc/<pid>/cmdline`.
+ */
+function pushEnvironmentKeys(
   args: string[],
   environment: Readonly<Record<string, string>>,
 ): void {
-  for (const [key, value] of Object.entries(environment)) {
-    args.push("-e", `${key}=${value}`);
-  }
+  for (const key of Object.keys(environment)) args.push("-e", key);
 }
 
 export function buildContainerRunArgs(
@@ -37,7 +39,7 @@ export function buildContainerRunArgs(
   for (const [key, value] of Object.entries(spec.labels)) {
     args.push("--label", `${key}=${value}`);
   }
-  pushEnvironment(args, spec.environment);
+  pushEnvironmentKeys(args, spec.environment);
   for (const mount of spec.mounts) args.push("-v", formatMount(mount));
   for (const port of spec.ports) args.push("-p", formatPort(port));
   for (const capability of spec.security.capabilities) {
@@ -91,7 +93,7 @@ export function buildContainerExecArgs(
   if (session?.allocateTerminal) args.push("-t");
   if (spec.user) args.push("-u", spec.user);
   if (spec.workingDirectory) args.push("-w", spec.workingDirectory);
-  pushEnvironment(args, spec.environment ?? {});
+  pushEnvironmentKeys(args, spec.environment ?? {});
   args.push(id, ...spec.command);
   return args;
 }

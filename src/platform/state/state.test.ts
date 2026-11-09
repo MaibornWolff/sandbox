@@ -48,10 +48,22 @@ describe("readState", () => {
     });
   });
 
-  it("returns empty state when a known field is invalid", () => {
+  it("drops only the invalid fields and warns", () => {
     const statePath = path.join(testDir, "state.json");
-    fs.writeFileSync(statePath, JSON.stringify({ latestVersion: 123 }));
-    expect(readState(statePath)).toEqual({});
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        latestVersion: 123,
+        templateHashes: { config: "abc" },
+        sandboxImages: { base: { reference: "r", digest: "d" } },
+      }),
+    );
+    const messages: string[] = [];
+    expect(runWithCapturedLogs(messages, () => readState(statePath))).toEqual({
+      templateHashes: { config: "abc" },
+      sandboxImages: { base: { reference: "r", digest: "d" } },
+    });
+    expect(messages.join("\n")).toContain("latestVersion");
   });
 });
 
@@ -96,6 +108,31 @@ describe("writeState", () => {
     const nestedPath = path.join(testDir, "a", "b", "c", "state.json");
     writeState({ latestVersion: "1.2.3" }, nestedPath);
     expect(readState(nestedPath)).toEqual({ latestVersion: "1.2.3" });
+  });
+
+  it("keeps valid fields when another stored field is invalid", () => {
+    const statePath = path.join(testDir, "state.json");
+    fs.writeFileSync(
+      statePath,
+      JSON.stringify({
+        latestVersion: 123,
+        sandboxImages: { base: { reference: "r", digest: "d" } },
+      }),
+    );
+    runWithCapturedLogs([], () =>
+      writeState({ templateHashes: { config: "abc" } }, statePath),
+    );
+    expect(readState(statePath)).toEqual({
+      templateHashes: { config: "abc" },
+      sandboxImages: { base: { reference: "r", digest: "d" } },
+    });
+  });
+
+  it("replaces the file in one step without leaving temporary files", () => {
+    const statePath = path.join(testDir, "state.json");
+    writeState({ latestVersion: "1.0.0" }, statePath);
+    writeState({ latestVersion: "2.0.0" }, statePath);
+    expect(fs.readdirSync(testDir)).toEqual(["state.json"]);
   });
 
   it("round-trips writes and reads", () => {

@@ -5,6 +5,40 @@ import { buildFirewallPlan, buildIpv6FirewallPlan } from "./firewall-plan.js";
 import { parseGuestHostMappings } from "./guest-host-mappings.js";
 import { renderSquidConfig } from "./squid-config-rendering.js";
 
+const hostAccess = {
+  hostAccessName: "host.docker.internal",
+  hostMappings: [{ host: "host.docker.internal", address: "192.168.64.1" }],
+};
+
+interface SquidAccessPolicy {
+  readonly acls: ReadonlyMap<
+    string,
+    { readonly type: string; readonly values: readonly string[] }
+  >;
+  readonly rules: readonly {
+    readonly action: string;
+    readonly acls: readonly string[];
+  }[];
+}
+
+function parseSquidAccessPolicy(config: string): SquidAccessPolicy {
+  const acls = new Map<string, { type: string; values: string[] }>();
+  const rules: { action: string; acls: string[] }[] = [];
+  for (const line of config.split("\n")) {
+    const [directive, ...fields] = line.trim().split(/\s+/u);
+    if (directive === "acl") {
+      const [name = "", type = "", ...values] = fields;
+      const existing = acls.get(name);
+      if (existing) existing.values.push(...values);
+      else acls.set(name, { type, values });
+    } else if (directive === "http_access") {
+      const [action = "", ...names] = fields;
+      rules.push({ action, acls: names });
+    }
+  }
+  return { acls, rules };
+}
+
 const restrictedRequest = {
   enabled: true,
   allowNetwork: [
@@ -340,7 +374,7 @@ describe("network configuration rendering", () => {
   });
 
   test("binds each Squid domain group to its own port ACL for every method", () => {
-    const rendered = renderSquidConfig(allPortRequest);
+    const rendered = renderSquidConfig(allPortRequest, hostAccess);
     expect(rendered.domainAclGroups).toEqual([
       { id: 0, content: "all.example\n" },
       { id: 1, content: "restricted.example\n" },
@@ -363,15 +397,18 @@ describe("network configuration rendering", () => {
   });
 
   test("removes exact domains covered by a wildcard in the same port group", () => {
-    const rendered = renderSquidConfig({
-      ...restrictedRequest,
-      allowNetwork: [
-        { host: "github.com", ports: [80, 443], wildcard: true },
-        { host: "api.github.com", ports: [80, 443], wildcard: false },
-        { host: "codeload.github.com", ports: [80, 443], wildcard: false },
-        { host: "github.com", ports: [22, 80, 443], wildcard: false },
-      ],
-    });
+    const rendered = renderSquidConfig(
+      {
+        ...restrictedRequest,
+        allowNetwork: [
+          { host: "github.com", ports: [80, 443], wildcard: true },
+          { host: "api.github.com", ports: [80, 443], wildcard: false },
+          { host: "codeload.github.com", ports: [80, 443], wildcard: false },
+          { host: "github.com", ports: [22, 80, 443], wildcard: false },
+        ],
+      },
+      hostAccess,
+    );
 
     expect(rendered.domainAclGroups).toEqual([
       { id: 0, content: "github.com\n" },
@@ -380,15 +417,18 @@ describe("network configuration rendering", () => {
   });
 
   test("preserves effective port unions across exact and wildcard rules", () => {
-    const rendered = renderSquidConfig({
-      ...restrictedRequest,
-      allowNetwork: [
-        { host: "github.com", ports: [80, 443], wildcard: false },
-        { host: "github.com", ports: [123], wildcard: false },
-        { host: "api.github.com", ports: [80, 443], wildcard: false },
-        { host: "github.com", ports: [22], wildcard: true },
-      ],
-    });
+    const rendered = renderSquidConfig(
+      {
+        ...restrictedRequest,
+        allowNetwork: [
+          { host: "github.com", ports: [80, 443], wildcard: false },
+          { host: "github.com", ports: [123], wildcard: false },
+          { host: "api.github.com", ports: [80, 443], wildcard: false },
+          { host: "github.com", ports: [22], wildcard: true },
+        ],
+      },
+      hostAccess,
+    );
 
     expect(rendered.domainAclGroups).toEqual([
       { id: 0, content: "github.com\n" },
@@ -429,13 +469,16 @@ describe("network configuration rendering", () => {
   ])(
     "preserves Squid wildcard policy for $name",
     ({ allowNetwork, expectedContent }) => {
-      const rendered = renderSquidConfig({
-        ...restrictedRequest,
-        allowNetwork: allowNetwork.map((rule) => ({
-          ...rule,
-          ports: [...rule.ports],
-        })),
-      });
+      const rendered = renderSquidConfig(
+        {
+          ...restrictedRequest,
+          allowNetwork: allowNetwork.map((rule) => ({
+            ...rule,
+            ports: [...rule.ports],
+          })),
+        },
+        hostAccess,
+      );
 
       expect(
         rendered.domainAclGroups?.map(({ content }) => content).join("|"),
@@ -443,11 +486,99 @@ describe("network configuration rendering", () => {
     },
   );
 
+  test("denies private destinations before any domain allow rule", () => {
+    const { acls, rules } = parseSquidAccessPolicy(
+      renderSquidConfig(restrictedRequest, hostAccess).config,
+    );
+    const firstAllow = rules.findIndex(({ action }) => action === "allow");
+    const privateDeny = rules.findIndex(
+      ({ action, acls: names }) =>
+        action === "deny" && names.includes("private_destinations"),
+    );
+    expect(privateDeny).toBeGreaterThanOrEqual(0);
+    expect(privateDeny).toBeLessThan(firstAllow);
+    expect(acls.get("private_destinations")?.type).toBe("dst");
+    for (const range of [
+      "127.0.0.0/8",
+      "::1/128",
+      "169.254.0.0/16",
+      "fe80::/10",
+      "10.0.0.0/8",
+      "172.16.0.0/12",
+      "192.168.0.0/16",
+      "fc00::/7",
+      "0.0.0.0/8",
+      "::/128",
+      "224.0.0.0/4",
+      "ff00::/8",
+    ]) {
+      expect(acls.get("private_destinations")?.values).toContain(range);
+    }
+    expect(rules.at(-1)).toEqual({ action: "deny", acls: ["all"] });
+  });
+
+  test("exempts explicit IP rules and host access names from the private deny", () => {
+    const { acls, rules } = parseSquidAccessPolicy(
+      renderSquidConfig(
+        {
+          ...restrictedRequest,
+          allowNetwork: [
+            { host: "github.io", ports: [443], wildcard: true },
+            { host: "192.168.1.5", ports: [443], wildcard: false },
+            { host: "fd00::5", ports: [8443], wildcard: false },
+          ],
+        },
+        {
+          ...hostAccess,
+          hostMappings: [
+            ...hostAccess.hostMappings,
+            { host: "host.container.internal", address: "192.168.64.1" },
+          ],
+        },
+      ).config,
+    );
+    const privateDeny = rules.find(
+      ({ action, acls: names }) =>
+        action === "deny" && names.includes("private_destinations"),
+    );
+    expect(privateDeny?.acls).toContain("!private_exempt_hosts");
+    const exempt = acls.get("private_exempt_hosts");
+    expect(exempt?.type).toBe("dstdomain");
+    expect(exempt?.values).toContain("-n");
+    expect(new Set(exempt?.values.filter((value) => value !== "-n"))).toEqual(
+      new Set([
+        "192.168.1.5",
+        "fd00::5",
+        "host.docker.internal",
+        "host.container.internal",
+      ]),
+    );
+  });
+
+  test("keeps the private deny when no explicit exemption exists", () => {
+    const { acls, rules } = parseSquidAccessPolicy(
+      renderSquidConfig(
+        { ...restrictedRequest, allowNetwork: [] },
+        { hostAccessName: "host.docker.internal", hostMappings: [] },
+      ).config,
+    );
+    expect(acls.get("private_exempt_hosts")?.values).toEqual([
+      "-n",
+      "host.docker.internal",
+    ]);
+    expect(
+      rules.some(({ acls: names }) => names.includes("private_destinations")),
+    ).toBe(true);
+  });
+
   test("renders allow-all Squid without ACL files", () => {
-    const rendered = renderSquidConfig({
-      ...restrictedRequest,
-      fullNetwork: true,
-    });
+    const rendered = renderSquidConfig(
+      {
+        ...restrictedRequest,
+        fullNetwork: true,
+      },
+      hostAccess,
+    );
     expect(rendered.domainAclGroups).toBeUndefined();
     expect(rendered.config).toContain("http_access allow all");
     expect(rendered).toMatchSnapshot();

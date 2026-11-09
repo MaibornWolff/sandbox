@@ -59,6 +59,23 @@ describe("Apple container 1.4.1 parsing", () => {
     });
   });
 
+  test("keeps the Apple stopping state so callers can wait for shutdown", () => {
+    const container = parseAppleContainer(
+      {
+        configuration: {
+          id: "stopping",
+          image: {
+            reference: "image",
+            descriptor: { digest: "sha256:image" },
+          },
+        },
+        status: { state: "stopping", startedDate: "2026-10-01T14:00:00Z" },
+      },
+      () => "/unused",
+    );
+    expect(container.state).toBe("stopping");
+  });
+
   test("rejects malformed, incomplete, and invalid-date output", () => {
     expect(() =>
       parseAppleContainerArray("not-json", "container list"),

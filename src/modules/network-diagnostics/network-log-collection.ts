@@ -19,6 +19,7 @@ import type {
 } from "./network-diagnostics.js";
 import { aggregateProxyLog, parseProxyLog } from "./proxy-log-parsing.js";
 
+/** Return null instead of failing the whole report when one container cannot be read. */
 async function readContainerLogs(
   service: SandboxRuntime,
   containerId: string,

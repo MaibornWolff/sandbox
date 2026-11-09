@@ -50,6 +50,7 @@ async function collectDiagnostic(
   }
 }
 
+/** One failure applies to all log sections because the logs arrive in one command. */
 async function collectLogDiagnostics(
   service: SandboxRuntime,
   containerId: string,

@@ -8,14 +8,16 @@ import {
 import { getClock } from "#platform/clock/index.js";
 import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import type { ContainerLogSource } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { formatRelativeTime } from "#shared/time/index.js";
 import {
-  buildContainerDiagnosticCommand,
   buildContainerNetworkStateCommand,
+  execContainerDiagnostic,
+  fetchContainerLogBundle,
 } from "./container-diagnostic-commands.js";
 import type {
   NetworkConnectionStatus,
@@ -48,23 +50,30 @@ async function collectDiagnostic(
   }
 }
 
-function readContainerDiagnostic(
+async function collectLogDiagnostics(
   service: SandboxRuntime,
   containerId: string,
-  command: string[],
-): Promise<NetworkDiagnostic> {
-  return collectDiagnostic(async () => {
-    const result = await service.instances.exec(containerId, {
-      command,
-      user: "root",
-    });
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Container diagnostic failed with exit code ${result.exitCode}: ${result.stderr}`,
-      );
-    }
-    return result.stdout;
-  });
+): Promise<Readonly<Record<ContainerLogSource, NetworkDiagnostic>>> {
+  try {
+    const logs = await fetchContainerLogBundle(service, containerId);
+    return {
+      firewall: { output: logs.firewall },
+      dns: { output: logs.dns },
+      "proxy-access": { output: logs["proxy-access"] },
+      "proxy-cache": { output: logs["proxy-cache"] },
+    };
+  } catch (error) {
+    const failure: NetworkDiagnostic = {
+      output: "",
+      error: getErrorMessage(error),
+    };
+    return {
+      firewall: failure,
+      dns: failure,
+      "proxy-access": failure,
+      "proxy-cache": failure,
+    };
+  }
 }
 
 function formatStatus(status: NetworkConnectionStatus): string {
@@ -150,44 +159,26 @@ async function collectRawSections(
   service: SandboxRuntime,
   containerId: string,
 ): Promise<readonly RawDiagnosticSection[]> {
-  const [runtimeLog, networkState, firewall, dns, proxyAccess, proxyCache] =
-    await Promise.all([
-      collectDiagnostic(() =>
-        service.instances.readLogs(containerId, { tail: 200 }),
-      ),
-      readContainerDiagnostic(
+  const [runtimeLog, networkState, logs] = await Promise.all([
+    collectDiagnostic(() =>
+      service.instances.readLogs(containerId, { tail: 200 }),
+    ),
+    collectDiagnostic(() =>
+      execContainerDiagnostic(
         service,
         containerId,
         buildContainerNetworkStateCommand(),
       ),
-      readContainerDiagnostic(
-        service,
-        containerId,
-        buildContainerDiagnosticCommand("firewall"),
-      ),
-      readContainerDiagnostic(
-        service,
-        containerId,
-        buildContainerDiagnosticCommand("dns"),
-      ),
-      readContainerDiagnostic(
-        service,
-        containerId,
-        buildContainerDiagnosticCommand("proxy-access"),
-      ),
-      readContainerDiagnostic(
-        service,
-        containerId,
-        buildContainerDiagnosticCommand("proxy-cache"),
-      ),
-    ]);
+    ),
+    collectLogDiagnostics(service, containerId),
+  ]);
   return buildRawDiagnosticSections({
     runtimeLog,
     networkState,
-    firewall,
-    dns,
-    proxyAccess,
-    proxyCache,
+    firewall: logs.firewall,
+    dns: logs.dns,
+    proxyAccess: logs["proxy-access"],
+    proxyCache: logs["proxy-cache"],
   });
 }
 

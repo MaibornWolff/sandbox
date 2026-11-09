@@ -3,11 +3,17 @@ import { getSandboxEnvironment } from "#platform/environment/index.js";
 import { readTextFile } from "#platform/filesystem/index.js";
 import { executeContainerCommand } from "./command.js";
 
-export type ContainerLogSource =
-  | "firewall"
-  | "dns"
-  | "proxy-access"
-  | "proxy-cache";
+export const CONTAINER_LOG_SOURCES = [
+  "firewall",
+  "dns",
+  "proxy-access",
+  "proxy-cache",
+] as const;
+
+export type ContainerLogSource = (typeof CONTAINER_LOG_SOURCES)[number];
+
+/** All network diagnostic logs read in one pass, keyed by source. */
+export type ContainerLogBundle = Readonly<Record<ContainerLogSource, string>>;
 
 const LOG_SOURCES: Record<
   ContainerLogSource,
@@ -40,6 +46,50 @@ export function readContainerLog(source: ContainerLogSource): string {
   } catch {
     return definition.missingOutput;
   }
+}
+
+export function readContainerLogBundle(): ContainerLogBundle {
+  return {
+    firewall: readContainerLog("firewall"),
+    dns: readContainerLog("dns"),
+    "proxy-access": readContainerLog("proxy-access"),
+    "proxy-cache": readContainerLog("proxy-cache"),
+  };
+}
+
+export function serializeContainerLogBundle(
+  bundle: ContainerLogBundle,
+): string {
+  return `${JSON.stringify(bundle)}\n`;
+}
+
+export function parseContainerLogBundle(output: string): ContainerLogBundle {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch (error) {
+    throw new Error("Container log bundle is not valid JSON.", {
+      cause: error,
+    });
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Container log bundle has an invalid shape.");
+  }
+  const record = parsed as Readonly<Record<string, unknown>>;
+  const bundle: Record<ContainerLogSource, string> = {
+    firewall: "",
+    dns: "",
+    "proxy-access": "",
+    "proxy-cache": "",
+  };
+  for (const source of CONTAINER_LOG_SOURCES) {
+    const value = record[source];
+    if (typeof value !== "string") {
+      throw new Error(`Container log bundle is missing the ${source} log.`);
+    }
+    bundle[source] = value;
+  }
+  return bundle;
 }
 
 async function captureBestEffort(

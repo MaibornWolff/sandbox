@@ -1,21 +1,17 @@
 import { Argument, Command } from "commander";
 import { getSandboxSettings } from "#modules/sandbox-settings/index.js";
 import {
+  CONTAINER_LOG_SOURCES,
   type ContainerLogSource,
   collectPassiveNetworkState,
   readContainerLog,
+  readContainerLogBundle,
+  serializeContainerLogBundle,
 } from "#platform/container-system/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import { diagnoseContainerX11 } from "#platform/x11-clipboard/index.js";
 import { runClipboardProxyCommand } from "./clipboard-proxy-command.js";
 import { runContainerEntrypoint } from "./entrypoint.js";
-
-const NETWORK_DIAGNOSTIC_SOURCES = [
-  "firewall",
-  "dns",
-  "proxy-access",
-  "proxy-cache",
-] as const satisfies readonly ContainerLogSource[];
 
 export function createContainerToolsProgram(
   version: string,
@@ -53,11 +49,17 @@ export function createContainerToolsProgram(
   network
     .command("diagnostic")
     .description("Read a network diagnostic log")
-    .addArgument(
-      new Argument("<source>").choices([...NETWORK_DIAGNOSTIC_SOURCES]),
-    )
+    .addArgument(new Argument("<source>").choices([...CONTAINER_LOG_SOURCES]))
     .action((source: ContainerLogSource) => {
       getTerminal().stdout.write(readContainerLog(source));
+    });
+  network
+    .command("diagnostics")
+    .description("Read all network diagnostic logs as one JSON document")
+    .action(() => {
+      getTerminal().stdout.write(
+        serializeContainerLogBundle(readContainerLogBundle()),
+      );
     });
   network
     .command("state")

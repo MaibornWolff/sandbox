@@ -1,24 +1,15 @@
 import * as path from "node:path";
 import * as pathPosix from "node:path/posix";
+import chalk from "chalk";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
-import { resolveContainerPath } from "#shared/text/index.js";
+import { hasNormalizedPathSegments } from "#shared/text/index.js";
 
 /**
  * Container home directory
  */
 const CONTAINER_HOME = "/home/sandbox";
 
-/**
- * Resolve a persist path configuration to host and container paths.
- *
- * Input formats:
- * - ~/.foo       → hostPath in persist storage, containerPath: /home/sandbox/.foo
- * - ./foo        → hostPath in persist storage/workdir/, containerPath: {projectPath}/foo
- * - /home/sandbox/foo → hostPath in persist storage, containerPath: /home/sandbox/foo
- *
- * @returns Object with hostPath and containerPath, or null if invalid
- */
 interface ResolvedPersistentPaths {
   hostPath: string;
   containerPath: string;
@@ -26,34 +17,80 @@ interface ResolvedPersistentPaths {
   originHostPath: string;
 }
 
+interface PersistPathTarget {
+  /** Whether the path lives below the container home or the project directory. */
+  scope: "home" | "project";
+  /** Path below the scope root, without the configured prefix. */
+  relativePath: string;
+}
+
+/**
+ * Split a persist path into its scope and the path below that scope.
+ *
+ * Input formats:
+ * - ~/.foo            → home scope, relativePath ".foo"
+ * - ./foo             → project scope, relativePath "foo"
+ * - /home/sandbox/foo → home scope, relativePath "foo"
+ *
+ * @returns The target, or null if the path cannot be persisted
+ */
+function parsePersistPath(persistPath: string): PersistPathTarget | null {
+  const logger = getLogger();
+  if (persistPath.startsWith("~/")) {
+    return { scope: "home", relativePath: persistPath.slice(2) };
+  }
+  if (persistPath.startsWith("./")) {
+    return { scope: "project", relativePath: persistPath.slice(2) };
+  }
+  if (persistPath.startsWith(`${CONTAINER_HOME}/`)) {
+    return {
+      scope: "home",
+      relativePath: persistPath.slice(CONTAINER_HOME.length + 1),
+    };
+  }
+  if (persistPath === "~" || persistPath === CONTAINER_HOME) {
+    logger.debug(
+      `Persist: skipping ${persistPath} (cannot persist entire home directory)`,
+    );
+    return null;
+  }
+  if (persistPath.startsWith("/")) {
+    logger.debug(
+      `Persist: skipping ${persistPath} (absolute path outside container home)`,
+    );
+    return null;
+  }
+  logger.debug(
+    `Persist: skipping ${persistPath} (invalid format - must start with ~/, ./, or /)`,
+  );
+  return null;
+}
+
+/**
+ * Resolve a persist path configuration to host and container paths.
+ *
+ * The host path always stays strictly below `persistBaseDir`: paths with
+ * ".", "..", empty, or backslash segments, or with no segment at all, are
+ * skipped with a warning.
+ *
+ * @returns Object with hostPath and containerPath, or null if invalid
+ */
 export function resolvePersistentPaths(
   persistPath: string,
   containerProjectPath: string,
   persistBaseDir: string,
   projectPath: string,
 ): ResolvedPersistentPaths | null {
-  const homeDirectory = getHostEnvironment().homeDirectory;
-  const logger = getLogger();
-  // Home-relative: ~/.foo
-  if (persistPath.startsWith("~/")) {
-    const relativePath = persistPath.slice(2); // Remove ~/
-    return {
-      hostPath: path.join(persistBaseDir, relativePath),
-      containerPath: resolveContainerPath(persistPath, CONTAINER_HOME),
-      persistSubPath: relativePath,
-      originHostPath: path.join(homeDirectory, relativePath),
-    };
-  }
-
-  // Just ~ means home directory itself (not supported)
-  if (persistPath === "~") {
-    logger.debug("Persist: skipping ~ (cannot persist entire home directory)");
+  const target = parsePersistPath(persistPath);
+  if (!target) return null;
+  const { scope, relativePath } = target;
+  if (!hasNormalizedPathSegments(relativePath)) {
+    getLogger().warn(
+      `Persist: skipping ${persistPath} (path must select a location below its prefix inside persist storage ${chalk.dim(persistBaseDir)})`,
+    );
     return null;
   }
-
-  // Project-relative: ./foo
-  if (persistPath.startsWith("./")) {
-    const relativePath = persistPath.slice(2); // Remove ./
+  if (scope === "project") {
     // Store under workdir/ prefix in persist storage to avoid conflicts
     return {
       hostPath: path.join(persistBaseDir, "workdir", relativePath),
@@ -62,37 +99,10 @@ export function resolvePersistentPaths(
       originHostPath: path.join(projectPath, relativePath),
     };
   }
-
-  // Absolute path under container home
-  if (persistPath.startsWith(`${CONTAINER_HOME}/`)) {
-    const relativePath = persistPath.slice(CONTAINER_HOME.length + 1);
-    return {
-      hostPath: path.join(persistBaseDir, relativePath),
-      containerPath: persistPath,
-      persistSubPath: relativePath,
-      originHostPath: path.join(homeDirectory, relativePath),
-    };
-  }
-
-  // Absolute path at container home exactly
-  if (persistPath === CONTAINER_HOME) {
-    logger.debug(
-      "Persist: skipping /home/sandbox (cannot persist entire home directory)",
-    );
-    return null;
-  }
-
-  // Other absolute paths outside home
-  if (persistPath.startsWith("/")) {
-    logger.debug(
-      `Persist: skipping ${persistPath} (absolute path outside container home)`,
-    );
-    return null;
-  }
-
-  // Invalid format - bare paths not supported
-  logger.debug(
-    `Persist: skipping ${persistPath} (invalid format - must start with ~/, ./, or /)`,
-  );
-  return null;
+  return {
+    hostPath: path.join(persistBaseDir, relativePath),
+    containerPath: pathPosix.join(CONTAINER_HOME, relativePath),
+    persistSubPath: relativePath,
+    originHostPath: path.join(getHostEnvironment().homeDirectory, relativePath),
+  };
 }

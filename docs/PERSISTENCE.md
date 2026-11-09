@@ -31,6 +31,10 @@ Install dependencies inside Sandbox when needed.
 - `only_if_exists = true`: mount only if the corresponding host home or project path exists.
 - `use_named_volume`: use runtime-managed storage with this name.
 
+Paths must be normalized.
+Sandbox rejects `.`, `..`, empty, or backslash segments and bare prefixes such as `~/`.
+A trailing slash after a nonempty path is permitted.
+
 Project-relative glob patterns select existing directories at container start.
 They do not discover new directories during a session.
 

@@ -1,3 +1,4 @@
+import { hasNormalizedPathSegments } from "#shared/text/index.js";
 import type { PersistPathInput, SettingsEntryInput } from "./config.js";
 import { normalizePersistPath, type TomlConfig } from "./toml-config-schema.js";
 
@@ -100,17 +101,38 @@ export function validateSettingsPattern(pattern: string): string | null {
 
 function isNormalizedSettingsPath(path: string): boolean {
   const relativePath = path.startsWith("!~/") ? path.slice(3) : path.slice(2);
-  const segments = relativePath.split("/");
-  return (
-    relativePath.length > 0 &&
-    !relativePath.includes("\\") &&
-    segments.every(
-      (segment, index) =>
-        segment !== "." &&
-        segment !== ".." &&
-        (segment !== "" || index === segments.length - 1),
-    )
-  );
+  return hasNormalizedPathSegments(relativePath);
+}
+
+const CONTAINER_HOME_PREFIX = "/home/sandbox/";
+
+/**
+ * Strip the persist path prefix (~/, ./, /home/sandbox/, or /) and return
+ * the remainder that selects a location below that prefix.
+ */
+function getPersistPathRemainder(p: string): string {
+  if (p.startsWith("~/") || p.startsWith("./")) return p.slice(2);
+  if (p.startsWith(CONTAINER_HOME_PREFIX)) {
+    return p.slice(CONTAINER_HOME_PREFIX.length);
+  }
+  if (p.startsWith("/")) return p.slice(1);
+  return p;
+}
+
+/**
+ * Reject persist paths whose segments could leave the persist storage
+ * directory on the host, or select that directory itself, once they are
+ * joined onto it.
+ */
+function validatePersistPathSegments(p: string): string | null {
+  if (hasNormalizedPathSegments(getPersistPathRemainder(p))) return null;
+  return `Invalid persist path: "${p}". Use a path below the prefix without '.', '..', repeated separators, or backslashes.`;
+}
+
+function addError(result: ValidationResult, error: string): void {
+  result.errors.push(error);
+  result.valid = false;
+  result.suggestRegenerate = true;
 }
 
 function validateSettingsEntry(input: SettingsEntryInput): string | null {
@@ -136,6 +158,11 @@ function validatePersistPaths(
 ): void {
   const seenNamedVolumes = new Set<string>();
   for (const p of paths) {
+    const segmentError = validatePersistPathSegments(p.path);
+    if (segmentError) {
+      addError(result, segmentError);
+      continue;
+    }
     const error = validatePersistPath(p);
     if (error) {
       result.warnings.push(error);
@@ -174,11 +201,7 @@ export function validateConfig(config: TomlConfig): ValidationResult {
 
   for (const entry of config.settings ?? []) {
     const error = validateSettingsEntry(entry);
-    if (error) {
-      result.errors.push(error);
-      result.valid = false;
-      result.suggestRegenerate = true;
-    }
+    if (error) addError(result, error);
   }
 
   return result;

@@ -48,7 +48,9 @@ sandbox stop
 sandbox stop --all
 ```
 
-`status` shows running containers and active sessions.
+`status` shows running containers, active sessions, and the CPU, memory, and process counts of each container.
+Apple `container` does not report resource usage.
+Use `sandbox status --json` to read the same data from scripts and other tools.
 `stop` targets the current project.
 `--all` targets all Sandbox containers.
 Stopping a container interrupts its sessions.

@@ -18,6 +18,7 @@ import type { RuntimeExecutor } from "../executor.js";
 import { runInteractiveContainerRuntimeProcess } from "../interactive-process.js";
 import { followContainerLogs } from "../log-stream.js";
 import { SandboxInstanceNameConflictError } from "../sandbox-contract.js";
+import { buildStatsArgs, parseResourceUsage } from "./resource-usage.js";
 
 interface DockerInspection {
   readonly Id?: string;
@@ -181,6 +182,17 @@ export function createDockerContainerOperations(options: {
       );
     },
     inspect,
+    async readResourceUsage(id) {
+      try {
+        return parseResourceUsage(
+          await exec(binaryName, buildStatsArgs(id)),
+          id,
+        );
+      } catch (error) {
+        if (isMissingContainer(error)) return null;
+        throw error;
+      }
+    },
     async startDetached(spec) {
       const output = await exec(
         binaryName,

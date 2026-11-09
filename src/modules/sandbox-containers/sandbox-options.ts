@@ -18,3 +18,7 @@ export interface StopOptions extends SandboxOptions {
   all?: boolean;
   force?: boolean;
 }
+
+export interface StatusOptions extends SandboxOptions {
+  json?: boolean;
+}

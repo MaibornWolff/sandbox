@@ -16,5 +16,6 @@ export { executeInSandbox } from "./lifecycle/container-execution.js";
 export type {
   CleanOptions,
   SandboxOptions,
+  StatusOptions,
   StopOptions,
 } from "./sandbox-options.js";

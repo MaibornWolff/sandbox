@@ -124,6 +124,7 @@ export function createSandboxInstanceOperations(
       }));
     },
     inspect,
+    readResourceUsage: (id) => operations.readResourceUsage(id),
     async startDetached(spec) {
       return { id: await operations.startDetached(toLegacySpec(spec)) };
     },

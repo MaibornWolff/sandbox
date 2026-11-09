@@ -1,6 +1,7 @@
 import type {
   ContainerDetails,
   ContainerMount,
+  ContainerResourceUsage,
 } from "../container-contract.js";
 
 export type ManagedContainerStatus = ContainerDetails["state"] | "removed";
@@ -22,6 +23,7 @@ export interface ManagedContainerValues {
   readonly mounts?: readonly ContainerMount[];
   readonly readyAfterAttempts?: number;
   readonly sessions?: readonly ManagedExecSession[];
+  readonly resources?: ContainerResourceUsage;
 }
 
 export interface ManagedContainerSnapshot {
@@ -37,11 +39,13 @@ export interface ManagedContainerSnapshot {
   readonly mounts: readonly ContainerMount[];
   readonly sessions: readonly ManagedExecSession[];
   readonly controls: readonly string[];
+  readonly resources: ContainerResourceUsage | null;
 }
 
 export interface ManagedContainer {
   readonly id: string;
   givenExecResult(command: readonly string[], result: string | Error): void;
+  givenResourceUsage(usage: ContainerResourceUsage | null): void;
   givenLogs(logs: string | Error): void;
   givenStopsOnReadinessAttempt(attempt: number): void;
   givenSessions(sessions: readonly ManagedExecSession[]): void;
@@ -107,6 +111,7 @@ export function createManagedContainer(
   let stopOnReadinessAttempt: number | undefined;
   let sessions = [...(values.sessions ?? [])];
   let controls: string[] = [];
+  let resources: ContainerResourceUsage | null = values.resources ?? null;
 
   function resolveReadiness(): string {
     readinessAttempts++;
@@ -146,6 +151,9 @@ export function createManagedContainer(
         commandKey(command),
         result instanceof Error ? { error: result } : { output: result },
       );
+    },
+    givenResourceUsage(usage) {
+      resources = usage ? { ...usage } : null;
     },
     givenLogs(logs) {
       this.logs = logs;
@@ -206,6 +214,7 @@ export function createManagedContainer(
         mounts: (values.mounts ?? []).map((mount) => ({ ...mount })),
         sessions: sessions.map((session) => ({ ...session })),
         controls: [...controls],
+        resources: resources ? { ...resources } : null,
       };
     },
   };

@@ -1,7 +1,13 @@
 import type { ProcessResult } from "#platform/process/index.js";
-import type { SandboxExecProcess } from "./container-contract.js";
+import type {
+  ContainerResourceUsage,
+  SandboxExecProcess,
+} from "./container-contract.js";
 
-export type { SandboxExecProcess } from "./container-contract.js";
+export type {
+  ContainerResourceUsage as SandboxInstanceResourceUsage,
+  SandboxExecProcess,
+} from "./container-contract.js";
 
 import type { Runtime } from "./runtime-types.js";
 
@@ -104,6 +110,7 @@ export class SandboxInstanceNameConflictError extends Error {
 export interface SandboxInstanceOperations {
   list(query?: SandboxInstanceQuery): Promise<SandboxInstanceSummary[]>;
   inspect(id: string): Promise<SandboxInstanceDetails | null>;
+  readResourceUsage(id: string): Promise<ContainerResourceUsage | null>;
   startDetached(spec: SandboxInstanceSpec): Promise<SandboxInstanceReference>;
   runAttached(
     spec: SandboxInstanceSpec,

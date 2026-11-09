@@ -65,6 +65,14 @@ export interface ContainerResources {
   readonly sharedMemorySize?: string;
 }
 
+/** A point-in-time sample of the resources a running container uses. */
+export interface ContainerResourceUsage {
+  readonly cpuPercent: number;
+  readonly memoryUsageBytes: number;
+  readonly memoryLimitBytes: number | null;
+  readonly processCount: number;
+}
+
 export interface ContainerSecurity {
   readonly capabilities: readonly string[];
   readonly dockerInDocker: boolean;
@@ -120,6 +128,8 @@ export interface LogSubscription extends AsyncDisposable {
 export interface ContainerOperations {
   list(query?: ContainerQuery): Promise<ContainerSummary[]>;
   inspect(id: string): Promise<ContainerDetails | null>;
+  /** Resolve null when the runtime cannot sample the container or does not support sampling. */
+  readResourceUsage(id: string): Promise<ContainerResourceUsage | null>;
   startDetached(spec: ContainerSpec): Promise<string>;
   runAttached(
     spec: ContainerSpec,

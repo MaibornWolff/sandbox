@@ -225,6 +225,40 @@ describe("Docker container operations", () => {
     });
   });
 
+  test("samples resource usage and treats a missing container as null", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    commands.givenOutput(
+      {
+        command: "docker",
+        args: ["stats", "--no-stream", "--format", "{{json .}}", "container-1"],
+      },
+      `${JSON.stringify({
+        CPUPerc: "61.20%",
+        MemUsage: "281.2MiB / 15.6GiB",
+        PIDs: "28",
+      })}\n`,
+    );
+    commands.givenFailure(
+      {
+        command: "docker",
+        args: ["stats", "--no-stream", "--format", "{{json .}}", "missing"],
+      },
+      new ExecError("No such container", 1, { stderr: "No such container" }),
+    );
+    const operations = createDockerContainerOperations({
+      binaryName: "docker",
+      runtime: "docker",
+      exec: commands.executor,
+    });
+    await expect(operations.readResourceUsage("container-1")).resolves.toEqual({
+      cpuPercent: 61.2,
+      memoryUsageBytes: Math.round(281.2 * 1_024 ** 2),
+      memoryLimitBytes: Math.round(15.6 * 1_024 ** 3),
+      processCount: 28,
+    });
+    await expect(operations.readResourceUsage("missing")).resolves.toBeNull();
+  });
+
   test("preserves Podman stopping state during concurrent session cleanup", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenOutput(

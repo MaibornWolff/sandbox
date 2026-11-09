@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import type { SandboxInstanceResourceUsage } from "#platform/container-runtime/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import {
   type ContainerStatusInfo,
@@ -6,7 +7,7 @@ import {
   type SandboxStatus,
   type SessionInfo,
 } from "../lifecycle/container-status.js";
-import type { SandboxOptions } from "../sandbox-options.js";
+import type { StatusOptions } from "../sandbox-options.js";
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
@@ -42,6 +43,31 @@ function renderSessions(sessions: SessionInfo[]): string[] {
   return lines;
 }
 
+const BYTE_UNITS = ["B", "KiB", "MiB", "GiB", "TiB"] as const;
+
+function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1_024 && unitIndex < BYTE_UNITS.length - 1) {
+    value /= 1_024;
+    unitIndex++;
+  }
+  const digits = unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${BYTE_UNITS[unitIndex]}`;
+}
+
+function renderResources(
+  resources: SandboxInstanceResourceUsage | null,
+): string {
+  if (!resources) {
+    return `    ${chalk.dim("Resources")} ${chalk.dim("unavailable")}`;
+  }
+  const memory = resources.memoryLimitBytes
+    ? `${formatBytes(resources.memoryUsageBytes)} / ${formatBytes(resources.memoryLimitBytes)}`
+    : formatBytes(resources.memoryUsageBytes);
+  return `    ${chalk.dim("Resources")} CPU ${resources.cpuPercent.toFixed(1)}%  Memory ${memory}  PIDs ${resources.processCount}`;
+}
+
 function renderContainer(container: ContainerStatusInfo): string {
   const lines: string[] = [];
 
@@ -57,6 +83,8 @@ function renderContainer(container: ContainerStatusInfo): string {
   if (container.hash) {
     lines.push(`    ${chalk.dim("Hash")}      ${chalk.dim(container.hash)}`);
   }
+
+  lines.push(renderResources(container.resources));
 
   // Sessions
   lines.push(...renderSessions(container.sessions));
@@ -89,7 +117,10 @@ function renderStatus(status: SandboxStatus): string {
 // Command
 // ---------------------------------------------------------------------------
 
-export async function statusCommand(options: SandboxOptions): Promise<void> {
+export async function statusCommand(options: StatusOptions): Promise<void> {
   const status = await getSandboxStatus(options);
-  getTerminal().stdout.write(`${renderStatus(status)}\n`);
+  const output = options.json
+    ? JSON.stringify(status, null, 2)
+    : renderStatus(status);
+  getTerminal().stdout.write(`${output}\n`);
 }

@@ -33,6 +33,7 @@ export type {
   SandboxInstanceQuery,
   SandboxInstanceReference,
   SandboxInstanceRemoveOptions,
+  SandboxInstanceResourceUsage,
   SandboxInstanceSpec,
   SandboxInstanceState,
   SandboxInstanceSummary,

@@ -35,6 +35,7 @@ import {
 import {
   createProductionRuntimeProvider,
   provideRuntimeProvider,
+  type SandboxInstanceResourceUsage,
 } from "#platform/container-runtime/index.js";
 import {
   type DependencyBinding,
@@ -113,6 +114,7 @@ export interface SandboxAppTest {
         readonly pid: string;
         readonly command: string;
       }[];
+      readonly resources?: SandboxInstanceResourceUsage;
     }): {
       readonly id: string;
       readonly container: ManagedContainer;
@@ -244,6 +246,9 @@ function createProjectFixture(options: {
         status: containerOptions.state,
         startedAt: startedAtFromUptime(containerOptions.uptime),
         ...(containerOptions.uptime ? { uptime: containerOptions.uptime } : {}),
+        ...(containerOptions.resources
+          ? { resources: containerOptions.resources }
+          : {}),
       });
       if (containerOptions.sessions) {
         container.givenSessions(containerOptions.sessions);

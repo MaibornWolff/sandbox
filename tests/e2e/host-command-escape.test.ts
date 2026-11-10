@@ -40,7 +40,7 @@ if (operation === "io") {
   console.log(JSON.stringify({
     sessionId: process.env.SANDBOX_SESSION_ID,
     projectDir: process.env.SANDBOX_PROJECT_DIR,
-    container: process.env.SANDBOX_CONTAINER,
+    container: process.env.SANDBOX_CONTAINER_NAME,
     runtime: process.env.SANDBOX_RUNTIME,
   }));
 } else if (operation === "exit") {
@@ -136,7 +136,7 @@ describe("host command escape", () => {
         env: {
           SANDBOX_SESSION_ID: "inherited-session",
           SANDBOX_PROJECT_DIR: "inherited-project",
-          SANDBOX_CONTAINER: "inherited-container",
+          SANDBOX_CONTAINER_NAME: "inherited-container",
           SANDBOX_RUNTIME: "inherited-runtime",
         },
       },

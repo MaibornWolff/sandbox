@@ -322,7 +322,7 @@ function createCommandRunner(
         ...environment.variables,
         SANDBOX_SESSION_ID: context.sessionId,
         SANDBOX_PROJECT_DIR: context.hostProjectRoot,
-        SANDBOX_CONTAINER: context.containerName,
+        SANDBOX_CONTAINER_NAME: context.containerName,
         SANDBOX_RUNTIME: context.runtime,
       },
     });

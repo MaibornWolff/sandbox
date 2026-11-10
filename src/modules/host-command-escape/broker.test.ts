@@ -86,7 +86,7 @@ async function createSessionFixture(
       PATH: process.env.PATH ?? "",
       SANDBOX_SESSION_ID: "inherited",
       SANDBOX_PROJECT_DIR: "inherited",
-      SANDBOX_CONTAINER: "inherited",
+      SANDBOX_CONTAINER_NAME: "inherited",
       SANDBOX_RUNTIME: "inherited",
     },
     platform: "linux",
@@ -418,7 +418,7 @@ describe("host command escape session", () => {
         PATH: process.env.PATH ?? "",
         SANDBOX_SESSION_ID: sessionId,
         SANDBOX_PROJECT_DIR: fixture.hostProjectRoot,
-        SANDBOX_CONTAINER: containerName,
+        SANDBOX_CONTAINER_NAME: containerName,
         SANDBOX_RUNTIME: runtime,
       },
       stdio: "stream",
@@ -610,7 +610,7 @@ describe("host command escape session", () => {
       PATH: process.env.PATH ?? "",
       SANDBOX_SESSION_ID: sessionId,
       SANDBOX_PROJECT_DIR: fixture.hostProjectRoot,
-      SANDBOX_CONTAINER: containerName,
+      SANDBOX_CONTAINER_NAME: containerName,
       SANDBOX_RUNTIME: runtime,
     });
     child.emitStdout("client-out");

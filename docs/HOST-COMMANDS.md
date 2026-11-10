@@ -13,7 +13,7 @@ Allowed host commands also receive these variables, which override values inheri
 
 - `SANDBOX_SESSION_ID`: the calling session's UUID.
 - `SANDBOX_PROJECT_DIR`: the host project root.
-- `SANDBOX_CONTAINER`: the resolved container name.
+- `SANDBOX_CONTAINER_NAME`: the resolved container name. (Not its runtime ID)
 - `SANDBOX_RUNTIME`: `docker`, `podman`, or `apple-container`.
 
 These values provide context, not proof of identity or a security boundary.

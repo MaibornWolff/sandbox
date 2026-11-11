@@ -9,7 +9,13 @@ import {
 import { createProcessTestHarness } from "#platform/process/__test__/index.js";
 import { provideProcessManager } from "#platform/process/index.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
-import { collectPassiveNetworkState, readContainerLog } from "./diagnostics.js";
+import {
+  collectPassiveNetworkState,
+  parseContainerLogBundle,
+  readContainerLog,
+  readContainerLogBundle,
+  serializeContainerLogBundle,
+} from "./diagnostics.js";
 
 function environment(root: string) {
   return createSandboxEnvironment({
@@ -47,6 +53,50 @@ describe("container diagnostics", () => {
     } finally {
       cleanupTestDir(root);
     }
+  });
+
+  test("bundles every log source and round-trips through serialization", () => {
+    const root = createTestDir("container-diagnostics-bundle");
+    try {
+      fs.mkdirSync(path.join(root, "var", "log"), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "var", "log", "firewall-blocked.log"),
+        "blocked line\n",
+      );
+      fs.writeFileSync(
+        path.join(root, "var", "log", "proxy-access.log"),
+        "access line\nsecond line\n",
+      );
+      const bundle = runWithDependencies(
+        [provideSandboxEnvironment(environment(root))],
+        readContainerLogBundle,
+      );
+      expect(bundle).toEqual({
+        firewall: "blocked line\n",
+        dns: "",
+        "proxy-access": "access line\nsecond line\n",
+        "proxy-cache": "",
+      });
+      const serialized = serializeContainerLogBundle(bundle);
+      expect(serialized).toEndWith("\n");
+      expect(parseContainerLogBundle(serialized)).toEqual(bundle);
+    } finally {
+      cleanupTestDir(root);
+    }
+  });
+
+  test("rejects malformed log bundles with specific errors", () => {
+    expect(() => parseContainerLogBundle("not json")).toThrow(
+      "Container log bundle is not valid JSON.",
+    );
+    expect(() => parseContainerLogBundle("[]")).toThrow(
+      "Container log bundle has an invalid shape.",
+    );
+    expect(() =>
+      parseContainerLogBundle(
+        JSON.stringify({ firewall: "", dns: 1, "proxy-access": "" }),
+      ),
+    ).toThrow("Container log bundle is missing the dns log.");
   });
 
   test("collects passive state through scoped process and filesystem owners", async () => {

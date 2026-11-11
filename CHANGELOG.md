@@ -10,6 +10,10 @@
   - `SANDBOX_CONTAINER_NAME`: the resolved container name. (Not its runtime ID)
   - `SANDBOX_RUNTIME`: the container runtime, such as `docker`, `podman`, or `apple-container`.
 
+### Changed
+
+- Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
+
 ## [0.73.2] - 2026-11-03
 
 ### Fixed

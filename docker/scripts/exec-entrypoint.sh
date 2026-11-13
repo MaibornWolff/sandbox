@@ -17,7 +17,7 @@ set -e
 
 mkdir -p /tmp/sandbox-sessions
 session_file="/tmp/sandbox-sessions/$$"
-touch "$session_file"
+printf '%s' "${SANDBOX_SESSION_ID:-}" > "$session_file"
 trap 'rm -f "$session_file"' EXIT
 
 # Load the sandbox user's profile for non-interactive commands too. Prefer zsh

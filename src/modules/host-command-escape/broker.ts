@@ -44,11 +44,14 @@ export interface CreateHostCommandCapabilityOptions {
   readonly commandRules: readonly CommandPattern[];
   readonly hostProjectRoot: string;
   readonly containerProjectRoot: string;
+  readonly sessionId: string;
+  readonly runtime: "docker" | "podman" | "apple-container";
 }
 
 export interface HostCommandCapability
   extends HostBridgeCapability,
     AsyncDisposable {
+  setContainerName(name: string): void;
   forwardSignal(signal: NodeJS.Signals): Promise<boolean>;
 }
 
@@ -62,7 +65,21 @@ interface BrokerContext {
   readonly hostProjectRoot: string;
   readonly canonicalHostProjectRoot: string;
   readonly containerProjectRoot: string;
+  readonly sessionId: string;
+  readonly runtime: string;
+  containerName?: string;
   disposed: boolean;
+}
+
+function hasCompleteCallerContext(
+  context: BrokerContext,
+): context is BrokerContext & { containerName: string } {
+  return Boolean(
+    context.sessionId &&
+      context.hostProjectRoot &&
+      context.runtime &&
+      context.containerName,
+  );
 }
 
 function isWithin(
@@ -283,6 +300,14 @@ function createCommandRunner(
     const cwd = await authorizeCommand(connection, context, request);
     if (cwd === undefined) return;
     if (context.disposed || request.signal.aborted) return;
+    if (!hasCompleteCallerContext(context)) {
+      logger.warn("Denied host command because caller context is incomplete");
+      await denyExecution(
+        connection,
+        "sandbox escape: host caller context is incomplete",
+      );
+      return;
+    }
     logger.debug(
       `Starting host command ${request.argv[0]} [arguments redacted]`,
     );
@@ -293,7 +318,13 @@ function createCommandRunner(
       command: request.argv[0] ?? "",
       args: request.argv.slice(1),
       cwd,
-      env: environment.variables,
+      env: {
+        ...environment.variables,
+        SANDBOX_SESSION_ID: context.sessionId,
+        SANDBOX_PROJECT_DIR: context.hostProjectRoot,
+        SANDBOX_CONTAINER_NAME: context.containerName,
+        SANDBOX_RUNTIME: context.runtime,
+      },
     });
     context.children.add(child);
     let complete = false;
@@ -452,6 +483,8 @@ export async function createHostCommandCapability(
     hostProjectRoot: options.hostProjectRoot,
     canonicalHostProjectRoot,
     containerProjectRoot: path.posix.resolve(options.containerProjectRoot),
+    sessionId: options.sessionId,
+    runtime: options.runtime,
     disposed: false,
   };
   return {
@@ -465,6 +498,9 @@ export async function createHostCommandCapability(
       using cleanup = new DisposableStack();
       cleanup.defer(() => signal.removeEventListener("abort", cancel));
       await handleConnection(connection, context, signal);
+    },
+    setContainerName(name) {
+      context.containerName = name;
     },
     forwardSignal: (signal) => forwardSignalToChildren(context, signal),
     async [Symbol.asyncDispose]() {

@@ -218,6 +218,18 @@ describe("sandbox shell and run", () => {
     expect(app.runtime.instances.all()).toHaveLength(1);
   });
 
+  test("passes a session ID to the interactive shell", async () => {
+    await using app = await setupSandboxAppTest({ interactive: true });
+    givenSuccessfulInteractiveProcess(app);
+
+    expect((await app.cli.run()).exitCode).toBe(0);
+    const sessionId =
+      attachedExecution(app)?.spec.environment?.SANDBOX_SESSION_ID;
+    expect(sessionId ?? "").toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+  });
+
   test("preserves root shell child exit codes", async () => {
     await using app = await setupSandboxAppTest();
     app.processes

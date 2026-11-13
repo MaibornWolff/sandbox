@@ -22,7 +22,10 @@ async function createBroker(patterns: readonly CommandPattern[]) {
         commandRules: [...patterns],
         hostProjectRoot: root,
         containerProjectRoot: windowsPathToDocker(root),
+        sessionId: "a82b48cf-c10b-48ed-9fc4-193b80ef2856",
+        runtime: "docker",
       });
+      capability.setContainerName("test-container");
       const session = await createHostBridgeService(
         createNodeWebSocketService(),
       ).startSession({

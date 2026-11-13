@@ -2,6 +2,8 @@
 
 Describe the change and its purpose.
 
+Closes #<issue-number>
+
 ## Validation
 
 - [ ] I ran `bun check`.

@@ -12,6 +12,7 @@
 
 ### Changed
 
+- Keep an existing `config.toml` when you run `sandbox init` or `sandbox init --project` again. Sandbox keeps your settings and comments and adds only the `allow_network` and `persist_paths` entries that the selected tools need and the file lacks. Before, `sandbox init` proposed to replace the file with the template, and `sandbox init --project --tools` replaced it without a prompt. To compare your file with the current template, run `sandbox config update`.
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
 
 ## [0.73.2] - 2026-11-03

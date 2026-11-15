@@ -1,3 +1,4 @@
+import { parse as parseToml } from "smol-toml";
 import {
   getGlobalConfigPath,
   getGlobalDockerfilePath,
@@ -27,6 +28,59 @@ export interface FileDefinition {
   description?: string;
   getPath: () => string;
   getTemplate: (toolIds: string[]) => string;
+  /**
+   * Add the entries that the selected tools need to existing file content.
+   * Returns null when the existing content cannot be read.
+   * Files without this operation are regenerated from their template.
+   */
+  addMissingToolEntries?: (
+    existingContent: string,
+    toolIds: string[],
+  ) => string | null;
+}
+
+function readStringItems(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function readPersistedPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item: unknown) => {
+    if (typeof item === "string") return [item];
+    if (typeof item !== "object" || item === null || !("path" in item)) {
+      return [];
+    }
+    return typeof item.path === "string" ? [item.path] : [];
+  });
+}
+
+/**
+ * Keep existing config content and add only the tool entries it lacks.
+ */
+function addMissingConfigEntries(
+  existingContent: string,
+  domains: string[],
+  persistPaths: PersistPathInput[],
+): string | null {
+  let existing: Record<string, unknown>;
+  try {
+    existing = parseToml(existingContent);
+  } catch {
+    return null;
+  }
+  const existingDomains = new Set(readStringItems(existing.allow_network));
+  const existingPaths = new Set(readPersistedPaths(existing.persist_paths));
+  const missingDomains = [...new Set(domains)].filter(
+    (domain) => !existingDomains.has(domain),
+  );
+  const missingPaths = persistPaths.filter(
+    (entry) => !existingPaths.has(entry.path),
+  );
+  return injectNamedVolumePersistPaths(
+    injectAllowedDomains(existingContent, missingDomains),
+    missingPaths,
+  );
 }
 
 /**
@@ -58,6 +112,12 @@ export function getUserFileDefinitions(): FileDefinition[] {
         const domains = collectNetworkDomains(toolIds);
         return injectAllowedDomains(CONFIG_TOML_TEMPLATE, domains);
       },
+      addMissingToolEntries: (existingContent, toolIds) =>
+        addMissingConfigEntries(
+          existingContent,
+          collectNetworkDomains(toolIds),
+          [],
+        ),
     },
     {
       id: "dockerfile",
@@ -155,6 +215,12 @@ export function getProjectFileDefinitions(): FileDefinition[] {
         );
         return injectNamedVolumePersistPaths(content, toolPaths);
       },
+      addMissingToolEntries: (existingContent, toolIds) =>
+        addMissingConfigEntries(
+          existingContent,
+          collectNetworkDomains(toolIds),
+          collectToolPersistPaths(toolIds),
+        ),
     },
     {
       id: "dockerfile",

@@ -69,7 +69,7 @@ export async function configUpdateCommand(
 
     writeStandardOutput("Checking for configuration updates...\n");
     const toolIds = await resolveToolIds(definitions, options);
-    await processFileUpdates(definitions, toolIds);
+    await processFileUpdates(definitions, toolIds, "replace");
 
     if (!options.project) {
       saveTemplateHashes(computeTemplateHashes(toolIds));

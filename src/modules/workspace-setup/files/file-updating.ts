@@ -31,7 +31,55 @@ function assertFileWritten(result: FileResult): void {
   }
 }
 
+/**
+ * Read an existing file, or throw an error that names the file.
+ */
+function readExistingFile(filePath: string): string {
+  try {
+    return readTextFile(filePath);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read ${filePath}: ${reason}`);
+  }
+}
+
 type UpdateAction = string | "overwrite" | "skip";
+
+/**
+ * How to treat a file that exists already.
+ * - "supplement": keep its content and add only missing tool entries, when the
+ *   file definition supports that. Other files are replaced.
+ * - "replace": replace its content with the current template.
+ */
+type ExistingFileHandling = "supplement" | "replace";
+
+interface ProposedContent {
+  content: string;
+  keepsExistingContent: boolean;
+}
+
+function proposeContent(
+  def: FileDefinition,
+  toolIds: string[],
+  existingContent: string,
+  existingFiles: ExistingFileHandling,
+): ProposedContent {
+  const supplemented =
+    existingFiles === "supplement"
+      ? def.addMissingToolEntries?.(existingContent, toolIds)
+      : undefined;
+  if (typeof supplemented === "string") {
+    return { content: supplemented, keepsExistingContent: true };
+  }
+  if (supplemented === null) {
+    writeStandardOutput(
+      chalk.yellow(
+        `⚠ Cannot read ${chalk.cyan(def.name)} as TOML. Comparing it with the template instead.`,
+      ),
+    );
+  }
+  return { content: def.getTemplate(toolIds), keepsExistingContent: false };
+}
 
 interface FileUpdateResult {
   name: string;
@@ -77,7 +125,10 @@ export function displayFileSeparator(name: string): void {
 /**
  * Prompt user for what to do with a changed file.
  */
-async function promptUpdateAction(fileName: string): Promise<UpdateAction> {
+async function promptUpdateAction(
+  fileName: string,
+  overwriteLabel: string,
+): Promise<UpdateAction> {
   const diffEditors = await getAvailableDiffEditors();
 
   const choices: Array<{ name: string; value: UpdateAction }> = [];
@@ -92,7 +143,7 @@ async function promptUpdateAction(fileName: string): Promise<UpdateAction> {
   }
 
   choices.push(
-    { name: "Overwrite", value: "overwrite" },
+    { name: overwriteLabel, value: "overwrite" },
     { name: "Skip", value: "skip" },
   );
 
@@ -112,10 +163,10 @@ async function promptUpdateAction(fileName: string): Promise<UpdateAction> {
 export async function processFileUpdate(
   def: FileDefinition,
   toolIds: string[],
+  existingFiles: ExistingFileHandling,
   requestedAction?: UpdateAction,
 ): Promise<FileUpdateResult> {
   const existingPath = def.getPath();
-  const newContent = def.getTemplate(toolIds);
   const result: FileUpdateResult = {
     name: def.name,
     path: existingPath,
@@ -125,14 +176,20 @@ export async function processFileUpdate(
   // Case 1: File doesn't exist — create silently
   if (!pathExists(existingPath)) {
     assertFileWritten(
-      createFileUtil(existingPath, newContent, { force: true }),
+      createFileUtil(existingPath, def.getTemplate(toolIds), { force: true }),
     );
     writeStandardOutput(`${chalk.green("✓")} Created ${existingPath}`);
     return result;
   }
 
   // Case 2: File identical
-  const existingContent = readTextFile(existingPath);
+  const existingContent = readExistingFile(existingPath);
+  const { content: newContent, keepsExistingContent } = proposeContent(
+    def,
+    toolIds,
+    existingContent,
+    existingFiles,
+  );
   if (existingContent === newContent) {
     writeStandardOutput(`  ${chalk.green("✓")} Already up to date.`);
     writeStandardOutput();
@@ -150,7 +207,12 @@ export async function processFileUpdate(
   printColoredDiff(diff);
   writeStandardOutput();
 
-  const action = requestedAction ?? (await promptUpdateAction(def.name));
+  const action =
+    requestedAction ??
+    (await promptUpdateAction(
+      def.name,
+      keepsExistingContent ? "Add missing entries" : "Overwrite",
+    ));
 
   if (action === "overwrite") {
     assertFileWritten(
@@ -189,6 +251,7 @@ export async function processFileUpdate(
 export async function processFileUpdates(
   definitions: FileDefinition[],
   toolIds: string[],
+  existingFiles: ExistingFileHandling,
 ): Promise<FileUpdateResult[]> {
   const anyExists = definitions.some((def) => pathExists(def.getPath()));
 
@@ -202,14 +265,16 @@ export async function processFileUpdates(
   const results: FileUpdateResult[] = [];
   for (const def of definitions) {
     displayFileSeparator(def.name);
-    const result = await processFileUpdate(def, toolIds);
+    const result = await processFileUpdate(def, toolIds, existingFiles);
     results.push(result);
   }
   return results;
 }
 
 /**
- * Create all files silently without prompts (for non-interactive mode).
+ * Write all files without prompts (for non-interactive mode).
+ * An existing file keeps its content when its definition can add missing tool
+ * entries. Other existing files are replaced.
  */
 export function createFilesSilently(
   definitions: FileDefinition[],
@@ -218,10 +283,29 @@ export function createFilesSilently(
   const results: FileUpdateResult[] = [];
   for (const def of definitions) {
     const filePath = def.getPath();
-    const content = def.getTemplate(toolIds);
+    if (!pathExists(filePath)) {
+      assertFileWritten(
+        createFileUtil(filePath, def.getTemplate(toolIds), { force: true }),
+      );
+      writeStandardOutput(`${chalk.green("✓")} Created ${filePath}`);
+      results.push({ name: def.name, path: filePath, action: "created" });
+      continue;
+    }
+    const existingContent = readExistingFile(filePath);
+    const { content } = proposeContent(
+      def,
+      toolIds,
+      existingContent,
+      "supplement",
+    );
+    if (content === existingContent) {
+      writeStandardOutput(`${chalk.green("✓")} Already up to date ${filePath}`);
+      results.push({ name: def.name, path: filePath, action: "up-to-date" });
+      continue;
+    }
     assertFileWritten(createFileUtil(filePath, content, { force: true }));
-    writeStandardOutput(`${chalk.green("✓")} Created ${filePath}`);
-    results.push({ name: def.name, path: filePath, action: "created" });
+    writeStandardOutput(`${chalk.green("✓")} Updated ${filePath}`);
+    results.push({ name: def.name, path: filePath, action: "updated" });
   }
   return results;
 }

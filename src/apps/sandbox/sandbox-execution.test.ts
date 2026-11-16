@@ -123,7 +123,6 @@ describe("sandbox shell and run", () => {
   });
 
   test.each(["", '[session]\ncommand_wrapper = ["user-wrapper"]\n'])(
-    //TODO: adjust to check for wrapper contents, not only name
     "does not warn for an absent or identical project wrapper",
     async (project) => {
       await using app = await setupSandboxAppTest();
@@ -157,6 +156,28 @@ describe("sandbox shell and run", () => {
     expect(attachedExecution(app)?.spec.command).toEqual([
       "/usr/local/bin/exec-entrypoint.sh",
       "project-wrapper",
+      "true",
+    ]);
+  });
+
+  test("warns when a project wrapper has the same name at a different path", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig(
+      '[session]\ncommand_wrapper = ["/user/sb-wrapper"]\n',
+    );
+    app.project.writeConfig(
+      '[session]\ncommand_wrapper = ["/project/sb-wrapper"]\n',
+      { trusted: true },
+    );
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "The trusted project session wrapper overrides the user wrapper.",
+    );
+    expect(attachedExecution(app)?.spec.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "/project/sb-wrapper",
       "true",
     ]);
   });

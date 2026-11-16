@@ -10,7 +10,7 @@ import {
   type TomlConfig,
 } from "./toml-config-schema.js";
 
-function applySessionConfig(
+function applySessionWrapperOverride(
   config: Config,
   toml: TomlConfig,
   isProject: boolean,
@@ -71,7 +71,7 @@ export async function applyTomlConfig(
     getLogger().debug(`  Mounts: ${mounts.length} added`);
   }
 
-  applySessionConfig(config, toml, isProjectConfig);
+  applySessionWrapperOverride(config, toml, isProjectConfig);
 
   // Environment variables (accumulate)
   if (toml.env !== undefined) {

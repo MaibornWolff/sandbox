@@ -1,24 +1,13 @@
 import type { Command } from "commander";
 import type { AppGlobalOptions } from "../options.js";
 
-export function normalizeCliOptions(
-  options: AppGlobalOptions,
-): AppGlobalOptions {
-  const { build, wrapper, ...rest } = options;
-  return {
-    ...rest,
-    ...(build === false ? { noBuild: true } : {}),
-    ...(wrapper === false ? { noWrapper: true } : {}),
-  };
-}
-
 export function mergeCliOptions(
   globalOptions: AppGlobalOptions,
   commandOptions: AppGlobalOptions,
 ): AppGlobalOptions {
   return {
-    ...normalizeCliOptions(globalOptions),
-    ...normalizeCliOptions(commandOptions),
+    ...globalOptions,
+    ...commandOptions,
   };
 }
 

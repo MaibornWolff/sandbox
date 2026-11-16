@@ -122,6 +122,7 @@ An empty or missing array does not override a user wrapper. A trusted project wr
 Use `sandbox --no-wrapper` or `sandbox run --no-wrapper <command>` to skip the configured wrapper for one session. Arguments after `sandbox run --` belong to the command, so `sandbox run -- command --no-wrapper` does not bypass the wrapper. To use your user wrapper instead of the project wrapper, invoke it manually, for example `sandbox run --no-wrapper -- my-wrapper -- pi`. 
 
 Currently the sandbox offers no commands to set up or mount a wrapper. To set it up, install the executable and any required interpreter in the container, or mount them into it. Bare executable names resolve on the container `PATH`. Absolute paths resolve inside the container and relative paths resolve from the session working directory. The executable must have execute permission.
+Sandbox compares the full command arrays, including executable paths and arguments, to detect conflicts. It does not compare executable contents. The same bare name in both configs resolves using the same container `PATH`, not relative to each config file.
 Changing the wrapper affects new sessions without rebuilding images or preventing container reuse. Running sessions keep their existing command.
 
 ## Session environment

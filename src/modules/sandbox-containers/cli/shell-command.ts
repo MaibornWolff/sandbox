@@ -12,7 +12,7 @@ interface ShellOptions extends SandboxOptions {
 export async function runShell(options: ShellOptions): Promise<void> {
   await executeInSandbox(options, {
     command: ["zsh"],
-    noWrapper: options.noWrapper,
+    wrapper: options.wrapper,
     stdin: true,
     tty: getHostEnvironment().interactive,
     timingLabel: "Total startup",

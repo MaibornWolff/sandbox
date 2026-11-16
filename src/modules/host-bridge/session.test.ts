@@ -7,6 +7,7 @@ import {
   provideWebSocketService,
   type WebSocketConnection,
 } from "#platform/websocket/index.js";
+import { stripAnsi } from "#test/utils.js";
 import { openHostBridgeConnection } from "./client.js";
 import {
   HOST_BRIDGE_CERTIFICATE_VARIABLE,
@@ -203,8 +204,9 @@ describe("host bridge sessions", () => {
     ]);
     await using connection = await bridge.connect();
     await connection.closed;
-    expect(bridge.warnings.join("\n")).toContain("capability echo failed");
-    expect(bridge.warnings.join("\n")).not.toContain("private content");
+    const warnings = stripAnsi(bridge.warnings.join("\n"));
+    expect(warnings).toContain("capability echo failed");
+    expect(warnings).not.toContain("private content");
   });
 
   test("rejects duplicate and invalid capability registrations", async () => {

@@ -9,6 +9,7 @@ export async function runCommand(
 ): Promise<void> {
   await executeInSandbox(options, {
     command,
+    noWrapper: options.noWrapper,
     stdin: true,
     tty: getHostEnvironment().interactive,
   });

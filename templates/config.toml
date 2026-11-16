@@ -32,6 +32,12 @@ env = [
   # Add other environment variables here
 ]
 
+# Session command prefix. Install or mount the executable and interpreter in the
+# container and grant execute permission. Bare names use the container PATH.
+# Relative paths use the session working directory. Empty arrays are ignored.
+# [session]
+# command_wrapper = ["my-wrapper", "--"]
+
 # Persistence - paths that survive container restarts
 # { path = "~/.foo" } per-project, { path, global = true } shared across projects
 # { path, only_if_exists = true } only persist if host path already exists

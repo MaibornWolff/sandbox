@@ -4,13 +4,12 @@ import type { AppGlobalOptions } from "../options.js";
 export function normalizeCliOptions(
   options: AppGlobalOptions,
 ): AppGlobalOptions {
-  const { build, ...rest } = options;
-
-  if (build === false) {
-    return { ...rest, noBuild: true };
-  }
-
-  return rest;
+  const { build, wrapper, ...rest } = options;
+  return {
+    ...rest,
+    ...(build === false ? { noBuild: true } : {}),
+    ...(wrapper === false ? { noWrapper: true } : {}),
+  };
 }
 
 export function mergeCliOptions(
@@ -90,6 +89,7 @@ export function configureGlobalOptions(program: Command): void {
       "-N, --full-network",
       "Disable network firewall (allow all outbound)",
     )
+    .option("--no-wrapper", "Skip the configured session command wrapper")
     .option("-P, --no-proxy", "Disable proxy (requires --full-network)")
     .option("-r, --readonly", "Mount project read-only")
     .option("-v, --verbose", "Show detailed timing information")

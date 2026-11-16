@@ -34,6 +34,166 @@ function givenSuccessfulInteractiveProcess(
 }
 
 describe("sandbox shell and run", () => {
+  test.each(["shell", "run"] as const)(
+    "runs the %s session through the configured prefix",
+    async (mode) => {
+      await using app = await setupSandboxAppTest();
+      app.global.writeConfig(
+        '[session]\ncommand_wrapper = ["my-wrapper", "--option with spaces", "--"]\n',
+      );
+      givenSuccessfulInteractiveProcess(app);
+      const result =
+        mode === "shell"
+          ? await app.cli.run()
+          : await app.cli.run("run", "echo", "hello world");
+      expect(result.exitCode).toBe(0);
+      expect(attachedExecution(app)?.spec.command).toEqual([
+        "/usr/local/bin/exec-entrypoint.sh",
+        "my-wrapper",
+        "--option with spaces",
+        "--",
+        ...(mode === "shell" ? ["zsh"] : ["echo", "hello world"]),
+      ]);
+    },
+  );
+
+  test.each([
+    { args: ["--no-wrapper"], command: ["zsh"] },
+    { args: ["run", "--no-wrapper", "true"], command: ["true"] },
+    { args: ["--no-wrapper", "run", "true"], command: ["true"] },
+    {
+      args: ["run", "--no-wrapper", "--", "my-wrapper", "--", "pi"],
+      command: ["my-wrapper", "--", "pi"],
+    },
+  ])(
+    "bypasses conflicting wrappers for $args without affecting the next session",
+    async ({ args, command }) => {
+      await using app = await setupSandboxAppTest();
+      app.global.writeConfig('[session]\ncommand_wrapper = ["user-wrapper"]\n');
+      app.project.writeConfig(
+        '[session]\ncommand_wrapper = ["project-wrapper"]\n',
+        { trusted: true },
+      );
+      givenSuccessfulInteractiveProcess(app);
+      const result = await app.cli.run(...args);
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toContain("overrides the user wrapper");
+      expect(attachedExecution(app)?.spec.command).toEqual([
+        "/usr/local/bin/exec-entrypoint.sh",
+        ...command,
+      ]);
+      givenSuccessfulInteractiveProcess(app);
+      const next = await app.cli.run("run", "true");
+      expect(next.stderr).toContain("overrides the user wrapper");
+      expect(attachedExecution(app)?.spec.command).toEqual([
+        "/usr/local/bin/exec-entrypoint.sh",
+        "project-wrapper",
+        "true",
+      ]);
+    },
+  );
+
+  test("passes --no-wrapper after the separator to the command", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('[session]\ncommand_wrapper = ["user-wrapper"]\n');
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run("run", "--", "command", "--no-wrapper");
+    expect(result.exitCode).toBe(0);
+    expect(attachedExecution(app)?.spec.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "user-wrapper",
+      "command",
+      "--no-wrapper",
+    ]);
+  });
+
+  test("uses a user wrapper when the project wrapper is empty", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('[session]\ncommand_wrapper = ["user-wrapper"]\n');
+    app.project.writeConfig("[session]\ncommand_wrapper = []\n", {
+      trusted: true,
+    });
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    expect(attachedExecution(app)?.spec.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "user-wrapper",
+      "true",
+    ]);
+  });
+
+  test.each(["", '[session]\ncommand_wrapper = ["user-wrapper"]\n'])(
+    //TODO: adjust to check for wrapper contents, not only name
+    "does not warn for an absent or identical project wrapper",
+    async (project) => {
+      await using app = await setupSandboxAppTest();
+      app.global.writeConfig('[session]\ncommand_wrapper = ["user-wrapper"]\n');
+      app.project.writeConfig(project, { trusted: true });
+      givenSuccessfulInteractiveProcess(app);
+      const result = await app.cli.run("run", "true");
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).not.toContain("overrides the user wrapper");
+      expect(attachedExecution(app)?.spec.command).toEqual([
+        "/usr/local/bin/exec-entrypoint.sh",
+        "user-wrapper",
+        "true",
+      ]);
+    },
+  );
+
+  test("warns when a trusted project wrapper replaces a different user wrapper", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('[session]\ncommand_wrapper = ["user-wrapper"]\n');
+    app.project.writeConfig(
+      '[session]\ncommand_wrapper = ["project-wrapper"]\n',
+      { trusted: true },
+    );
+    givenSuccessfulInteractiveProcess(app);
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "The trusted project session wrapper overrides the user wrapper.",
+    );
+    expect(attachedExecution(app)?.spec.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "project-wrapper",
+      "true",
+    ]);
+  });
+
+  test("reuses the container and images after changing only the wrapper", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('[session]\ncommand_wrapper = ["first"]\n');
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    const builds = app.runtime
+      .events()
+      .filter((event) => event.type === "image.build").length;
+    app.global.writeConfig('[session]\ncommand_wrapper = ["second"]\n');
+    givenSuccessfulInteractiveProcess(app);
+    expect((await app.cli.run("run", "true")).exitCode).toBe(0);
+    expect(attachedExecution(app)?.spec.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "second",
+      "true",
+    ]);
+    expect(
+      app.runtime.events().filter((event) => event.type === "container.create"),
+    ).toHaveLength(1);
+    expect(
+      app.runtime.events().filter((event) => event.type === "image.build"),
+    ).toHaveLength(builds);
+  });
+
+  test("does not apply untrusted project wrappers", async () => {
+    await using app = await setupSandboxAppTest({ interactive: false });
+    app.project.writeConfig('[session]\ncommand_wrapper = ["untrusted"]\n');
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Untrusted project config");
+    expect(attachedExecution(app)).toBeUndefined();
+  });
+
   test("fails host validation without checking a host display", async () => {
     await using app = await setupSandboxAppTest({
       platform: "darwin",

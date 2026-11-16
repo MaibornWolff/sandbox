@@ -53,6 +53,7 @@ interface ExecutorOptions {
   readonly timingLabel?: string;
   readonly beforeSpawn?: (config: Config) => void;
   readonly foreground?: boolean;
+  readonly noWrapper?: boolean;
 }
 
 class SandboxExecutionExitError extends Error {
@@ -329,9 +330,17 @@ async function execute(
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
   }
+  if (!executorOptions.noWrapper && config.session.wrapperConflict) {
+    logger.warn(
+      "The trusted project session wrapper overrides the user wrapper. To use the user wrapper, invoke it manually with sandbox run --no-wrapper -- <user-wrapper> <command>.",
+    );
+  }
   const execution = buildSandboxExecSpec({
     currentDir,
-    command,
+    command: [
+      ...(executorOptions.noWrapper ? [] : config.session.commandWrapper),
+      ...command,
+    ],
     stdin,
     tty,
     environment: config.env,

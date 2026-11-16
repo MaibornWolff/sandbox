@@ -8,6 +8,27 @@ import {
 } from "./toml-config-schema.js";
 
 describe("tomlConfigSchema", () => {
+  test.each([
+    {
+      name: "wrapper with arguments",
+      session: { command_wrapper: ["wrapper", "--"] },
+      valid: true,
+    },
+    { name: "empty wrapper", session: { command_wrapper: [] }, valid: true },
+    {
+      name: "string wrapper",
+      session: { command_wrapper: "wrapper" },
+      valid: false,
+    },
+    {
+      name: "empty executable",
+      session: { command_wrapper: [""] },
+      valid: false,
+    },
+    { name: "unknown session field", session: { unknown: true }, valid: false },
+  ])("validates session config: $name", ({ session, valid }) => {
+    expect(tomlConfigSchema.safeParse({ session }).success).toBe(valid);
+  });
   test("validates valid config with all fields", () => {
     const config = {
       mounts: ["/data:/data:ro"],

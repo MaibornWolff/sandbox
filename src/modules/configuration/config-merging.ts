@@ -10,6 +10,23 @@ import {
   type TomlConfig,
 } from "./toml-config-schema.js";
 
+function applySessionConfig(
+  config: Config,
+  toml: TomlConfig,
+  isProject: boolean,
+): void {
+  const wrapper = toml.session?.command_wrapper;
+  // ignore empty wrapper
+  if (!wrapper?.length) return;
+
+  // check if user and project wrappers differ
+  config.session.wrapperConflict =
+    isProject &&
+    config.session.commandWrapper.length > 0 &&
+    JSON.stringify(config.session.commandWrapper) !== JSON.stringify(wrapper);
+  config.session.commandWrapper = [...wrapper];
+}
+
 /**
  * Apply TOML configuration to a Config object according to merge rules.
  *
@@ -53,6 +70,8 @@ export async function applyTomlConfig(
     config.mounts.push(...mounts);
     getLogger().debug(`  Mounts: ${mounts.length} added`);
   }
+
+  applySessionConfig(config, toml, isProjectConfig);
 
   // Environment variables (accumulate)
   if (toml.env !== undefined) {

@@ -6,6 +6,7 @@ export interface SandboxOptions extends ConfigOverrides {
   containerReuse?: boolean;
   noBuild?: boolean;
   build?: boolean;
+  noWrapper?: boolean;
 }
 
 export interface CleanOptions extends SandboxOptions {

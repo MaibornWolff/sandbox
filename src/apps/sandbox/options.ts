@@ -6,4 +6,6 @@ export type AppGlobalOptions = ConfigOverrides & {
   containerReuse?: boolean;
   noBuild?: boolean;
   build?: boolean;
+  wrapper?: boolean;
+  noWrapper?: boolean;
 };

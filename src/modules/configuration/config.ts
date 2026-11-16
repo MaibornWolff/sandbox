@@ -49,6 +49,7 @@ export interface Config {
   runtimes: ContainerRuntimeOptions;
   mounts: string[];
   env: string[];
+  session: { commandWrapper: string[]; wrapperConflict: boolean };
   readonly: boolean;
   clipboard: ClipboardMode;
   persistPaths: PersistPath[];

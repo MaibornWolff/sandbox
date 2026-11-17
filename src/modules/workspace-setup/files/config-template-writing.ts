@@ -1,3 +1,4 @@
+import { parse as parseToml } from "smol-toml";
 import {
   type PersistPathInput,
   RUNTIME_IDS,
@@ -103,17 +104,18 @@ function isRuntimeId(value: string): value is RuntimeId {
 }
 
 /**
- * Read the active top-level runtime from TOML config text.
- * Ignores comments, values in tables, and unknown runtime IDs.
+ * Read the top-level runtime from TOML config text.
+ * Returns undefined for invalid TOML, a missing runtime, or an unknown ID,
+ * so config updates also work on files that the full config loader rejects.
  */
 export function readActiveRuntime(content: string): RuntimeId | undefined {
-  for (const line of content.split(/\r?\n/)) {
-    const valueOnly = stripInlineComment(line).trim();
-    if (valueOnly.startsWith("[")) return undefined;
-    const match = valueOnly.match(/^runtime\s*=\s*"([^"]*)"$/);
-    if (match?.[1] !== undefined) {
-      return isRuntimeId(match[1]) ? match[1] : undefined;
-    }
+  let runtime: unknown;
+  try {
+    runtime = parseToml(content).runtime;
+  } catch {
+    return undefined;
   }
-  return undefined;
+  return typeof runtime === "string" && isRuntimeId(runtime)
+    ? runtime
+    : undefined;
 }

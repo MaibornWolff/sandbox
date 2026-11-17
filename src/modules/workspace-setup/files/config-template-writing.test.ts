@@ -85,4 +85,14 @@ describe("readActiveRuntime", () => {
     expect(readActiveRuntime('runtime = "foo"\n')).toBeUndefined();
     expect(readActiveRuntime('[table]\nruntime = "docker"\n')).toBeUndefined();
   });
+
+  test("reads single-quoted values and quoted keys", () => {
+    expect(readActiveRuntime("runtime = 'podman'\n")).toBe("podman");
+    expect(readActiveRuntime('"runtime" = "podman"\n')).toBe("podman");
+    expect(readActiveRuntime("'runtime' = 'docker'\n")).toBe("docker");
+  });
+
+  test("returns undefined for invalid TOML", () => {
+    expect(readActiveRuntime('runtime = "podman\n')).toBeUndefined();
+  });
 });

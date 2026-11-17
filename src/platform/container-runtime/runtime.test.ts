@@ -28,6 +28,11 @@ async function resolveRuntimeInScope(
 
 const DOCKER_INFO = ["info", "--format", "{{.MemTotal}}"];
 
+/** The spawn error that Node.js reports for a command that does not exist. */
+function missingCommandError(): Error {
+  return Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+}
+
 function givenDocker(
   commands: StatefulRuntimeCommandExecutor,
   state: "running" | "not-running" | "not-installed",
@@ -35,7 +40,7 @@ function givenDocker(
   if (state === "not-installed") {
     commands.givenFailure(
       { command: "docker", args: ["--version"] },
-      new Error("not found"),
+      missingCommandError(),
     );
     return;
   }
@@ -63,7 +68,7 @@ function givenPodman(
   if (state === "not-installed") {
     commands.givenFailure(
       { command: "podman", args: ["--version"] },
-      new Error("not found"),
+      missingCommandError(),
     );
     return;
   }
@@ -263,6 +268,37 @@ describe("probeRuntimes", () => {
       },
     ]);
     expect(commandNames(commands)).not.toContain("container");
+  });
+
+  test("reports an installed CLI whose version check fails as not-running", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    commands.givenFailure(
+      { command: "docker", args: ["--version"] },
+      new Error("permission denied\nmore detail"),
+    );
+    givenPodman(commands, "not-installed");
+    expect(
+      await runWithTestLogger(() => probeRuntimes(commands.executor)),
+    ).toEqual([
+      {
+        runtime: "docker",
+        status: "not-running",
+        hint: "docker --version failed: permission denied",
+      },
+      { runtime: "podman", status: "not-installed" },
+    ]);
+  });
+
+  test("selects an installed CLI whose version check fails as the fallback", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    commands.givenFailure(
+      { command: "docker", args: ["--version"] },
+      new Error("permission denied"),
+    );
+    givenPodman(commands, "not-installed");
+    expect(await resolveRuntimeInScope(undefined, commands.executor)).toBe(
+      "docker",
+    );
   });
 
   test("reports Apple container with its start hint on macOS", async () => {

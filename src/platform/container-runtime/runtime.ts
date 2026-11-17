@@ -1,6 +1,7 @@
 import { getClock, waitWithTimeout } from "#platform/clock/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import { isFileNotFoundError } from "#shared/errors/index.js";
 import { AppleContainerService } from "./apple/service.js";
 import { DockerService } from "./docker/service.js";
 import type { RuntimeExecutor } from "./executor.js";
@@ -24,6 +25,29 @@ function getBinaryName(runtime: Runtime): string {
 function getHostRuntimes(): readonly Runtime[] {
   const isMacOs = getHostEnvironment().platform === "darwin";
   return RUNTIMES.filter((runtime) => runtime !== "apple-container" || isMacOs);
+}
+
+/**
+ * Only a missing executable means not installed. A CLI that exists but fails
+ * stays selectable, and the hint shows why it failed.
+ */
+function classifyVersionFailure(
+  runtime: Runtime,
+  binaryName: string,
+  error: unknown,
+): RuntimeProbe {
+  const logger = getLogger();
+  if (isFileNotFoundError(error)) {
+    logger.debug(`${runtime} is not installed`);
+    return { runtime, status: "not-installed" };
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  logger.debug(`${binaryName} --version failed: ${message}`);
+  return {
+    runtime,
+    status: "not-running",
+    hint: `${binaryName} --version failed: ${message.split("\n")[0]}`,
+  };
 }
 
 interface RuntimeProbeAttempt {
@@ -66,9 +90,8 @@ async function probeRuntime(
   const check = async (): Promise<RuntimeProbeAttempt> => {
     try {
       version = (await probeExec(binaryName, ["--version"])).trim();
-    } catch {
-      logger.debug(`${runtime} is not installed`);
-      return { probe: { runtime, status: "not-installed" } };
+    } catch (error) {
+      return { probe: classifyVersionFailure(runtime, binaryName, error) };
     }
     try {
       const selection = createRuntimeService(runtime, probeExec, options);

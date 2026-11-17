@@ -7,15 +7,17 @@ export {
 /** @lintignore Public configuration model contract. */
 
 export { showActiveConfig } from "./active-config-display.js";
-export type {
-  AllowedNetwork,
-  Config,
-  ConfigOverrides,
-  PersistPath,
-  PersistPathInput,
-  SettingsEntry,
-  SettingsEntryInput,
-  SettingsMode,
+export {
+  type AllowedNetwork,
+  type Config,
+  type ConfigOverrides,
+  type PersistPath,
+  type PersistPathInput,
+  RUNTIME_IDS,
+  type RuntimeId,
+  type SettingsEntry,
+  type SettingsEntryInput,
+  type SettingsMode,
 } from "./config.js";
 /** @lintignore Public configuration model factory. */
 export { createConfigFromDefaults } from "./config-defaults.js";

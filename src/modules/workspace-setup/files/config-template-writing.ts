@@ -1,4 +1,8 @@
-import type { PersistPathInput } from "#modules/configuration/index.js";
+import {
+  type PersistPathInput,
+  RUNTIME_IDS,
+  type RuntimeId,
+} from "#modules/configuration/index.js";
 
 function stripInlineComment(line: string): string {
   return line.replace(/#.*$/, "").trimEnd();
@@ -77,4 +81,39 @@ export function injectNamedVolumePersistPaths(
   }
 
   return `${content}\npersist_paths = [\n${entries}\n]`;
+}
+
+const COMMENTED_RUNTIME_LINE = /^#\s*runtime\s*=\s*"[^"]*"[ \t]*$/m;
+
+/**
+ * Activate the commented runtime line in a TOML config template.
+ * Leaves the template unchanged when no runtime is given.
+ */
+export function injectRuntime(content: string, runtime?: RuntimeId): string {
+  if (!runtime) return content;
+  const line = `runtime = "${runtime}"`;
+  if (COMMENTED_RUNTIME_LINE.test(content)) {
+    return content.replace(COMMENTED_RUNTIME_LINE, line);
+  }
+  return `${line}\n${content}`;
+}
+
+function isRuntimeId(value: string): value is RuntimeId {
+  return RUNTIME_IDS.some((id) => id === value);
+}
+
+/**
+ * Read the active top-level runtime from TOML config text.
+ * Ignores comments, values in tables, and unknown runtime IDs.
+ */
+export function readActiveRuntime(content: string): RuntimeId | undefined {
+  for (const line of content.split(/\r?\n/)) {
+    const valueOnly = stripInlineComment(line).trim();
+    if (valueOnly.startsWith("[")) return undefined;
+    const match = valueOnly.match(/^runtime\s*=\s*"([^"]*)"$/);
+    if (match?.[1] !== undefined) {
+      return isRuntimeId(match[1]) ? match[1] : undefined;
+    }
+  }
+  return undefined;
 }

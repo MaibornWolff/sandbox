@@ -1,8 +1,11 @@
 import chalk from "chalk";
 import type { RuntimeExecutor } from "../executor.js";
+import { RuntimeHostNotReadyError } from "../host-readiness.js";
 import type { RuntimeHostInfo } from "../types.js";
 
 const INSTALL_HINT = "Install Docker: https://docs.docker.com/get-docker/";
+const START_HINT =
+  "Start Docker with Rancher Desktop, Colima, or your preferred method.";
 
 export function createDockerHostOperations(exec: RuntimeExecutor): {
   ensureReady(): Promise<RuntimeHostInfo>;
@@ -18,10 +21,11 @@ export function createDockerHostOperations(exec: RuntimeExecutor): {
           version = (await exec("docker", ["--version"])).trim();
           output = await exec("docker", ["info", "--format", "{{.MemTotal}}"]);
         } catch (error) {
-          throw new Error(
+          throw new RuntimeHostNotReadyError(
             `${chalk.red("Docker daemon is not running.")}\n` +
               `Start it with ${chalk.cyan("Rancher Desktop")}, ${chalk.cyan("Colima")}, or your preferred method.\n` +
               chalk.dim(INSTALL_HINT),
+            START_HINT,
             { cause: error },
           );
         }

@@ -1,4 +1,5 @@
 import { getClock } from "#platform/clock/index.js";
+import type { RuntimeResolutionRequest } from "#platform/container-runtime/index.js";
 import {
   createDependency,
   type DependencyBinding,
@@ -35,6 +36,8 @@ type ConfigTarget = "global" | "project";
 
 interface ConfigurationService {
   load(options: ConfigOverrides): Promise<LoadConfigResult>;
+  /** Read runtime settings from the user config without project config or mounts. */
+  loadUserRuntimeResolution(): RuntimeResolutionRequest;
   updateAllowedNetwork(options: {
     readonly target: ConfigTarget;
     readonly projectRoot: string;
@@ -165,6 +168,18 @@ export function createConfigurationService(): ConfigurationService {
           ...(configuredRuntime ? { configuredRuntime } : {}),
           options: config.runtimes,
         },
+      };
+    },
+    loadUserRuntimeResolution() {
+      const globalConfig = loadTomlConfig(globalConfigPath);
+      const configuredRuntime = globalConfig?.runtime;
+      const { runtimes } = createConfigFromDefaults(
+        configuredRuntime ?? "docker",
+      );
+      const dns = globalConfig?.runtimes?.["apple-container"]?.dns;
+      return {
+        ...(configuredRuntime ? { configuredRuntime } : {}),
+        options: dns === undefined ? runtimes : { "apple-container": { dns } },
       };
     },
     updateAllowedNetwork(options) {

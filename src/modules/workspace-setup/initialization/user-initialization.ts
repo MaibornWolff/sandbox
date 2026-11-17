@@ -6,6 +6,7 @@ import {
 import { detectExistingAgentConfigs } from "../agent-config-copying.js";
 import { processFileUpdates } from "../files/file-updating.js";
 import {
+  detectExistingRuntime,
   detectExistingTools,
   getUserFileDefinitions,
 } from "../files/generated-file-definition.js";
@@ -27,6 +28,7 @@ import {
   displaySeparator,
   displayWelcome,
 } from "./initialization-display.js";
+import { type RuntimeSelection, selectRuntime } from "./runtime-selection.js";
 
 function formatAgentChoice(tool: ToolDefinition): string {
   const documentation = tool.url ? ` (${tool.url})` : "";
@@ -79,8 +81,15 @@ function replaceAgentSelections(
   return [...initialIds.filter((id) => !agentIds.has(id)), ...selectedAgentIds];
 }
 
+interface UserInitializationOptions {
+  /** Runtime from the caller. Unset asks the user. */
+  runtime?: RuntimeSelection;
+}
+
 /** Interactive flow for user-level init. */
-export async function initializeUser(): Promise<void> {
+export async function initializeUser(
+  options: UserInitializationOptions = {},
+): Promise<void> {
   displayWelcome();
 
   // Show feature overview
@@ -88,6 +97,12 @@ export async function initializeUser(): Promise<void> {
   displaySeparator();
 
   const definitions = getUserFileDefinitions();
+  let runtimeSelection = options.runtime;
+  if (runtimeSelection === undefined) {
+    runtimeSelection = await selectRuntime(detectExistingRuntime(definitions));
+    displaySeparator();
+  }
+  const runtime = runtimeSelection === "auto" ? undefined : runtimeSelection;
   const { toolIds: restoredIds, hasToolComment } =
     detectExistingTools(definitions);
   const userRegistry = TOOL_REGISTRY.filter((tool) => !tool.projectOnly);
@@ -114,10 +129,11 @@ export async function initializeUser(): Promise<void> {
     selectedToolIds,
   );
 
-  await processFileUpdates(definitions, selectedToolIds);
+  const choices = { toolIds: selectedToolIds, runtime };
+  await processFileUpdates(definitions, choices);
 
   // Save template hashes so future updates can detect changes
-  saveTemplateHashes(computeTemplateHashes(selectedToolIds));
+  saveTemplateHashes(computeTemplateHashes(choices));
 
   writeStandardOutput();
 

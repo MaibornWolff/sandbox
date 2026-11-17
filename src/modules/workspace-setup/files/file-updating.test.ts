@@ -56,7 +56,7 @@ describe("file updating", () => {
   it("creates a missing file and reports its final state", async () => {
     const filePath = path.join(root, "config.toml");
     const result = await scoped(() =>
-      processFileUpdate(definition(filePath, "new content"), []),
+      processFileUpdate(definition(filePath, "new content"), { toolIds: [] }),
     );
     expect(result.action).toBe("created");
     expect(fs.readFileSync(filePath, "utf8")).toBe("new content");
@@ -67,7 +67,7 @@ describe("file updating", () => {
     const filePath = path.join(root, "config.toml");
     fs.writeFileSync(filePath, "same content");
     const result = await scoped(() =>
-      processFileUpdate(definition(filePath, "same content"), []),
+      processFileUpdate(definition(filePath, "same content"), { toolIds: [] }),
     );
     expect(result.action).toBe("up-to-date");
   });
@@ -79,10 +79,14 @@ describe("file updating", () => {
     fs.writeFileSync(skipPath, "old");
 
     const overwritten = await scoped(() =>
-      processFileUpdate(definition(overwritePath, "new"), [], "overwrite"),
+      processFileUpdate(
+        definition(overwritePath, "new"),
+        { toolIds: [] },
+        "overwrite",
+      ),
     );
     const skipped = await scoped(() =>
-      processFileUpdate(definition(skipPath, "new"), [], "skip"),
+      processFileUpdate(definition(skipPath, "new"), { toolIds: [] }, "skip"),
     );
 
     expect(overwritten.action).toBe("updated");
@@ -96,8 +100,12 @@ describe("file updating", () => {
       definition(path.join(root, "config.toml"), "config"),
       definition(path.join(root, "Dockerfile"), "FROM base"),
     ];
-    const first = await scoped(() => processFileUpdates(definitions, []));
-    const second = await scoped(() => processFileUpdates(definitions, []));
+    const first = await scoped(() =>
+      processFileUpdates(definitions, { toolIds: [] }),
+    );
+    const second = await scoped(() =>
+      processFileUpdates(definitions, { toolIds: [] }),
+    );
     expect(first.map((result) => result.action)).toEqual([
       "created",
       "created",
@@ -113,12 +121,14 @@ describe("file updating", () => {
     const filePath = path.join(root, "config.toml");
     const def: FileDefinition = {
       ...definition(filePath, "unused"),
-      getTemplate(toolIds) {
-        received = toolIds;
+      getTemplate({ toolIds }) {
+        received = [...toolIds];
         return "content";
       },
     };
-    const results = await scoped(() => createFilesSilently([def], ["node"]));
+    const results = await scoped(() =>
+      createFilesSilently([def], { toolIds: ["node"] }),
+    );
     expect(results[0]?.action).toBe("created");
     expect(received).toEqual(["node"]);
   });

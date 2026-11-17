@@ -1,9 +1,12 @@
 import chalk from "chalk";
 import type { RuntimeExecutor } from "../executor.js";
+import { RuntimeHostNotReadyError } from "../host-readiness.js";
 import type { RuntimeHostInfo } from "../types.js";
 
 const INSTALL_HINT =
   "Install Podman: https://podman.io/getting-started/installation";
+const START_HINT =
+  "Start Podman with podman machine start. On first use, run podman machine init first.";
 
 export function createPodmanHostOperations(exec: RuntimeExecutor): {
   ensureReady(): Promise<RuntimeHostInfo>;
@@ -22,11 +25,12 @@ export function createPodmanHostOperations(exec: RuntimeExecutor): {
             memory: { bytes: null, scope: "unknown" },
           };
         } catch (error) {
-          throw new Error(
+          throw new RuntimeHostNotReadyError(
             `${chalk.red("Podman is not running.")}\n` +
               `First time? Run: ${chalk.cyan("podman machine init")}\n` +
               `Start it with: ${chalk.cyan("podman machine start")}\n` +
               chalk.dim(INSTALL_HINT),
+            START_HINT,
             { cause: error },
           );
         }

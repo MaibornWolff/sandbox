@@ -9,10 +9,13 @@ Install and start one supported runtime before running `sandbox doctor`.
 - Apple `container`: Apple silicon, macOS 26 or newer, and `container` 1.4.1 or newer.
   Start it with `container system start`.
 
-Sandbox selects the first installed runtime in this order: Docker, Podman, Apple `container`.
-It checks executable availability, not service health.
-Select a runtime explicitly if an earlier installed runtime is stopped.
-To select one explicitly, add this to your user configuration:
+If you do not select a runtime, Sandbox checks the runtimes in this order: Docker, Podman, Apple `container`.
+It selects the first runtime that is running.
+If no runtime is running, it selects the first installed runtime.
+Sandbox checks Apple `container` only on macOS.
+Each check stops after 5 seconds and then counts the runtime as not running.
+To select one explicitly, run `sandbox init` and select it in the runtime prompt, or use `sandbox init --runtime <id>`.
+You can also add this to your user configuration:
 
 ```toml
 runtime = "podman"

@@ -99,7 +99,7 @@ export async function initializeProject(toolIds?: string[]): Promise<void> {
     });
     if (!customizeImage) {
       writeStandardOutput();
-      await processFileUpdates(configDefinitions, []);
+      await processFileUpdates(configDefinitions, { toolIds: [] });
       writeStandardOutput();
       displayProjectNextSteps();
       return;
@@ -112,9 +112,10 @@ export async function initializeProject(toolIds?: string[]): Promise<void> {
     : await selectProjectTools(projectRoot, TOOL_REGISTRY);
 
   writeStandardOutput();
-  if (nonInteractive) createFilesSilently(definitions, selectedToolIds);
+  if (nonInteractive)
+    createFilesSilently(definitions, { toolIds: selectedToolIds });
   else {
-    await processFileUpdates(definitions, selectedToolIds);
+    await processFileUpdates(definitions, { toolIds: selectedToolIds });
     writeStandardOutput();
   }
 

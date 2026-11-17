@@ -3,6 +3,7 @@ import { readState, writeState } from "#platform/state/index.js";
 import {
   type FileDefinition,
   getUserFileDefinitions,
+  type TemplateChoices,
 } from "./generated-file-definition.js";
 
 interface TemplateHashes {
@@ -12,11 +13,11 @@ interface TemplateHashes {
 /** @testonly */
 export function computeTemplateHashesForDefinitions(
   definitions: readonly FileDefinition[],
-  toolIds: readonly string[],
+  choices: TemplateChoices,
 ): TemplateHashes {
   const hashes: TemplateHashes = {};
   for (const definition of definitions) {
-    const content = definition.getTemplate([...toolIds]);
+    const content = definition.getTemplate(choices);
     hashes[definition.id] = crypto
       .createHash("sha256")
       .update(content)
@@ -25,8 +26,10 @@ export function computeTemplateHashesForDefinitions(
   return hashes;
 }
 
-export function computeTemplateHashes(toolIds: string[]): TemplateHashes {
-  return computeTemplateHashesForDefinitions(getUserFileDefinitions(), toolIds);
+export function computeTemplateHashes(
+  choices: TemplateChoices,
+): TemplateHashes {
+  return computeTemplateHashesForDefinitions(getUserFileDefinitions(), choices);
 }
 
 /** @lintignore Owner-local persisted hash reader covered by focused tests. */
@@ -57,9 +60,9 @@ export function templateHashesDiffer(
   return false;
 }
 
-export function haveTemplatesChanged(toolIds: string[]): boolean {
+export function haveTemplatesChanged(choices: TemplateChoices): boolean {
   return templateHashesDiffer(
     loadStoredTemplateHashes(),
-    computeTemplateHashes(toolIds),
+    computeTemplateHashes(choices),
   );
 }

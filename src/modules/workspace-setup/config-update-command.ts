@@ -3,6 +3,7 @@ import { writeStandardOutput } from "#platform/terminal/index.js";
 import { isPromptCancellation } from "#shared/errors/index.js";
 import { processFileUpdates } from "./files/file-updating.js";
 import {
+  detectExistingRuntime,
   detectExistingTools,
   type FileDefinition,
   getProjectFileDefinitions,
@@ -69,10 +70,15 @@ export async function configUpdateCommand(
 
     writeStandardOutput("Checking for configuration updates...\n");
     const toolIds = await resolveToolIds(definitions, options);
-    await processFileUpdates(definitions, toolIds);
+    // Keep the configured runtime. Project templates have no runtime line.
+    const choices = {
+      toolIds,
+      runtime: options.project ? undefined : detectExistingRuntime(definitions),
+    };
+    await processFileUpdates(definitions, choices);
 
     if (!options.project) {
-      saveTemplateHashes(computeTemplateHashes(toolIds));
+      saveTemplateHashes(computeTemplateHashes(choices));
     }
 
     writeStandardOutput(

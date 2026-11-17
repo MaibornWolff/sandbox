@@ -4,6 +4,7 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import type { ContainerOperations } from "../container-contract.js";
 import type { RuntimeExecutor } from "../executor.js";
+import { RuntimeHostNotReadyError } from "../host-readiness.js";
 import type { ImageOperations } from "../image-contract.js";
 import type { AppleContainerOptions } from "../runtime-options.js";
 import {
@@ -33,6 +34,8 @@ import {
 
 const MINIMUM_VERSION = [1, 4, 1] as const;
 const APPLE_CONTAINER_MEMORY_BYTES = 2 * 1024 ** 3;
+const APPLE_START_HINT =
+  "Start the Apple container service with container system start.";
 
 function compareVersion(
   actual: readonly number[],
@@ -205,14 +208,16 @@ export class AppleContainerService
     try {
       status = parseServiceStatus(probeValue(serviceProbe));
     } catch (error) {
-      throw new Error(
+      throw new RuntimeHostNotReadyError(
         `${chalk.red("Could not read the Apple container service state.")}\nStart or recover it with: ${chalk.cyan("container system start")}`,
+        APPLE_START_HINT,
         { cause: error },
       );
     }
     if (status !== "running") {
-      throw new Error(
+      throw new RuntimeHostNotReadyError(
         `${chalk.red(`Apple container service is ${status}.`)}\nStart it with: ${chalk.cyan("container system start")}`,
+        APPLE_START_HINT,
       );
     }
     return versionText;

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { injectNamedVolumePersistPaths } from "./config-template-writing.js";
+import {
+  injectNamedVolumePersistPaths,
+  injectRuntime,
+  readActiveRuntime,
+} from "./config-template-writing.js";
 
 describe("injectNamedVolumePersistPaths", () => {
   const nixVol = { path: "/nix", use_named_volume: "nix" };
@@ -45,5 +49,40 @@ describe("injectNamedVolumePersistPaths", () => {
     ]);
     expect(result).toContain('use_named_volume = "nix"');
     expect(result).toContain('use_named_volume = "mydata"');
+  });
+});
+
+describe("injectRuntime", () => {
+  const template =
+    '# Runtime docs\n# runtime = "docker"\n\n# [runtimes.apple-container]\n';
+
+  test("activates the commented runtime line", () => {
+    expect(injectRuntime(template, "podman")).toBe(
+      '# Runtime docs\nruntime = "podman"\n\n# [runtimes.apple-container]\n',
+    );
+  });
+
+  test("leaves the template unchanged without a runtime", () => {
+    expect(injectRuntime(template, undefined)).toBe(template);
+  });
+
+  test("prepends a runtime line when no commented line exists", () => {
+    expect(injectRuntime("[runtimes]\n", "docker")).toBe(
+      'runtime = "docker"\n[runtimes]\n',
+    );
+  });
+});
+
+describe("readActiveRuntime", () => {
+  test("reads an active top-level runtime", () => {
+    expect(readActiveRuntime('# x\nruntime = "podman" # local\n')).toBe(
+      "podman",
+    );
+  });
+
+  test("ignores commented, unknown, and table-scoped values", () => {
+    expect(readActiveRuntime('# runtime = "docker"\n')).toBeUndefined();
+    expect(readActiveRuntime('runtime = "foo"\n')).toBeUndefined();
+    expect(readActiveRuntime('[table]\nruntime = "docker"\n')).toBeUndefined();
   });
 });

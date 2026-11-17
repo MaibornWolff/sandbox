@@ -36,6 +36,8 @@ async function selectNode(app: App): Promise<void> {
 
 async function initializeUser(app: App, tools = "node"): Promise<void> {
   const initialization = app.cli.run("init");
+  await app.tui.waitForText("Select the container runtime");
+  await app.tui.user.enter();
   await app.tui.waitForText("Select AI agents first");
   await app.tui.user.enter();
   await reviewCapabilities(app);
@@ -110,6 +112,23 @@ describe("sandbox config update", () => {
     );
     expect(dockerfile).toContain("# Tools:");
     expect(dockerfile).not.toContain("FROM custom-base");
+  });
+
+  test("keeps a configured runtime and reports current templates", async () => {
+    await using app = await setupSandboxAppTest();
+    const initialization = app.cli.run("init", "--runtime", "podman");
+    await app.tui.waitForText("Select AI agents first");
+    await app.tui.user.enter();
+    await reviewCapabilities(app);
+    expect((await initialization).exitCode).toBe(0);
+
+    const result = await app.cli.run("config", "update");
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("Do you want to update");
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "podman"$/m,
+    );
   });
 
   test("keeps current templates, persists hashes, and prints final guidance", async () => {

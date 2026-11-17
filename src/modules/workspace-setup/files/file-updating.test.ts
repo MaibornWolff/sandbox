@@ -56,7 +56,7 @@ describe("file updating", () => {
   it("creates a missing file and reports its final state", async () => {
     const filePath = path.join(root, "config.toml");
     const result = await scoped(() =>
-      processFileUpdate(definition(filePath, "new content"), []),
+      processFileUpdate(definition(filePath, "new content"), [], "replace"),
     );
     expect(result.action).toBe("created");
     expect(fs.readFileSync(filePath, "utf8")).toBe("new content");
@@ -67,7 +67,7 @@ describe("file updating", () => {
     const filePath = path.join(root, "config.toml");
     fs.writeFileSync(filePath, "same content");
     const result = await scoped(() =>
-      processFileUpdate(definition(filePath, "same content"), []),
+      processFileUpdate(definition(filePath, "same content"), [], "replace"),
     );
     expect(result.action).toBe("up-to-date");
   });
@@ -79,10 +79,15 @@ describe("file updating", () => {
     fs.writeFileSync(skipPath, "old");
 
     const overwritten = await scoped(() =>
-      processFileUpdate(definition(overwritePath, "new"), [], "overwrite"),
+      processFileUpdate(
+        definition(overwritePath, "new"),
+        [],
+        "replace",
+        "overwrite",
+      ),
     );
     const skipped = await scoped(() =>
-      processFileUpdate(definition(skipPath, "new"), [], "skip"),
+      processFileUpdate(definition(skipPath, "new"), [], "replace", "skip"),
     );
 
     expect(overwritten.action).toBe("updated");
@@ -96,8 +101,12 @@ describe("file updating", () => {
       definition(path.join(root, "config.toml"), "config"),
       definition(path.join(root, "Dockerfile"), "FROM base"),
     ];
-    const first = await scoped(() => processFileUpdates(definitions, []));
-    const second = await scoped(() => processFileUpdates(definitions, []));
+    const first = await scoped(() =>
+      processFileUpdates(definitions, [], "replace"),
+    );
+    const second = await scoped(() =>
+      processFileUpdates(definitions, [], "replace"),
+    );
     expect(first.map((result) => result.action)).toEqual([
       "created",
       "created",
@@ -106,6 +115,35 @@ describe("file updating", () => {
       "up-to-date",
       "up-to-date",
     ]);
+  });
+
+  it("compares unreadable existing content with the template", async () => {
+    const filePath = path.join(root, "config.toml");
+    fs.writeFileSync(filePath, "broken");
+    const def: FileDefinition = {
+      ...definition(filePath, "template"),
+      addMissingToolEntries: () => null,
+    };
+    const result = await scoped(() =>
+      processFileUpdate(def, [], "supplement", "overwrite"),
+    );
+    expect(result.action).toBe("updated");
+    expect(fs.readFileSync(filePath, "utf8")).toBe("template");
+    expect(lastOutput).toContain("Cannot read config.toml as TOML");
+  });
+
+  it("replaces existing content with the template on request", async () => {
+    const filePath = path.join(root, "config.toml");
+    fs.writeFileSync(filePath, "own");
+    const def: FileDefinition = {
+      ...definition(filePath, "template"),
+      addMissingToolEntries: (existing) => existing,
+    };
+    const result = await scoped(() =>
+      processFileUpdate(def, [], "replace", "overwrite"),
+    );
+    expect(result.action).toBe("updated");
+    expect(fs.readFileSync(filePath, "utf8")).toBe("template");
   });
 
   it("creates files silently with requested tool IDs", async () => {

@@ -114,7 +114,7 @@ export async function initializeUser(): Promise<void> {
     selectedToolIds,
   );
 
-  await processFileUpdates(definitions, selectedToolIds);
+  await processFileUpdates(definitions, selectedToolIds, "supplement");
 
   // Save template hashes so future updates can detect changes
   saveTemplateHashes(computeTemplateHashes(selectedToolIds));

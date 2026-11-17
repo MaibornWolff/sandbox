@@ -34,6 +34,7 @@ Files you can edit:
 - `.sandbox/docker/Dockerfile`: project tool image.
 
 Create user files with `sandbox init`, or project files with `sandbox init --project`.
+If `config.toml` exists already, `sandbox init` keeps its content and adds only the `allow_network` and `persist_paths` entries that the selected tools need.
 When a guide shows a list, add entries to the existing list rather than adding the same TOML key twice.
 Keep unrelated entries unless you intend to remove them.
 See [updates](UPDATES.md) to review newer templates without resetting your setup.

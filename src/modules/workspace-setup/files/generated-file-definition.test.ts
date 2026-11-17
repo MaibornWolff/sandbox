@@ -56,6 +56,36 @@ describe("file-definitions", () => {
       }
     });
 
+    it("keeps existing content and adds only missing domains", () => {
+      const existing =
+        'readonly = true\nallow_network = [\n  "claude.ai", # own note\n]\n';
+      const content = getUserFileDefinitions()[0]?.addMissingToolEntries?.(
+        existing,
+        ["claude"],
+      );
+      expect(content).toBe(
+        'readonly = true\nallow_network = [\n  "claude.ai", # own note\n  "*.claude.com",\n]\n',
+      );
+    });
+
+    it("does not count a commented domain as existing", () => {
+      const existing = 'allow_network = [\n  # "claude.ai",\n]\n';
+      const content =
+        getUserFileDefinitions()[0]?.addMissingToolEntries?.(existing, [
+          "claude",
+        ]) ?? "";
+      const config = parseToml(content) as { allow_network: string[] };
+      expect(config.allow_network).toEqual(["*.claude.com", "claude.ai"]);
+    });
+
+    it("reports existing content that is not valid TOML", () => {
+      const content = getUserFileDefinitions()[0]?.addMissingToolEntries?.(
+        "allow_network = [",
+        ["claude"],
+      );
+      expect(content).toBeNull();
+    });
+
     it("paths point to the scoped sandbox config dir", () => {
       const configRoot = "/test/scoped-sandbox-config";
       const paths = runWithTestLogger(
@@ -263,6 +293,25 @@ describe("file-definitions", () => {
         () => getProjectFileDefinitions()[1]?.getTemplate([]) ?? "",
       );
       expect(content).toContain("FROM sandbox-user:latest");
+    });
+
+    it("adds only the persisted paths that existing content lacks", () => {
+      const existing =
+        'persist_paths = [\n  { path = "/home/sandbox/.cache/composer" },\n]\n';
+      const content = scoped(
+        () =>
+          getProjectFileDefinitions()[0]?.addMissingToolEntries?.(existing, [
+            "composer",
+            "devbox",
+          ]) ?? "",
+      );
+      const config = parseToml(content) as {
+        persist_paths: Array<{ path: string }>;
+      };
+      expect(config.persist_paths.map((entry) => entry.path)).toEqual([
+        "/home/sandbox/.cache/composer",
+        "/nix",
+      ]);
     });
 
     it("maps paths below the scoped current directory", () => {

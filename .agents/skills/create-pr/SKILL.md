@@ -5,7 +5,7 @@ description: Create a pull request from the local fork. Use when the user asks t
 
 # Create a Pull Request
 
-1. Identify the issue from the conversation, branch, or commits. Confirm the issue with the user. If it is unclear, ask the user for the issue number or URL.
+1. Identify whether this change addresses an issue from the conversation, branch, or commits. Confirm the issue number or URL with the user. If the issue is unclear or cannot be identified, ask the user for the issue number or URL, or confirmation that no issue applies. If the user confirms that no issue applies, omit the closing line from the pull request body.
 2. Inspect staged, unstaged, and untracked changes. If any uncomitted changes remain that are relevant to the pull request, tell the user which files are affected and stop. Ask the user when the scope of a change is unclear.
 3. Identify the current branch, the fork remote, and the default base branch of `MaibornWolff/sandbox`. Compare the branch with that base and review the commits and diff. Stop if the branch or target is unclear, or if the branch has no changes to propose.
 4. Read the [pull request template](../../../.github/pull_request_template.md). Check every validation item against the changes and available evidence. Run applicable checks when necessary. Record the results and explain items that could not be verified. Do not mark an item complete without evidence. If an applicable check fails, stop and report the failure.

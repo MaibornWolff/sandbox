@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+
 interface CheckResult {
   readonly step: CheckStep;
   readonly passed: boolean;
@@ -35,6 +37,15 @@ interface RunChecksOptions {
 export interface RunChecksResult {
   readonly exitCode: number;
   readonly failures: readonly CheckResult[];
+}
+
+export function findBunVersionMismatch(
+  requiredVersionFile: string,
+  activeVersion: string,
+): string | undefined {
+  const requiredVersion = requiredVersionFile.trim();
+  if (requiredVersion === activeVersion) return undefined;
+  return `Bun ${activeVersion} is active, but .bun-version requires Bun ${requiredVersion}. Install Bun ${requiredVersion} and run the checks again.`;
 }
 
 async function runCommand(step: CheckStep): Promise<CheckCommandResult> {
@@ -119,6 +130,14 @@ export async function runChecks(
 }
 
 if (import.meta.main) {
+  const bunVersionMismatch = findBunVersionMismatch(
+    await readFile(new URL("../.bun-version", import.meta.url), "utf8"),
+    Bun.version,
+  );
+  if (bunVersionMismatch) {
+    console.error(bunVersionMismatch);
+    process.exit(1);
+  }
   const result = await runChecks({
     verbose: process.argv.includes("--verbose"),
     runStep: runCommand,

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CheckCommandResult } from "./check.js";
-import { runChecks } from "./check.js";
+import { findBunVersionMismatch, runChecks } from "./check.js";
 
 const success = (): CheckCommandResult => ({
   exitCode: 0,
@@ -124,5 +124,17 @@ describe("check runner", () => {
     expect(result.failures).toMatchObject([
       { step: "deprecations", output: "src/example.ts:3:1: Deprecated API" },
     ]);
+  });
+});
+
+describe("Bun version guard", () => {
+  test("accepts the required Bun version", () => {
+    expect(findBunVersionMismatch("1.4.4\n", "1.4.4")).toBeUndefined();
+  });
+
+  test("reports a Bun version that differs from the required version", () => {
+    expect(findBunVersionMismatch("1.4.4\n", "1.3.14")).toBe(
+      "Bun 1.3.14 is active, but .bun-version requires Bun 1.4.4. Install Bun 1.4.4 and run the checks again.",
+    );
   });
 });

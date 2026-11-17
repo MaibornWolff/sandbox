@@ -56,3 +56,4 @@ podman-build-secret-*
 
 # Secrets
 .env
+mise.local.toml

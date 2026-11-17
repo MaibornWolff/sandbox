@@ -5,6 +5,7 @@ import { getRepoRootPath } from "#platform/git/index.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 
 const testDirectories: string[] = [];
+const sessionId = "a82b48cf-c10b-48ed-9fc4-193b80ef2856";
 
 afterEach(() => {
   for (const directory of testDirectories.splice(0)) {
@@ -75,6 +76,7 @@ async function runExecEntrypoint(
   readonly exitCode: number;
   readonly arguments: string[];
   readonly markerPid: string;
+  readonly markerContents: string;
 }> {
   const fixture = await prepareExecEntrypoint(shellName);
   const child = Bun.spawn(
@@ -85,6 +87,7 @@ async function runExecEntrypoint(
         PATH: `${fixture.binDirectory}:${process.env.PATH ?? ""}`,
         FAKE_ARGUMENTS_PATH: fixture.argumentsPath,
         FAKE_EXIT_CODE: String(expectedExitCode),
+        SANDBOX_SESSION_ID: sessionId,
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -99,6 +102,9 @@ async function runExecEntrypoint(
     exitCode,
     arguments: argumentsText.trimEnd().split("\n"),
     markerPid: markers[0] ?? "",
+    markerContents: markers[0]
+      ? await readFile(path.join(fixture.sessionsDirectory, markers[0]), "utf8")
+      : "",
   };
 }
 
@@ -117,6 +123,13 @@ describe("exec-entrypoint.sh", () => {
       "%s",
       "argument with spaces",
     ]);
+  });
+
+  test("writes the session ID into the PID marker", async () => {
+    const result = await runExecEntrypoint(0);
+
+    expect(result.markerPid).toMatch(/^\d+$/);
+    expect(result.markerContents).toBe(sessionId);
   });
 
   test("falls back to bash when zsh is unavailable", async () => {

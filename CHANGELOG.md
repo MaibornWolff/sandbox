@@ -5,6 +5,11 @@
 ### Added
 
 - Add support for session wrapper script, executed on each `sandbox` or `sandbox run` command. The wrapper is configured via a`[session]` `command_wrapper` config entry. The wrapper must be available inside the container. Use `--no-wrapper` to skip it for one session.
+- Give each sandbox session a unique ID. Allowed host commands now receive four sandbox-specific environment variables:
+  - `SANDBOX_SESSION_ID`: the session specific UUID.
+  - `SANDBOX_PROJECT_DIR`: the host project root.
+  - `SANDBOX_CONTAINER_NAME`: the resolved container name. (Not its runtime ID)
+  - `SANDBOX_RUNTIME`: the container runtime, such as `docker`, `podman`, or `apple-container`.
 
 ### Changed
 

@@ -45,6 +45,10 @@ import {
   STREAM_CHANNEL,
 } from "./protocol.js";
 
+const sessionId = "a82b48cf-c10b-48ed-9fc4-193b80ef2856";
+const containerName = "actual-container";
+const runtime = "docker";
+
 type HostCommandEscapeSession = HostBridgeSession &
   Pick<HostCommandCapability, "forwardSignal">;
 
@@ -66,6 +70,7 @@ async function createSessionFixture(
     ["tool", { repeat: { regex: ".*" }, min: 0, max: 10 }],
   ],
   errorLogs: string[] = [],
+  completeContext = true,
 ): Promise<SessionFixture> {
   const root = createTestDir("host-command-session");
   const hostProjectRoot = path.join(root, "project");
@@ -76,7 +81,14 @@ async function createSessionFixture(
   const environment = createHostEnvironment({
     currentWorkingDirectory: hostProjectRoot,
     homeDirectory: root,
-    variables: { HOST_ONLY: "unchanged", PATH: process.env.PATH ?? "" },
+    variables: {
+      HOST_ONLY: "unchanged",
+      PATH: process.env.PATH ?? "",
+      SANDBOX_SESSION_ID: "inherited",
+      SANDBOX_PROJECT_DIR: "inherited",
+      SANDBOX_CONTAINER_NAME: "inherited",
+      SANDBOX_RUNTIME: "inherited",
+    },
     platform: "linux",
     interactive: false,
   });
@@ -107,8 +119,11 @@ async function createSessionFixture(
           commandRules: rules,
           hostProjectRoot,
           containerProjectRoot: "/workspace",
+          sessionId,
+          runtime,
         }),
       );
+      if (completeContext) capability.setContainerName(containerName);
       const bridge = resources.use(
         await createHostBridgeService(webSockets).startSession({
           containerHostName: "host.docker.internal",
@@ -368,6 +383,25 @@ describe("host command escape session", () => {
     expect(fixture.processes.requests).toHaveLength(0);
   });
 
+  test("rejects execution when host caller context is incomplete", async () => {
+    await using fixture = await createSessionFixture(undefined, [], false);
+    const child = fixture.processes.expectStart({ match: { command: "tool" } });
+    child.exitOnSignal();
+    await using connection = await fixture.connect();
+    const iterator = messageIterator(connection);
+    await connection.sendText(
+      encodeControlMessage({
+        type: "execute",
+        argv: ["tool"],
+        cwd: "/workspace",
+      }),
+    );
+    const response = await collectUntilExit(iterator);
+    expect(response.exitCode).toBe(126);
+    expect(response.stderr).toContain("host caller context is incomplete");
+    expect(fixture.processes.requests).toHaveLength(0);
+  });
+
   test("maps the directory and streams separate channels with stdin backpressure", async () => {
     await using fixture = await createSessionFixture();
     const child = fixture.processes.expectStart({
@@ -379,7 +413,14 @@ describe("host command escape session", () => {
     expect(request).toMatchObject({
       command: "tool",
       args: ["first second"],
-      env: { HOST_ONLY: "unchanged", PATH: process.env.PATH ?? "" },
+      env: {
+        HOST_ONLY: "unchanged",
+        PATH: process.env.PATH ?? "",
+        SANDBOX_SESSION_ID: sessionId,
+        SANDBOX_PROJECT_DIR: fixture.hostProjectRoot,
+        SANDBOX_CONTAINER_NAME: containerName,
+        SANDBOX_RUNTIME: runtime,
+      },
       stdio: "stream",
     });
     expect(path.basename(request.cwd ?? "")).toBe("nested");
@@ -567,6 +608,10 @@ describe("host command escape session", () => {
     expect(request.env).toEqual({
       HOST_ONLY: "unchanged",
       PATH: process.env.PATH ?? "",
+      SANDBOX_SESSION_ID: sessionId,
+      SANDBOX_PROJECT_DIR: fixture.hostProjectRoot,
+      SANDBOX_CONTAINER_NAME: containerName,
+      SANDBOX_RUNTIME: runtime,
     });
     child.emitStdout("client-out");
     child.emitStderr("client-err");

@@ -235,6 +235,14 @@ async function resolveExecutionContainer(
   }
 }
 
+function warnForWrapperConflict(enabled: boolean, conflict: boolean): void {
+  if (enabled && conflict) {
+    getLogger().warn(
+      "The trusted project session wrapper overrides the user wrapper. To use the user wrapper, invoke it manually with sandbox run --no-wrapper -- <user-wrapper> <command>.",
+    );
+  }
+}
+
 async function execute(
   service: SandboxRuntime,
   ctx: SandboxContext,
@@ -339,11 +347,10 @@ async function execute(
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
   }
-  if (executorOptions.wrapper !== false && config.session.wrapperConflict) {
-    logger.warn(
-      "The trusted project session wrapper overrides the user wrapper. To use the user wrapper, invoke it manually with sandbox run --no-wrapper -- <user-wrapper> <command>.",
-    );
-  }
+  warnForWrapperConflict(
+    executorOptions.wrapper !== false,
+    config.session.wrapperConflict,
+  );
   const execution = buildSandboxExecSpec({
     currentDir,
     command: [

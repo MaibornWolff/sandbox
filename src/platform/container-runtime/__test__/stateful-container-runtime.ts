@@ -52,6 +52,7 @@ interface ContainerExecOptions {
 
 import {
   createManagedContainer,
+  isReadinessCommand,
   type ManagedContainer,
   type ManagedContainerSnapshot,
   type ManagedContainerState,
@@ -660,7 +661,7 @@ class StatefulRuntimeWorld {
       },
       openExec: async (id, spec) => {
         const container = this.findContainer(id);
-        if (spec.command.some((part) => part.includes("/tmp/.sandbox-ready"))) {
+        if (isReadinessCommand(spec.command)) {
           const stdout = await legacy.execInContainer(id, [...spec.command], {
             user: spec.user,
           });

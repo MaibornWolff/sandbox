@@ -1,10 +1,11 @@
 import chalk from "chalk";
+import type { ContainerSession } from "#platform/container-system/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { shellQuote } from "#shared/text/index.js";
 import {
   type ContainerStatusInfo,
   getSandboxStatus,
   type SandboxStatus,
-  type SessionInfo,
 } from "../lifecycle/container-status.js";
 import type { SandboxOptions } from "../sandbox-options.js";
 
@@ -21,8 +22,30 @@ function renderHeader(status: SandboxStatus): string {
   return lines.join("\n");
 }
 
-function renderSessions(sessions: SessionInfo[]): string[] {
+const SHORT_SESSION_ID_LENGTH = 8;
+
+function formatSessionCommand(session: ContainerSession): string {
+  if (session.command?.length) return session.command.map(shellQuote).join(" ");
+  return session.title || "unknown";
+}
+
+function renderSession(session: ContainerSession): string {
+  const parts = [formatSessionCommand(session)];
+  if (session.id) {
+    parts.push(chalk.cyan(session.id.slice(0, SHORT_SESSION_ID_LENGTH)));
+  }
+  parts.push(chalk.dim(`(PID ${session.pid})`));
+  return parts.join("  ");
+}
+
+function renderSessions(
+  sessions: readonly ContainerSession[] | null,
+): string[] {
   const lines: string[] = [];
+  if (sessions === null) {
+    lines.push(`    ${chalk.dim("Sessions")}  ${chalk.dim("unknown")}`);
+    return lines;
+  }
   if (sessions.length === 0) {
     lines.push(`    ${chalk.dim("Sessions")}  ${chalk.dim("none")}`);
     return lines;
@@ -31,23 +54,26 @@ function renderSessions(sessions: SessionInfo[]): string[] {
   lines.push(`    ${chalk.dim("Sessions")}  ${sessions.length} active`);
 
   for (let i = 0; i < sessions.length; i++) {
-    const session = sessions[i] as SessionInfo;
+    const session = sessions[i] as ContainerSession;
     const isLast = i === sessions.length - 1;
     const branch = isLast ? "└" : "├";
-    lines.push(
-      `              ${chalk.dim(branch)} ${session.command} ${chalk.dim(`(PID ${session.pid})`)}`,
-    );
+    lines.push(`              ${chalk.dim(branch)} ${renderSession(session)}`);
   }
 
   return lines;
 }
 
+function renderContainerState(container: ContainerStatusInfo): string {
+  if (container.ready === null) return chalk.dim("○");
+  return container.ready ? chalk.green("●") : chalk.yellow("◐");
+}
+
 function renderContainer(container: ContainerStatusInfo): string {
   const lines: string[] = [];
 
-  // Container header: green dot + name + uptime
+  // Container header: state symbol + name + uptime
   lines.push(
-    `  ${chalk.green("●")} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.uptime)}`,
+    `  ${renderContainerState(container)} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.ready === false ? "starting" : container.uptime)}`,
   );
 
   // Image

@@ -1005,8 +1005,9 @@ describe("sandbox container start and stop", () => {
     await confirmed.project.givenConfig({ allowNetwork: [] });
     const own = confirmed.project.givenContainer({
       state: "running",
-      sessions: [{ pid: "42", command: "zsh" }],
+      sessions: [{ pid: 42, command: ["zsh"] }],
     });
+    own.container.givenExecResult(["kill", "-TERM", "--", "42"], "");
     confirmed.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
@@ -1017,6 +1018,22 @@ describe("sandbox container start and stop", () => {
     await confirmed.tui.waitForText("with 1 active session(s)");
     await confirmed.tui.user.type("y");
     expect((await execution).exitCode).toBe(0);
+    expect(
+      confirmed.runtime
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.stop" ||
+            (event.type === "container.exec" && event.command[0] === "kill"),
+        ),
+    ).toMatchObject([
+      {
+        type: "container.exec",
+        containerId: own.id,
+        command: ["kill", "-TERM", "--", "42"],
+      },
+      { type: "container.stop", containerId: own.id },
+    ]);
     expect(
       confirmed.runtime.instances
         .all()

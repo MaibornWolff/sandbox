@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import type { ContainerSession } from "#platform/container-system/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import { buildStopWarning, stopContainers } from "./stop-command.js";
+
+function session(pid: number, command: string): ContainerSession {
+  return {
+    pid,
+    startedAt: new Date(Date.UTC(2026, 0, 1)),
+    id: null,
+    command: command.split(" "),
+    title: command,
+  };
+}
 
 describe("sandbox stop session cancellation", () => {
   test("signals discovered sessions before stopping their container", async () => {
@@ -19,10 +30,7 @@ describe("sandbox stop session cancellation", () => {
       stopContainers(runtime, [
         {
           container: container.snapshot(),
-          sessions: [
-            { pid: "41", command: "sleep 30" },
-            { pid: "42", command: "zsh" },
-          ],
+          sessions: [session(41, "sleep 30"), session(42, "zsh")],
         },
       ]),
     );
@@ -57,7 +65,7 @@ describe("sandbox stop session cancellation", () => {
       stopContainers(runtime, [
         {
           container: container.snapshot(),
-          sessions: [{ pid: "41", command: "sleep 30" }],
+          sessions: [session(41, "sleep 30")],
         },
       ]),
     );
@@ -79,10 +87,7 @@ describe("buildStopWarning", () => {
           name: "sandbox-proj-1234",
           image: "sandbox-base:latest",
         },
-        sessions: [
-          { pid: "1", command: "zsh" },
-          { pid: "2", command: "node" },
-        ],
+        sessions: [session(1, "zsh"), session(2, "node")],
       },
       {
         container: {
@@ -90,7 +95,7 @@ describe("buildStopWarning", () => {
           name: "sandbox-proj-1234-2",
           image: "sandbox-base:latest",
         },
-        sessions: [{ pid: "3", command: "bun test" }],
+        sessions: [session(3, "bun test")],
       },
     ]);
 

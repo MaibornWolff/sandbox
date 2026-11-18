@@ -36,6 +36,12 @@ import { existsSync, readFileSync, watch, writeFileSync } from "node:fs";
 
 const releasePath = "/tmp/session-environment-release";
 const instancePath = "/tmp/session-environment-instance";
+function readMarker() {
+  const fields = readFileSync("/tmp/sandbox-sessions/" + process.pid, "utf8").split("\\0");
+  if (fields.pop() !== "") throw new Error("Session marker is not zero-terminated");
+  const [markerId, ...markerCommand] = fields;
+  return { markerId, markerCommand };
+}
 function report(phase) {
   console.log(JSON.stringify({
     phase,
@@ -43,7 +49,7 @@ function report(phase) {
     pane: process.env.HERDR_PANE_ID ?? null,
     imageDefault: process.env.SESSION_IMAGE_DEFAULT,
     sessionId: process.env.SANDBOX_SESSION_ID ?? null,
-    markerId: readFileSync("/tmp/sandbox-sessions/" + process.pid, "utf8"),
+    ...readMarker(),
   }));
 }
 if (process.argv[2] === "hold") {
@@ -76,6 +82,7 @@ interface Observation {
   imageDefault: string;
   sessionId: string | null;
   markerId: string;
+  markerCommand: string[];
 }
 
 function observations(output: string): Observation[] {
@@ -119,8 +126,9 @@ test("concurrent sessions share a container without sharing configured environme
   if (!secondObservation)
     throw new Error(`Missing environment observation: ${second.stdout}`);
   expect(secondObservation.sessionId ?? "").toMatch(sessionIdPattern);
-  expect(secondObservation.sessionId).toBe(secondObservation.markerId.trim());
   expect(secondObservation).toMatchObject({
+    markerId: secondObservation.sessionId,
+    markerCommand: ["node", "observe-environment.mjs"],
     pane: "pane-B",
     imageDefault: "override-B",
   });
@@ -135,10 +143,9 @@ test("concurrent sessions share a container without sharing configured environme
   const omittedObservation = observations(omitted.stdout)[0];
   expect(omittedObservation?.sessionId ?? "").toMatch(sessionIdPattern);
   expect(omittedObservation?.sessionId).not.toBe(secondObservation.sessionId);
-  expect(omittedObservation?.sessionId).toBe(
-    omittedObservation?.markerId.trim(),
-  );
   expect(omittedObservation).toMatchObject({
+    markerId: omittedObservation?.sessionId,
+    markerCommand: ["node", "observe-environment.mjs"],
     phase: "session",
     instanceMarker: secondObservation.instanceMarker,
     pane: null,
@@ -153,18 +160,19 @@ test("concurrent sessions share a container without sharing configured environme
   expect(firstObservations[0]?.sessionId).not.toBe(
     omittedObservation?.sessionId,
   );
-  expect(firstObservations[0]?.sessionId).toBe(
-    firstObservations[0]?.markerId.trim(),
-  );
   expect(firstObservations[1]?.sessionId).toBe(firstObservations[0]?.sessionId);
   expect(firstObservations).toMatchObject([
     {
+      markerId: firstObservations[0]?.sessionId,
+      markerCommand: ["node", "observe-environment.mjs", "hold"],
       phase: "ready",
       instanceMarker: secondObservation.instanceMarker,
       pane: "pane-A",
       imageDefault: "override-A",
     },
     {
+      markerId: firstObservations[0]?.sessionId,
+      markerCommand: ["node", "observe-environment.mjs", "hold"],
       phase: "released",
       instanceMarker: secondObservation.instanceMarker,
       pane: "pane-A",

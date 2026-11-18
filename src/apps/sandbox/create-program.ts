@@ -9,7 +9,6 @@ import { registerAssistCommand } from "./commands/assist-command.js";
 import {
   configureGlobalOptions,
   mergeCliOptions,
-  normalizeCliOptions,
   validateRunOptions,
 } from "./commands/cli-options.js";
 import { registerConfigCommands } from "./commands/config-command.js";
@@ -37,7 +36,7 @@ function registerCommands(program: Command): void {
       return;
     }
     warnIfUpdateAvailable();
-    await runShell(normalizeCliOptions(options));
+    await runShell(options);
   });
 
   program

@@ -4,6 +4,7 @@
 
 ### Added
 
+- Add support for session wrapper script, executed on each `sandbox` or `sandbox run` command. The wrapper is configured via a`[session]` `command_wrapper` config entry. The wrapper must be available inside the container. Use `--no-wrapper` to skip it for one session.
 - Give each sandbox session a unique ID. Allowed host commands now receive four sandbox-specific environment variables:
   - `SANDBOX_SESSION_ID`: the session specific UUID.
   - `SANDBOX_PROJECT_DIR`: the host project root.
@@ -13,6 +14,7 @@
 ### Changed
 
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
+- Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
 
 ## [0.73.2] - 2026-11-03
 

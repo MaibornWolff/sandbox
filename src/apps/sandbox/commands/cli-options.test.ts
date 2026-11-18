@@ -1,27 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { Command } from "commander";
-import {
-  mergeCliOptions,
-  normalizeCliOptions,
-  validateRunOptions,
-} from "./cli-options.js";
+import { mergeCliOptions, validateRunOptions } from "./cli-options.js";
 
 describe("CLI option behavior", () => {
-  test("normalizes Commander no-build state", () => {
-    expect(normalizeCliOptions({ build: false, verbose: true })).toEqual({
-      noBuild: true,
-      verbose: true,
-    });
-  });
-
-  test("merges normalized global and command options", () => {
+  test("preserves disabled global options when merging command options", () => {
     expect(
       mergeCliOptions(
-        { build: false, trust: true },
+        { build: false, wrapper: false, trust: true },
         { readonly: true, verbose: true },
       ),
     ).toEqual({
-      noBuild: true,
+      build: false,
+      wrapper: false,
       trust: true,
       readonly: true,
       verbose: true,

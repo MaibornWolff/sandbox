@@ -4,8 +4,8 @@ export interface SandboxOptions extends ConfigOverrides {
   verbose?: boolean;
   silent?: boolean;
   containerReuse?: boolean;
-  noBuild?: boolean;
   build?: boolean;
+  wrapper?: boolean;
 }
 
 export interface CleanOptions extends SandboxOptions {

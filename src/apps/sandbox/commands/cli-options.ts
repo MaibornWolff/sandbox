@@ -1,25 +1,13 @@
 import type { Command } from "commander";
 import type { AppGlobalOptions } from "../options.js";
 
-export function normalizeCliOptions(
-  options: AppGlobalOptions,
-): AppGlobalOptions {
-  const { build, ...rest } = options;
-
-  if (build === false) {
-    return { ...rest, noBuild: true };
-  }
-
-  return rest;
-}
-
 export function mergeCliOptions(
   globalOptions: AppGlobalOptions,
   commandOptions: AppGlobalOptions,
 ): AppGlobalOptions {
   return {
-    ...normalizeCliOptions(globalOptions),
-    ...normalizeCliOptions(commandOptions),
+    ...globalOptions,
+    ...commandOptions,
   };
 }
 
@@ -90,6 +78,7 @@ export function configureGlobalOptions(program: Command): void {
       "-N, --full-network",
       "Disable network firewall (allow all outbound)",
     )
+    .option("--no-wrapper", "Skip the configured session command wrapper")
     .option("-P, --no-proxy", "Disable proxy (requires --full-network)")
     .option("-r, --readonly", "Mount project read-only")
     .option("-v, --verbose", "Show detailed timing information")

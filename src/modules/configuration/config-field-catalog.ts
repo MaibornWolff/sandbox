@@ -25,6 +25,8 @@ interface ConfigFieldDefinition<
   readonly mergeStrategy: MergeStrategy;
   readonly defaultDecision: DefaultDecision;
   readonly defaultValue?: Config[ConfigKey];
+  // Needed as the the TOML-facing default can differ from the internal configuration value.
+  readonly defaultDisplay?: string;
   readonly examples: readonly string[];
 }
 
@@ -41,6 +43,11 @@ const persistPathInputSchema = z.strictObject({
   only_if_exists: z.boolean().optional(),
   use_named_volume: z.string().optional(),
 });
+
+const sessionDefault: Config["session"] = {
+  commandWrapper: [],
+  wrapperConflict: false,
+};
 
 const settingsEntryInputSchema = z.union([
   z.string(),
@@ -140,6 +147,28 @@ export const CONFIG_FIELD_CATALOG = {
     defaultDecision: "optional",
     examples: ['"2g"'],
   }),
+  session: defineField({
+    configKey: "session",
+    schema: z
+      .strictObject({
+        command_wrapper: z
+          .array(z.string())
+          .refine(
+            (items) => items.length === 0 || items[0] !== "",
+            "Wrapper executable must not be empty.",
+          )
+          .optional(),
+      })
+      .optional(),
+    type: "table with command_wrapper: string[]",
+    description:
+      "Command prefix for shell and run sessions. A non-empty project prefix overrides the user prefix. An empty prefix does not override it. Install or mount the executable and its interpreter in the container.",
+    mergeStrategy: "override",
+    defaultDecision: "value",
+    defaultValue: sessionDefault,
+    defaultDisplay: "{ command_wrapper = [] }",
+    examples: ['session = { command_wrapper = ["my-wrapper", "--"] }'],
+  }),
   env: defineField({
     configKey: "env",
     schema: z.array(z.string()).optional(),
@@ -237,6 +266,10 @@ export function createCatalogDefaults(runtime: RuntimeId): Config {
     },
     mounts: [...(CONFIG_FIELD_CATALOG.mounts.defaultValue ?? [])],
     env: [...(CONFIG_FIELD_CATALOG.env.defaultValue ?? [])],
+    session: {
+      ...sessionDefault,
+      commandWrapper: [...sessionDefault.commandWrapper],
+    },
     readonly: CONFIG_FIELD_CATALOG.readonly.defaultValue ?? false,
     clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "enabled",
     persistPaths: [...(CONFIG_FIELD_CATALOG.persist_paths.defaultValue ?? [])],

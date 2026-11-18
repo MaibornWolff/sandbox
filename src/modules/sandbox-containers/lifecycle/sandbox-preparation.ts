@@ -68,7 +68,7 @@ export async function prepareSandboxEnvironment(
   logger.debug("Checking runtime host availability");
   await services.runtime.ensureHostReady();
 
-  const skipBuild = cliOptions.noBuild || cliOptions.build === false;
+  const skipBuild = cliOptions.build === false;
   const label = skipBuild ? "Image resolution" : "Image checks and builds";
   if (useVerboseTiming) logger.startTiming(label);
   const buildResult = skipBuild

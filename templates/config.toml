@@ -4,11 +4,6 @@
 # Automatic order: Docker, Podman, then Apple container
 # runtime = "docker"
 
-# Apple container DNS: "default" keeps the runtime resolver.
-# Use "host" for primary macOS DNS, or "host-ipv6" for its bridge DNS proxy.
-# [runtimes.apple-container]
-# dns = "host"
-
 # Host clipboard: "enabled" (default) or "disabled".
 # Uncomment to disable all Sandbox clipboard reads and writes.
 # clipboard = "disabled"
@@ -110,18 +105,6 @@ settings = [
   "!~/node_modules",
   "!~/.git",
 ]
-
-# Host commands
-# SECURITY: Each matching command runs on the host with your user permissions.
-# Only allow commands and arguments that you trust.
-#
-# [[allow_host_commands]]
-# pattern = ["bun", "run", "test:e2e"]
-#
-# [[allow_host_commands]]
-# pattern = ["git", ["status", "diff", "log"]]
-# test_match = [["git", "status"]]
-# test_no_match = [["git", "push"]]
 
 # Network - allowed outbound connections (firewall enabled by default)
 # Use *.domain to match domain itself and all subdomains
@@ -256,3 +239,25 @@ mounts = [
   "~/.claude/ide:ro",        # Claude Code IDE integration (VS Code/Cursor lock directories)
   "~/.codex/auth.json:ro",   # Use host Codex login. The normal browser login flow relies on localhost redirects.
 ]
+
+# Options under table headers:
+
+# Apple container DNS: "default" keeps the runtime resolver.
+# Use "host" for primary macOS DNS, or "host-ipv6" for its bridge DNS proxy.
+# [runtimes.apple-container]
+# dns = "host"
+
+# Session command prefix. Install or mount the executable and interpreter in the
+# container and grant execute permission. Bare names use the container PATH.
+# Relative paths use the session working directory. Empty arrays are ignored.
+# [session]
+# command_wrapper = ["my-wrapper", "--"]
+
+# Host commands
+# SECURITY: Each matching command runs on the host with your user permissions.
+# Only allow commands and arguments that you trust.
+
+# [[allow_host_commands]]
+# pattern = ["git", "bun", "run", "test:e2e", ["status", "diff", "log"]]
+# test_match = [["git", "status"]]
+# test_no_match = [["git", "push"]]

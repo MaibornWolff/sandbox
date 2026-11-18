@@ -41,10 +41,9 @@ export function registerLifecycleCommands(program: Command): void {
   program
     .command("status")
     .description("Show sandbox container status")
-    .action(async (_options, cmd) => {
+    .action(async () => {
       requireHost("status");
-      const globalOpts = cmd.parent.opts();
-      await statusCommand(globalOpts);
+      await statusCommand();
     });
 
   program

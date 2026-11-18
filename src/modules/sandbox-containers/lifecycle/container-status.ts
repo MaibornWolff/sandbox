@@ -9,11 +9,12 @@ import {
   type ContainerSessionStatus,
   parseSessionStatus,
 } from "#platform/container-system/index.js";
+import { getHostEnvironment } from "#platform/environment/index.js";
+import { getRepoRootPath } from "#platform/git/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { getContainerHash } from "../container-hashing.js";
-import type { SandboxOptions } from "../sandbox-options.js";
 import {
   findSandboxContainers,
   type SandboxContainer,
@@ -112,13 +113,13 @@ export async function readContainerSessionStatus(
 /**
  * Gather full status info for the current project's sandbox containers.
  */
-export async function getSandboxStatus(
-  cliOptions: SandboxOptions,
-): Promise<SandboxStatus> {
-  const { projectRoot, runtimeResolution } =
-    await getConfigurationService().load(cliOptions);
-  const { runtime } = await getRuntimeProvider().resolve(runtimeResolution);
-  const projectSlug = generateProjectSlug(projectRoot);
+export async function getSandboxStatus(): Promise<SandboxStatus> {
+  const { runtime } = await getRuntimeProvider().resolve(
+    getConfigurationService().loadUserRuntimeResolution(),
+  );
+  const projectSlug = generateProjectSlug(
+    await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
+  );
 
   // Find running containers for this project
   const containers = await findSandboxContainers(runtime, {

@@ -128,4 +128,57 @@ describe("sandbox status", () => {
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain("runtime failed");
   });
+
+  test("shows status in an untrusted project with and without a terminal", async () => {
+    for (const interactive of [true, false]) {
+      await using app = await setupSandboxAppTest({ interactive });
+      app.project.writeConfig("readonly = true\n");
+      app.project.givenContainer({ state: "running" });
+
+      const result = await app.cli.run("status");
+
+      expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+      expect(result.stdout).toContain("Up 1 minute");
+      expect(app.tui.output()).not.toContain("Trust this project config?");
+      expect(app.workspace.configFileExists("trusted-projects.json")).toBe(
+        false,
+      );
+    }
+  });
+
+  test("shows the user runtime when the project config selects another runtime", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "podman" });
+    app.global.writeConfig('runtime = "podman"\n');
+    await app.project.givenConfig({ allowNetwork: [], runtime: "docker" });
+
+    const result = await app.cli.run("status");
+
+    expect(result.exitCode).toBe(0);
+    expect(stripAnsi(result.stdout)).toMatch(/Runtime\s+podman/u);
+    expect(app.runtime.resolvedConfigurations()).toEqual(["podman"]);
+  });
+
+  test("detects the runtime when only the project config selects a runtime", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [], runtime: "podman" });
+
+    const result = await app.cli.run("status");
+
+    expect(result.exitCode).toBe(0);
+    expect(stripAnsi(result.stdout)).toMatch(/Runtime\s+docker/u);
+    expect(app.runtime.resolvedConfigurations()).toEqual([undefined]);
+  });
+
+  test("fails with an invalid user config", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('runtime = "unknown"\n');
+
+    const result = await app.cli.run("status");
+
+    expect(result).toMatchObject({ exitCode: 1, stdout: "" });
+    expect(result.stderr).toContain(
+      `Invalid config at ${app.workspace.configRoot}/config.toml`,
+    );
+    expect(app.runtime.resolvedConfigurations()).toEqual([]);
+  });
 });

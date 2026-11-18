@@ -1061,6 +1061,18 @@ describe("sandbox container start and stop", () => {
     expect(forced.runtime.resolvedConfigurations()).toEqual(["podman"]);
   });
 
+  test("keeps the trust check for stop in an untrusted project", async () => {
+    await using app = await setupSandboxAppTest({ interactive: false });
+    app.project.writeConfig("readonly = true\n");
+    const container = app.project.givenContainer({ state: "running" });
+
+    const result = await app.cli.run("stop", "--force");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Untrusted project config");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
+  });
+
   test("cancels stop confirmation without changing runtime state", async () => {
     await using app = await setupSandboxAppTest();
     await app.project.givenConfig({ allowNetwork: [] });

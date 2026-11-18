@@ -177,6 +177,9 @@ export function createConfigurationService(): ConfigurationService {
         configuredRuntime ?? "docker",
       );
       const dns = globalConfig?.runtimes?.["apple-container"]?.dns;
+      logger.debug(
+        `Runtime from user config: ${configuredRuntime ?? "auto-detect"}`,
+      );
       return {
         ...(configuredRuntime ? { configuredRuntime } : {}),
         options: dns === undefined ? runtimes : { "apple-container": { dns } },

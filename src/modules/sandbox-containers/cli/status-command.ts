@@ -7,7 +7,6 @@ import {
   getSandboxStatus,
   type SandboxStatus,
 } from "../lifecycle/container-status.js";
-import type { SandboxOptions } from "../sandbox-options.js";
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
@@ -115,7 +114,7 @@ function renderStatus(status: SandboxStatus): string {
 // Command
 // ---------------------------------------------------------------------------
 
-export async function statusCommand(options: SandboxOptions): Promise<void> {
-  const status = await getSandboxStatus(options);
+export async function statusCommand(): Promise<void> {
+  const status = await getSandboxStatus();
   getTerminal().stdout.write(`${renderStatus(status)}\n`);
 }

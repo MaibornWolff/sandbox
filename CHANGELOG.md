@@ -18,6 +18,8 @@
 
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
 - Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
+- `sandbox status` now uses the runtime from your user configuration and no longer asks you to trust a project configuration. It now works in untrusted projects and in tools without a terminal.
+  If you set `runtime` only in a project configuration, also set it in your user configuration.
 
 ### Fixed
 

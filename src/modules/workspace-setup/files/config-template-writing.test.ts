@@ -92,6 +92,12 @@ describe("readActiveRuntime", () => {
     expect(readActiveRuntime("'runtime' = 'docker'\n")).toBe("docker");
   });
 
+  test("reads the runtime when an unrelated setting is invalid", () => {
+    expect(
+      readActiveRuntime('runtime = "podman"\nallowed_network = 42\n'),
+    ).toBe("podman");
+  });
+
   test("returns undefined for invalid TOML", () => {
     expect(readActiveRuntime('runtime = "podman\n')).toBeUndefined();
   });

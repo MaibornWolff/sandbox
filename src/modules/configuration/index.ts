@@ -21,6 +21,7 @@ export {
 } from "./config.js";
 /** @lintignore Public configuration model factory. */
 export { createConfigFromDefaults } from "./config-defaults.js";
+export { CONFIG_FIELD_CATALOG } from "./config-field-catalog.js";
 /** @lintignore Public configuration path contract. */
 export {
   getGlobalConfigPath,

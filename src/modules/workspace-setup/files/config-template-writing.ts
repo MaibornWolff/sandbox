@@ -1,7 +1,7 @@
 import { parse as parseToml } from "smol-toml";
 import {
+  CONFIG_FIELD_CATALOG,
   type PersistPathInput,
-  RUNTIME_IDS,
   type RuntimeId,
 } from "#modules/configuration/index.js";
 
@@ -99,14 +99,11 @@ export function injectRuntime(content: string, runtime?: RuntimeId): string {
   return `${line}\n${content}`;
 }
 
-function isRuntimeId(value: string): value is RuntimeId {
-  return RUNTIME_IDS.some((id) => id === value);
-}
-
 /**
  * Read the top-level runtime from TOML config text.
- * Returns undefined for invalid TOML, a missing runtime, or an unknown ID,
- * so config updates also work on files that the full config loader rejects.
+ * Returns undefined for invalid TOML, a missing runtime, or an unknown ID.
+ * Validates only the runtime field, so config updates keep the runtime of
+ * files that the full config loader rejects.
  */
 export function readActiveRuntime(content: string): RuntimeId | undefined {
   let runtime: unknown;
@@ -115,7 +112,6 @@ export function readActiveRuntime(content: string): RuntimeId | undefined {
   } catch {
     return undefined;
   }
-  return typeof runtime === "string" && isRuntimeId(runtime)
-    ? runtime
-    : undefined;
+  const result = CONFIG_FIELD_CATALOG.runtime.schema.safeParse(runtime);
+  return result.success ? result.data : undefined;
 }

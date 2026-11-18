@@ -1,6 +1,7 @@
 import type { ContainerOperations } from "../container-contract.js";
 import type { RuntimeExecutor } from "../executor.js";
 import type { ImageOperations } from "../image-contract.js";
+import type { RuntimeDefinition } from "../runtime-definition.js";
 import {
   createSandboxImageBuilder,
   createSandboxInstanceOperations,
@@ -78,3 +79,10 @@ export class DockerService implements SandboxRuntime, SandboxImageBuilder {
     return this.host.diskSpaceAdvice();
   }
 }
+
+export const DOCKER_RUNTIME_DEFINITION: RuntimeDefinition = {
+  runtime: "docker",
+  binaryName: "docker",
+  isSupportedOnHost: () => true,
+  create: (exec) => new DockerService(exec),
+};

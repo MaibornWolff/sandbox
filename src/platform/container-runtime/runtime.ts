@@ -1,12 +1,12 @@
 import { getClock, waitWithTimeout } from "#platform/clock/index.js";
-import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { isFileNotFoundError } from "#shared/errors/index.js";
-import { AppleContainerService } from "./apple/service.js";
-import { DockerService } from "./docker/service.js";
+import { APPLE_CONTAINER_RUNTIME_DEFINITION } from "./apple/service.js";
+import { DOCKER_RUNTIME_DEFINITION } from "./docker/service.js";
 import type { RuntimeExecutor } from "./executor.js";
 import { RuntimeHostNotReadyError } from "./host-readiness.js";
-import { PodmanService } from "./podman/service.js";
+import { PODMAN_RUNTIME_DEFINITION } from "./podman/service.js";
+import type { RuntimeDefinition } from "./runtime-definition.js";
 import {
   type ContainerRuntimeOptions,
   DEFAULT_CONTAINER_RUNTIME_OPTIONS,
@@ -17,14 +17,17 @@ import type { SandboxRuntimeSelection } from "./sandbox-contract.js";
 /** Time limit for probing one runtime, so a stuck daemon or VM cannot block. */
 const RUNTIME_PROBE_TIMEOUT_MS = 5_000;
 
-function getBinaryName(runtime: Runtime): string {
-  return runtime === "apple-container" ? "container" : runtime;
-}
+const RUNTIME_DEFINITIONS: Readonly<Record<Runtime, RuntimeDefinition>> = {
+  docker: DOCKER_RUNTIME_DEFINITION,
+  podman: PODMAN_RUNTIME_DEFINITION,
+  "apple-container": APPLE_CONTAINER_RUNTIME_DEFINITION,
+};
 
-/** Runtimes that the host supports, in `RUNTIMES` order. */
-function getHostRuntimes(): readonly Runtime[] {
-  const isMacOs = getHostEnvironment().platform === "darwin";
-  return RUNTIMES.filter((runtime) => runtime !== "apple-container" || isMacOs);
+/** Definitions of the runtimes that the host supports, in `RUNTIMES` order. */
+function getHostRuntimeDefinitions(): readonly RuntimeDefinition[] {
+  return RUNTIMES.map((runtime) => RUNTIME_DEFINITIONS[runtime]).filter(
+    (definition) => definition.isSupportedOnHost(),
+  );
 }
 
 /**
@@ -57,13 +60,13 @@ interface RuntimeProbeAttempt {
 }
 
 async function probeRuntime(
-  runtime: Runtime,
+  definition: RuntimeDefinition,
   exec: RuntimeExecutor,
   options: ContainerRuntimeOptions,
   stop?: AbortSignal,
 ): Promise<RuntimeProbeAttempt> {
   const logger = getLogger();
-  const binaryName = getBinaryName(runtime);
+  const { runtime, binaryName } = definition;
   const cancellation = new AbortController();
   const stopProbe = () => cancellation.abort(stop?.reason);
   stop?.addEventListener("abort", stopProbe, { once: true });
@@ -94,7 +97,7 @@ async function probeRuntime(
       return { probe: classifyVersionFailure(runtime, binaryName, error) };
     }
     try {
-      const selection = createRuntimeService(runtime, probeExec, options);
+      const selection = createRuntimeService(definition, probeExec, options);
       const info = await selection.runtime.ensureHostReady();
       logger.debug(`${runtime} is running: ${info.version}`);
       return {
@@ -156,8 +159,8 @@ export async function probeRuntimes(
   exec: RuntimeExecutor,
 ): Promise<readonly RuntimeProbe[]> {
   const attempts = await Promise.all(
-    getHostRuntimes().map((runtime) =>
-      probeRuntime(runtime, exec, DEFAULT_CONTAINER_RUNTIME_OPTIONS),
+    getHostRuntimeDefinitions().map((definition) =>
+      probeRuntime(definition, exec, DEFAULT_CONTAINER_RUNTIME_OPTIONS),
     ),
   );
   return attempts.map(({ probe }) => probe);
@@ -174,8 +177,8 @@ async function detectRuntime(
 ): Promise<SandboxRuntimeSelection> {
   const logger = getLogger();
   const stop = new AbortController();
-  const attempts = getHostRuntimes().map((runtime) =>
-    probeRuntime(runtime, exec, options, stop.signal),
+  const attempts = getHostRuntimeDefinitions().map((definition) =>
+    probeRuntime(definition, exec, options, stop.signal),
   );
   const stopped: RuntimeProbe[] = [];
   let running: RuntimeProbeAttempt | undefined;
@@ -199,7 +202,11 @@ async function detectRuntime(
     logger.debug(
       `No runtime is running. Selected installed runtime: ${fallback.runtime}`,
     );
-    return createRuntimeService(fallback.runtime, exec, options);
+    return createRuntimeService(
+      RUNTIME_DEFINITIONS[fallback.runtime],
+      exec,
+      options,
+    );
   }
 
   throw new Error(
@@ -224,7 +231,11 @@ export async function resolveRuntime(
   if (configRuntime && RUNTIMES.includes(configRuntime as Runtime)) {
     logger.debug(`Using configured runtime: ${configRuntime}`);
     logger.endTiming("Resolve runtime");
-    return createRuntimeService(configRuntime as Runtime, exec, options);
+    return createRuntimeService(
+      RUNTIME_DEFINITIONS[configRuntime as Runtime],
+      exec,
+      options,
+    );
   }
 
   logger.debug("Auto-detecting container runtime...");
@@ -237,27 +248,14 @@ export async function resolveRuntime(
 
 /** Create the runtime and compatible image builder for a selected runtime. */
 function createRuntimeService(
-  runtime: Runtime,
+  definition: RuntimeDefinition,
   exec: RuntimeExecutor,
   options: ContainerRuntimeOptions,
 ): SandboxRuntimeSelection {
-  const adapter = (() => {
-    switch (runtime) {
-      case "docker":
-        return new DockerService(exec);
-      case "podman":
-        return new PodmanService(exec);
-      case "apple-container":
-        return new AppleContainerService(exec, options["apple-container"]);
-      default: {
-        const _exhaustive: never = runtime;
-        throw new Error(`Unknown runtime: ${_exhaustive}`);
-      }
-    }
-  })();
+  const adapter = definition.create(exec, options);
   return {
     runtime: adapter,
     imageBuilder: adapter,
-    imageOwnershipKey: runtime,
+    imageOwnershipKey: definition.runtime,
   };
 }

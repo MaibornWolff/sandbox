@@ -6,6 +6,7 @@ import type { ContainerOperations } from "../container-contract.js";
 import type { RuntimeExecutor } from "../executor.js";
 import { RuntimeHostNotReadyError } from "../host-readiness.js";
 import type { ImageOperations } from "../image-contract.js";
+import type { RuntimeDefinition } from "../runtime-definition.js";
 import type { AppleContainerOptions } from "../runtime-options.js";
 import {
   createSandboxImageBuilder,
@@ -32,6 +33,7 @@ import {
   resolveAppleMountSource,
 } from "./volumes.js";
 
+const APPLE_BINARY_NAME = "container";
 const MINIMUM_VERSION = [1, 4, 1] as const;
 const APPLE_CONTAINER_MEMORY_BYTES = 2 * 1024 ** 3;
 const APPLE_START_HINT =
@@ -100,7 +102,7 @@ export class AppleContainerService
   implements SandboxRuntime, SandboxImageBuilder
 {
   readonly runtime = "apple-container" as const;
-  private readonly binaryName = "container";
+  private readonly binaryName = APPLE_BINARY_NAME;
   readonly instances: SandboxInstanceOperations;
   readonly storage: SandboxStorageOperations;
   private readonly containers: ContainerOperations;
@@ -244,3 +246,11 @@ export class AppleContainerService
     ].join("\n");
   }
 }
+
+export const APPLE_CONTAINER_RUNTIME_DEFINITION: RuntimeDefinition = {
+  runtime: "apple-container",
+  binaryName: APPLE_BINARY_NAME,
+  isSupportedOnHost: () => getHostEnvironment().platform === "darwin",
+  create: (exec, options) =>
+    new AppleContainerService(exec, options["apple-container"]),
+};

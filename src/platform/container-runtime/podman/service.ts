@@ -8,6 +8,7 @@ import { createDockerImageOperations } from "../docker/images.js";
 import { createDockerVolumeOperations } from "../docker/volumes.js";
 import type { RuntimeExecutor } from "../executor.js";
 import type { ImageOperations } from "../image-contract.js";
+import type { RuntimeDefinition } from "../runtime-definition.js";
 import {
   createSandboxImageBuilder,
   createSandboxInstanceOperations,
@@ -116,3 +117,10 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
     return this.host.diskSpaceAdvice();
   }
 }
+
+export const PODMAN_RUNTIME_DEFINITION: RuntimeDefinition = {
+  runtime: "podman",
+  binaryName: "podman",
+  isSupportedOnHost: () => true,
+  create: (exec) => new PodmanService(exec),
+};

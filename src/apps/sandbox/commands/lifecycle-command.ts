@@ -41,9 +41,14 @@ export function registerLifecycleCommands(program: Command): void {
   program
     .command("status")
     .description("Show sandbox container status")
-    .action(async () => {
+    .option(
+      "-a, --all",
+      "Show the containers of all projects (not just current project)",
+    )
+    .action(async (options, cmd) => {
       requireHost("status");
-      await statusCommand();
+      const globalOpts = cmd.parent.opts();
+      await statusCommand({ ...globalOpts, ...options });
     });
 
   program

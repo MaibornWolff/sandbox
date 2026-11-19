@@ -240,6 +240,7 @@ function createProjectFixture(options: {
         image: `sandbox-${projectSlug}:latest`,
         labels: {
           "sandbox.project": projectSlug,
+          "sandbox.project-dir": projectRoot,
           ...(containerOptions.hash
             ? { "sandbox.hash": containerOptions.hash }
             : {}),

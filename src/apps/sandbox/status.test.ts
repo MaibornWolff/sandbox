@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { createSessionStatusFixture } from "#modules/sandbox-containers/__test__/index.js";
 import { stripAnsi } from "#test/utils.js";
-import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
+import {
+  type SandboxAppTest,
+  setupSandboxAppTest,
+} from "./__test__/sandbox-app-test.js";
 
 const CLAUDE_SESSION_ID = "6f1c0d3e-9a4b-4c2d-8e7f-1a2b3c4d5e6f";
 const SHELL_SESSION_ID = "a82b48cf-c10b-48ed-9fc4-193b80ef2856";
@@ -121,6 +125,93 @@ describe("sandbox status", () => {
     );
   });
 
+  test("lists the containers once and inspects none of them", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({ state: "running" });
+    app.project.givenContainer({ state: "running" });
+
+    await app.cli.run("status");
+
+    const types = app.runtime.events().map((event) => event.type);
+    expect(types.filter((type) => type === "container.list")).toHaveLength(1);
+    expect(types.filter((type) => type === "container.exec")).toHaveLength(2);
+    expect(types).not.toContain("container.inspect");
+  });
+
+  test("shows only the containers of the current project without --all", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({ state: "running" });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-other-aaaa",
+      slug: "other-aaaa",
+    });
+
+    const result = await app.cli.run("status");
+    const stdout = stripAnsi(result.stdout);
+
+    expect(stdout).toContain("Project");
+    expect(stdout).not.toContain("sandbox-other-aaaa");
+    expect(stdout).not.toContain("all projects");
+  });
+
+  test("shows the containers of all projects grouped and sorted with --all", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({ state: "running" });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-zeta-2",
+      slug: "zeta-2222",
+      dir: "/home/me/zeta",
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-zeta-1",
+      slug: "zeta-2222",
+      dir: "/home/me/zeta",
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-alpha",
+      slug: "alpha-1111",
+      dir: "/home/me/alpha",
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-old",
+      slug: "old-0000",
+      status: "exited",
+    });
+
+    const result = await app.cli.run("status", "--all");
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result.exitCode).toBe(0);
+    expect(stdout).toContain("Sandbox Status · all projects");
+    expect(stdout).not.toContain("sandbox-old");
+    const order = [
+      "alpha-1111  /home/me/alpha",
+      "sandbox-alpha",
+      "sandbox-zeta-1",
+      "sandbox-zeta-2",
+    ].map((text) => stdout.indexOf(text));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(stdout.match(/zeta-2222 {2}\/home\/me\/zeta/g)).toHaveLength(1);
+    expect(stdout).toContain(app.project.root);
+    expect(stdout).toContain("Up 1 minute");
+  });
+
+  test("shows only the slug for a container without the folder label", async () => {
+    await using app = await setupSandboxAppTest();
+    givenOtherProjectContainer(app, {
+      name: "sandbox-legacy",
+      slug: "legacy-9999",
+    });
+
+    const result = await app.cli.run("status", "--all");
+
+    expect(stripAnsi(result.stdout)).toMatch(/\n {2}legacy-9999\n/u);
+  });
+
   test("preserves a runtime failure", async () => {
     await using failing = await setupSandboxAppTest();
     failing.runtime.system.fail("resolve", new Error("runtime failed"));
@@ -182,3 +273,25 @@ describe("sandbox status", () => {
     expect(app.runtime.resolvedConfigurations()).toEqual([]);
   });
 });
+
+function givenOtherProjectContainer(
+  app: SandboxAppTest,
+  options: {
+    readonly name: string;
+    readonly slug: string;
+    readonly dir?: string;
+    readonly status?: "running" | "exited";
+  },
+): void {
+  const container = app.runtime.instances.create({
+    name: options.name,
+    image: "sandbox-base:latest",
+    labels: {
+      "sandbox.project": options.slug,
+      ...(options.dir ? { "sandbox.project-dir": options.dir } : {}),
+    },
+    status: options.status ?? "running",
+    startedAt: new Date("2025-12-31T23:59:00Z"),
+  });
+  createSessionStatusFixture(container);
+}

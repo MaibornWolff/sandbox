@@ -7,6 +7,7 @@ import {
   getSandboxStatus,
   type SandboxStatus,
 } from "../lifecycle/container-status.js";
+import type { StatusOptions } from "../sandbox-options.js";
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
@@ -14,9 +15,15 @@ import {
 
 function renderHeader(status: SandboxStatus): string {
   const lines: string[] = [];
-  lines.push(chalk.bold("⬡ Sandbox Status"));
+  lines.push(
+    chalk.bold(
+      `⬡ Sandbox Status${status.projectSlug === null ? " · all projects" : ""}`,
+    ),
+  );
   lines.push("");
-  lines.push(`  ${chalk.dim("Project")}   ${status.projectSlug}`);
+  if (status.projectSlug !== null) {
+    lines.push(`  ${chalk.dim("Project")}   ${status.projectSlug}`);
+  }
   lines.push(`  ${chalk.dim("Runtime")}   ${status.runtime}`);
   return lines.join("\n");
 }
@@ -67,6 +74,13 @@ function renderContainerState(container: ContainerStatusInfo): string {
   return container.ready ? chalk.green("●") : chalk.yellow("◐");
 }
 
+function renderProjectHeading(container: ContainerStatusInfo): string {
+  const folder = container.projectDir
+    ? `  ${chalk.dim(container.projectDir)}`
+    : "";
+  return `  ${chalk.bold(container.projectSlug)}${folder}`;
+}
+
 function renderContainer(container: ContainerStatusInfo): string {
   const lines: string[] = [];
 
@@ -101,9 +115,17 @@ function renderStatus(status: SandboxStatus): string {
     return lines.join("\n");
   }
 
+  let previous: ContainerStatusInfo | undefined;
   for (const container of status.containers) {
     lines.push("");
+    if (
+      status.projectSlug === null &&
+      container.projectSlug !== previous?.projectSlug
+    ) {
+      lines.push(renderProjectHeading(container));
+    }
     lines.push(renderContainer(container));
+    previous = container;
   }
 
   lines.push("");
@@ -114,7 +136,7 @@ function renderStatus(status: SandboxStatus): string {
 // Command
 // ---------------------------------------------------------------------------
 
-export async function statusCommand(): Promise<void> {
-  const status = await getSandboxStatus();
+export async function statusCommand(options: StatusOptions): Promise<void> {
+  const status = await getSandboxStatus(options);
   getTerminal().stdout.write(`${renderStatus(status)}\n`);
 }

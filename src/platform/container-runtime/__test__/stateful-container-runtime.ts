@@ -118,6 +118,10 @@ export type ContainerRuntimeEvent =
       readonly tail: number;
     }
   | {
+      readonly type: "container.inspect";
+      readonly containerId: string;
+    }
+  | {
       readonly type: "container.uptime";
       readonly containerId: string;
     }
@@ -625,7 +629,13 @@ class StatefulRuntimeWorld {
             ),
           );
       },
-      inspect,
+      inspect: async (identifier) => {
+        this.recordedEvents.push({
+          type: "container.inspect",
+          containerId: identifier,
+        });
+        return inspect(identifier);
+      },
       startDetached: create,
       async runAttached(spec) {
         await create(spec);

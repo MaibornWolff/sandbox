@@ -14,15 +14,17 @@ import { findSandboxContainers } from "../lifecycle/container-discovery.js";
 import { readContainerSessionStatus } from "../lifecycle/container-status.js";
 import type { StopOptions } from "../sandbox-options.js";
 
+type StoppableContainer = Pick<SandboxContainer, "id" | "name" | "image">;
+
 interface ContainerWithSessions {
-  container: SandboxContainer;
+  container: StoppableContainer;
   /** Empty if the status probe failed, so that no session is cancelled. */
   sessions: readonly ContainerSession[];
 }
 
 async function gatherSessions(
   service: SandboxRuntime,
-  containers: SandboxContainer[],
+  containers: StoppableContainer[],
 ): Promise<ContainerWithSessions[]> {
   return Promise.all(
     containers.map(async (container) => ({

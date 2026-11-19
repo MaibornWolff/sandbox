@@ -1,10 +1,19 @@
 import type { SandboxRuntime } from "#platform/container-runtime/index.js";
-import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
+import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
+import {
+  SANDBOX_PROJECT_DIR_LABEL,
+  SANDBOX_PROJECT_LABEL,
+} from "../container-labels.js";
 
 export interface SandboxContainer {
   readonly id: string;
   readonly name: string;
   readonly image: string;
+  readonly projectSlug: string;
+  /** `null` for containers from older CLIs without the folder label. */
+  readonly projectDir: string | null;
+  readonly hash: string | null;
+  readonly startedAt: Date | null;
 }
 
 type ContainerStatus = "all" | "running" | "exited";
@@ -28,6 +37,10 @@ export async function findSandboxContainers(
     id: entry.id,
     name: entry.name,
     image: entry.image.reference.replace(/^localhost\//u, ""),
+    projectSlug: entry.labels[SANDBOX_PROJECT_LABEL] ?? "",
+    projectDir: entry.labels[SANDBOX_PROJECT_DIR_LABEL] ?? null,
+    hash: entry.labels[SANDBOX_HASH_LABEL] ?? null,
+    startedAt: entry.startedAt,
   }));
 }
 

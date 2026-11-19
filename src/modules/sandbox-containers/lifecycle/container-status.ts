@@ -14,7 +14,7 @@ import { getRepoRootPath } from "#platform/git/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
-import { getContainerHash } from "../container-hashing.js";
+import type { StatusOptions } from "../sandbox-options.js";
 import {
   findSandboxContainers,
   type SandboxContainer,
@@ -26,6 +26,9 @@ import {
 
 export interface ContainerStatusInfo {
   name: string;
+  projectSlug: string;
+  /** `null` for containers from older CLIs without the folder label. */
+  projectDir: string | null;
   image: string;
   uptime: string;
   hash: string | null;
@@ -36,7 +39,8 @@ export interface ContainerStatusInfo {
 }
 
 export interface SandboxStatus {
-  projectSlug: string;
+  /** `null` with `--all`, because the containers belong to many projects. */
+  projectSlug: string | null;
   runtime: string;
   containers: ContainerStatusInfo[];
 }
@@ -46,24 +50,25 @@ export interface SandboxStatus {
 // ---------------------------------------------------------------------------
 
 /**
- * Get human-readable uptime for a container.
+ * Format the uptime of a container from its start time.
  * @testonly
  */
-export async function getContainerUptime(
-  service: SandboxRuntime,
-  containerId: string,
-): Promise<string> {
-  const startedAt = (await service.instances.inspect(containerId))?.startedAt;
+export function getContainerUptime(startedAt: Date | null): string {
   if (!startedAt) return "unknown";
   const seconds = Math.max(
     0,
     Math.floor((getClock().now() - startedAt.getTime()) / 1_000),
   );
-  if (seconds < 60) return `Up ${seconds} seconds`;
+  if (seconds < 60) return `Up ${formatUnit(seconds, "second")}`;
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `Up ${minutes} minutes`;
+  if (minutes < 60) return `Up ${formatUnit(minutes, "minute")}`;
   const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `Up ${hours} hours` : `Up ${Math.floor(hours / 24)} days`;
+  if (hours < 24) return `Up ${formatUnit(hours, "hour")}`;
+  return `Up ${formatUnit(Math.floor(hours / 24), "day")}`;
+}
+
+function formatUnit(value: number, unit: string): string {
+  return `${value} ${unit}${value === 1 ? "" : "s"}`;
 }
 
 function compareSessions(
@@ -110,37 +115,54 @@ export async function readContainerSessionStatus(
 // Main orchestration
 // ---------------------------------------------------------------------------
 
+function compareContainers(
+  left: SandboxContainer,
+  right: SandboxContainer,
+): number {
+  return (
+    left.projectSlug.localeCompare(right.projectSlug) ||
+    left.name.localeCompare(right.name)
+  );
+}
+
 /**
- * Gather full status info for the current project's sandbox containers.
+ * Gather full status info for the running sandbox containers of the current
+ * project or, with `all`, of all projects.
  */
-export async function getSandboxStatus(): Promise<SandboxStatus> {
+export async function getSandboxStatus(
+  options: StatusOptions,
+): Promise<SandboxStatus> {
   const { runtime } = await getRuntimeProvider().resolve(
     getConfigurationService().loadUserRuntimeResolution(),
   );
-  const projectSlug = generateProjectSlug(
-    await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
-  );
+  const projectSlug = options.all
+    ? null
+    : generateProjectSlug(
+        await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
+      );
 
-  // Find running containers for this project
-  const containers = await findSandboxContainers(runtime, {
-    status: "running",
-    projectSlug,
-  });
+  const containers = (
+    await findSandboxContainers(runtime, {
+      status: "running",
+      ...(projectSlug === null ? {} : { projectSlug }),
+    })
+  ).sort(compareContainers);
 
-  // Gather details for each container in parallel
+  // Probe each container in parallel
   const containerStatuses = await Promise.all(
     containers.map(async (container): Promise<ContainerStatusInfo> => {
-      const [uptime, hash, sessionStatus] = await Promise.all([
-        getContainerUptime(runtime, container.id),
-        getContainerHash(runtime, container.id),
-        readContainerSessionStatus(runtime, container),
-      ]);
+      const sessionStatus = await readContainerSessionStatus(
+        runtime,
+        container,
+      );
 
       return {
         name: container.name,
+        projectSlug: container.projectSlug,
+        projectDir: container.projectDir,
         image: container.image,
-        uptime,
-        hash,
+        uptime: getContainerUptime(container.startedAt),
+        hash: container.hash,
         ready: sessionStatus?.ready ?? null,
         sessions: sessionStatus?.sessions ?? null,
       };

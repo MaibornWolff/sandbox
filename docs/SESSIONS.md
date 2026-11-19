@@ -44,13 +44,16 @@ It cannot be combined with `--verbose`.
 
 ```bash
 sandbox status
+sandbox status --all
 sandbox stop
 sandbox stop --all
 ```
 
-`status` shows running containers and active sessions.
+`status` shows running containers and active sessions of the current project.
+`status --all` shows the running containers of all projects, grouped by project slug and project folder.
+Containers from older Sandbox versions show only the slug.
 `stop` targets the current project.
-`--all` targets all Sandbox containers.
+`stop --all` targets all Sandbox containers.
 Stopping a container interrupts its sessions.
 
 Use `sandbox container start` for foreground startup diagnostics, not a normal agent session.

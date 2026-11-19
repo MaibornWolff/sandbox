@@ -45,6 +45,7 @@ export function registerLifecycleCommands(program: Command): void {
       "-a, --all",
       "Show the containers of all projects (not just current project)",
     )
+    .option("--json", "Print the status as versioned JSON for tools")
     .action(async (options, cmd) => {
       requireHost("status");
       const globalOpts = cmd.parent.opts();

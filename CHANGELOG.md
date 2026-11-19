@@ -12,8 +12,9 @@
   - `SANDBOX_RUNTIME`: the container runtime, such as `docker`, `podman`, or `apple-container`.
 - Select the container runtime as the first step of `sandbox init`. The prompt shows if each runtime is running, stopped, or not installed. It pre-selects your configured runtime, else the first running runtime, else "Auto-detect". If you select a runtime that is not running, Sandbox shows how to start it and continues.
 - Set the container runtime without the prompt with `sandbox init --runtime <id>`. Valid IDs are `docker`, `podman`, `apple-container`, and `auto`. Sandbox writes the runtime to your user `config.toml`. `auto` keeps automatic detection. When you run `sandbox init` again with a different runtime, Sandbox shows the change in the usual diff review. `sandbox init`, `sandbox config update`, and `sandbox update` keep a runtime that is already set.
-- Show the session ID and the start command of each session in `sandbox status`, and mark containers that are still starting.
+- Add `sandbox status --json` for tools. It prints a documented JSON format with a `schemaVersion`, so tools do not need to read Sandbox internals such as session marker files. See [machine-readable status](docs/SESSIONS.md#machine-readable-status).
 - Add `sandbox status --all` to show the containers of all projects.
+- Show the session ID and the start command of each session in `sandbox status`, and mark containers that are still starting.
 
 ### Changed
 

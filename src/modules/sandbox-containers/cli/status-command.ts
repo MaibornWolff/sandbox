@@ -4,10 +4,12 @@ import { getTerminal } from "#platform/terminal/index.js";
 import { shellQuote } from "#shared/text/index.js";
 import {
   type ContainerStatusInfo,
+  getContainerUptime,
   getSandboxStatus,
   type SandboxStatus,
 } from "../lifecycle/container-status.js";
 import type { StatusOptions } from "../sandbox-options.js";
+import { toStatusDocument } from "./status-json.js";
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
@@ -86,7 +88,7 @@ function renderContainer(container: ContainerStatusInfo): string {
 
   // Container header: state symbol + name + uptime
   lines.push(
-    `  ${renderContainerState(container)} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.ready === false ? "starting" : container.uptime)}`,
+    `  ${renderContainerState(container)} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.ready === false ? "starting" : getContainerUptime(container.startedAt))}`,
   );
 
   // Image
@@ -138,5 +140,8 @@ function renderStatus(status: SandboxStatus): string {
 
 export async function statusCommand(options: StatusOptions): Promise<void> {
   const status = await getSandboxStatus(options);
-  getTerminal().stdout.write(`${renderStatus(status)}\n`);
+  const output = options.json
+    ? JSON.stringify(toStatusDocument(status), null, 2)
+    : renderStatus(status);
+  getTerminal().stdout.write(`${output}\n`);
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createSessionStatusFixture } from "#modules/sandbox-containers/__test__/index.js";
+import { generateProjectSlug } from "#shared/text/index.js";
 import { stripAnsi } from "#test/utils.js";
 import {
   type SandboxAppTest,
@@ -271,6 +272,151 @@ describe("sandbox status", () => {
       `Invalid config at ${app.workspace.configRoot}/config.toml`,
     );
     expect(app.runtime.resolvedConfigurations()).toEqual([]);
+  });
+});
+
+describe("sandbox status --json", () => {
+  test("prints the containers of the current project as JSON", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({
+      state: "running",
+      hash: "abc123",
+      sessions: [
+        {
+          pid: 42,
+          startedAt: new Date("2026-01-01T00:01:00Z"),
+          id: CLAUDE_SESSION_ID,
+          command: ["claude", "--resume", "fix the bug"],
+          title: ["claude"],
+        },
+        { pid: 361, startedAt: new Date("2026-01-01T00:02:00Z") },
+      ],
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-other-aaaa",
+      slug: "other-aaaa",
+    });
+
+    const result = await app.cli.run("status", "--json");
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toEndWith("}\n");
+    const slug = generateProjectSlug(app.project.root);
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      runtime: "docker",
+      containers: [
+        {
+          name: `sandbox-${slug}`,
+          project: { slug, dir: app.project.root },
+          image: `sandbox-${slug}:latest`,
+          startedAt: "2025-12-31T23:59:00.000Z",
+          ready: true,
+          hash: "abc123",
+          sessions: [
+            {
+              id: CLAUDE_SESSION_ID,
+              pid: 42,
+              startedAt: "2026-01-01T00:01:00.000Z",
+              command: ["claude", "--resume", "fix the bug"],
+            },
+            {
+              id: null,
+              pid: 361,
+              startedAt: "2026-01-01T00:02:00.000Z",
+              command: null,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("prints an empty container list with the runtime", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const result = await app.cli.run("status", "--json");
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toBe(
+      `${JSON.stringify({ schemaVersion: 1, runtime: "docker", containers: [] }, null, 2)}\n`,
+    );
+  });
+
+  test("prints the containers of all projects with --all", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({ state: "running" });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-alpha",
+      slug: "alpha-1111",
+      dir: "/home/me/alpha",
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-legacy",
+      slug: "legacy-9999",
+    });
+
+    const result = await app.cli.run("status", "--all", "--json");
+
+    expect(result.exitCode).toBe(0);
+    const slug = generateProjectSlug(app.project.root);
+    expect(JSON.parse(result.stdout).containers).toMatchObject(
+      [
+        {
+          name: "sandbox-alpha",
+          project: { slug: "alpha-1111", dir: "/home/me/alpha" },
+        },
+        {
+          name: "sandbox-legacy",
+          project: { slug: "legacy-9999", dir: null },
+        },
+        {
+          name: `sandbox-${slug}`,
+          project: { slug, dir: app.project.root },
+        },
+      ].sort((left, right) =>
+        left.project.slug.localeCompare(right.project.slug),
+      ),
+    );
+  });
+
+  test("keeps a container with unknown sessions when the probe fails", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    const { sessionStatus } = app.project.givenContainer({ state: "running" });
+    sessionStatus.fail(new Error("probe exec failed"));
+
+    const result = await app.cli.run("--verbose", "status", "--json");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("probe exec failed");
+    expect(JSON.parse(result.stdout).containers).toMatchObject([
+      { ready: null, sessions: null },
+    ]);
+  });
+
+  test("prints nothing on stdout when the runtime is unreachable", async () => {
+    await using app = await setupSandboxAppTest();
+    app.runtime.system.fail("resolve", new Error("runtime failed"));
+
+    const result = await app.cli.run("status", "--json");
+
+    expect(result).toMatchObject({ exitCode: 1, stdout: "" });
+    expect(result.stderr).toContain("Error: runtime failed");
+  });
+
+  test("prints the document in an untrusted project without a terminal", async () => {
+    await using app = await setupSandboxAppTest({ interactive: false });
+    app.project.writeConfig("readonly = true\n");
+    app.project.givenContainer({ state: "running" });
+
+    const result = await app.cli.run("status", "--json");
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(result.stdout).containers).toHaveLength(1);
+    expect(app.workspace.configFileExists("trusted-projects.json")).toBe(false);
   });
 });
 

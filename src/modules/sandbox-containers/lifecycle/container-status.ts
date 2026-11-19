@@ -30,7 +30,7 @@ export interface ContainerStatusInfo {
   /** `null` for containers from older CLIs without the folder label. */
   projectDir: string | null;
   image: string;
-  uptime: string;
+  startedAt: Date | null;
   hash: string | null;
   /** `null` if the status probe failed. */
   ready: boolean | null;
@@ -41,7 +41,7 @@ export interface ContainerStatusInfo {
 export interface SandboxStatus {
   /** `null` with `--all`, because the containers belong to many projects. */
   projectSlug: string | null;
-  runtime: string;
+  runtime: "apple-container" | "docker" | "podman";
   containers: ContainerStatusInfo[];
 }
 
@@ -49,10 +49,7 @@ export interface SandboxStatus {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Format the uptime of a container from its start time.
- * @testonly
- */
+/** Format the uptime of a container from its start time. */
 export function getContainerUptime(startedAt: Date | null): string {
   if (!startedAt) return "unknown";
   const seconds = Math.max(
@@ -161,7 +158,7 @@ export async function getSandboxStatus(
         projectSlug: container.projectSlug,
         projectDir: container.projectDir,
         image: container.image,
-        uptime: getContainerUptime(container.startedAt),
+        startedAt: container.startedAt,
         hash: container.hash,
         ready: sessionStatus?.ready ?? null,
         sessions: sessionStatus?.sessions ?? null,

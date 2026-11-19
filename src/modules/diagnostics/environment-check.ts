@@ -1,5 +1,10 @@
 import chalk from "chalk";
-import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import { getConfigurationService } from "#modules/configuration/index.js";
+import {
+  getRuntimeProvider,
+  type RuntimeResolutionRequest,
+} from "#platform/container-runtime/index.js";
+import { getLogger } from "#platform/logging/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 
 /** @lintignore Presentation state tested by the owning component. */
@@ -14,9 +19,21 @@ export interface DockerStatus {
     | "unknown";
 }
 
-async function checkDockerStatus(): Promise<DockerStatus> {
+function loadRuntimeResolution(): RuntimeResolutionRequest | undefined {
   try {
-    const { runtime } = await getRuntimeProvider().resolve();
+    return getConfigurationService().loadUserRuntimeResolution();
+  } catch (error) {
+    getLogger().warn(
+      `${error instanceof Error ? error.message : String(error)}\nChecking the auto-detected runtime instead.`,
+    );
+    return undefined;
+  }
+}
+
+async function checkDockerStatus(): Promise<DockerStatus> {
+  const resolution = loadRuntimeResolution();
+  try {
+    const { runtime } = await getRuntimeProvider().resolve(resolution);
     const hostInfo = await runtime.ensureHostReady();
     const memoryGB =
       hostInfo.memory.bytes === null
@@ -43,6 +60,10 @@ async function checkDockerStatus(): Promise<DockerStatus> {
   }
 }
 
+/**
+ * Check the runtime that the user config selects.
+ * Auto-detects when the config sets no runtime or cannot be read.
+ */
 export async function displayEnvironmentCheck(): Promise<void> {
   displayEnvironmentStatus(await checkDockerStatus());
 }

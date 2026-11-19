@@ -20,7 +20,10 @@ import {
   generateUnifiedDiff,
   printColoredDiff,
 } from "./file-diff-rendering.js";
-import type { FileDefinition } from "./generated-file-definition.js";
+import type {
+  FileDefinition,
+  TemplateChoices,
+} from "./generated-file-definition.js";
 
 /**
  * Throw if a file write returned an error.
@@ -111,11 +114,11 @@ async function promptUpdateAction(fileName: string): Promise<UpdateAction> {
  */
 export async function processFileUpdate(
   def: FileDefinition,
-  toolIds: string[],
+  choices: TemplateChoices,
   requestedAction?: UpdateAction,
 ): Promise<FileUpdateResult> {
   const existingPath = def.getPath();
-  const newContent = def.getTemplate(toolIds);
+  const newContent = def.getTemplate(choices);
   const result: FileUpdateResult = {
     name: def.name,
     path: existingPath,
@@ -188,21 +191,21 @@ export async function processFileUpdate(
  */
 export async function processFileUpdates(
   definitions: FileDefinition[],
-  toolIds: string[],
+  choices: TemplateChoices,
 ): Promise<FileUpdateResult[]> {
   const anyExists = definitions.some((def) => pathExists(def.getPath()));
 
   writeStandardOutput(chalk.bold("Configuration files:\n"));
 
   if (!anyExists) {
-    return createFilesSilently(definitions, toolIds);
+    return createFilesSilently(definitions, choices);
   }
 
   // Re-run: show separator per file + diff UX
   const results: FileUpdateResult[] = [];
   for (const def of definitions) {
     displayFileSeparator(def.name);
-    const result = await processFileUpdate(def, toolIds);
+    const result = await processFileUpdate(def, choices);
     results.push(result);
   }
   return results;
@@ -213,12 +216,12 @@ export async function processFileUpdates(
  */
 export function createFilesSilently(
   definitions: FileDefinition[],
-  toolIds: string[],
+  choices: TemplateChoices,
 ): FileUpdateResult[] {
   const results: FileUpdateResult[] = [];
   for (const def of definitions) {
     const filePath = def.getPath();
-    const content = def.getTemplate(toolIds);
+    const content = def.getTemplate(choices);
     assertFileWritten(createFileUtil(filePath, content, { force: true }));
     writeStandardOutput(`${chalk.green("✓")} Created ${filePath}`);
     results.push({ name: def.name, path: filePath, action: "created" });

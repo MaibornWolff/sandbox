@@ -5,6 +5,7 @@ export type { DetectedConfig } from "./agent-config-copying.js";
 export { configUpdateCommand } from "./config-update-command.js";
 /** @lintignore Public workspace setup template update API. */
 export {
+  detectExistingRuntime,
   detectExistingTools,
   getUserFileDefinitions,
 } from "./files/generated-file-definition.js";

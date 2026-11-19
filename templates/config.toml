@@ -1,7 +1,8 @@
 # Sandbox configuration - see README for details
 
 # Runtime: "docker", "podman", or "apple-container" (auto-detected if not set)
-# Automatic order: Docker, Podman, then Apple container
+# Automatic order: Docker, Podman, then Apple container.
+# Auto-detect selects the first running runtime, else the first installed one.
 # runtime = "docker"
 
 # Host clipboard: "enabled" (default) or "disabled".

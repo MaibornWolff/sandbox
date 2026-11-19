@@ -45,7 +45,7 @@ describe("file-definitions", () => {
       ];
 
       for (const testCase of cases) {
-        const content = configDef?.getTemplate([testCase.toolId]);
+        const content = configDef?.getTemplate({ toolIds: [testCase.toolId] });
         const config = parseToml(content ?? "") as { allow_network: string[] };
         expect(config.allow_network).toEqual(
           expect.arrayContaining(testCase.included),
@@ -247,7 +247,8 @@ describe("file-definitions", () => {
 
     it("extends the base image without a user Dockerfile", () => {
       const content = scoped(
-        () => getProjectFileDefinitions()[1]?.getTemplate([]) ?? "",
+        () =>
+          getProjectFileDefinitions()[1]?.getTemplate({ toolIds: [] }) ?? "",
       );
       expect(content).toContain("FROM sandbox-base:latest");
     });
@@ -260,7 +261,8 @@ describe("file-definitions", () => {
         "FROM sandbox-base:latest\n",
       );
       const content = scoped(
-        () => getProjectFileDefinitions()[1]?.getTemplate([]) ?? "",
+        () =>
+          getProjectFileDefinitions()[1]?.getTemplate({ toolIds: [] }) ?? "",
       );
       expect(content).toContain("FROM sandbox-user:latest");
     });

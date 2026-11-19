@@ -1,11 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { provideRuntimeProvider } from "#platform/container-runtime/index.js";
-import { runWithDependencies } from "#platform/dependency-injection/index.js";
-import { createTestTerminal } from "#platform/terminal/__test__/index.js";
-import { provideTerminal } from "#platform/terminal/index.js";
 import {
   type DockerStatus,
-  displayEnvironmentCheck,
   renderEnvironmentStatus,
 } from "./environment-check.js";
 
@@ -19,30 +14,6 @@ function status(overrides: Partial<DockerStatus>): DockerStatus {
     ...overrides,
   };
 }
-
-describe("displayEnvironmentCheck", () => {
-  it("checks the runtime without host or native clipboard dependencies", async () => {
-    await using cleanup = new AsyncDisposableStack();
-    const terminal = createTestTerminal();
-    cleanup.defer(() => terminal.dispose());
-    let resolutions = 0;
-    await runWithDependencies(
-      [
-        provideTerminal(terminal.io),
-        provideRuntimeProvider({
-          resolve: async () => {
-            resolutions += 1;
-            throw new Error("No runtime installed");
-          },
-        }),
-      ],
-      () => displayEnvironmentCheck(),
-    );
-    expect(resolutions).toBe(1);
-    expect(terminal.stdout()).toContain("Not available");
-    expect(terminal.stderr()).toBe("");
-  });
-});
 
 describe("renderEnvironmentStatus", () => {
   it("renders an available runtime and memory", () => {

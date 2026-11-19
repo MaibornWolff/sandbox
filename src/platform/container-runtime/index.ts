@@ -14,6 +14,8 @@ export {
   provideRuntimeProvider,
   type RuntimeResolutionRequest,
 } from "./runtime-provider.js";
+/** @lintignore Public runtime probe contract. */
+export type { RuntimeProbe } from "./runtime-types.js";
 /** @lintignore Public Sandbox runtime contract. */
 export type {
   CommandResult,

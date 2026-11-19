@@ -24,6 +24,7 @@ export class ExecError extends Error {
 interface ProcessCommandOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly interactive?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 interface ProcessCommandExecutor {
@@ -32,6 +33,7 @@ interface ProcessCommandExecutor {
     readonly args?: readonly string[];
     readonly env?: Readonly<Record<string, string>>;
     readonly stdio?: "capture" | "inherit" | "ignore";
+    readonly signal?: AbortSignal;
   }): Promise<ProcessResult>;
 }
 
@@ -71,6 +73,7 @@ export async function executeProcessCommand(
     command,
     args,
     ...(options.env ? { env: options.env } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
     stdio: interactive ? ("inherit" as const) : ("capture" as const),
   };
   const result =

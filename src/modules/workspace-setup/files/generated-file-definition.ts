@@ -5,40 +5,54 @@ import {
   getProjectDockerfilePath,
   injectAllowedDomains,
   type PersistPathInput,
+  type RuntimeId,
 } from "#modules/configuration/index.js";
 import { BASE_IMAGE, USER_IMAGE } from "#modules/sandbox-resources/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
-import { pathExists } from "#platform/filesystem/index.js";
+import { pathExists, readTextFile } from "#platform/filesystem/index.js";
 import {
   readToolIdsFromDockerfile,
   validateToolIds,
 } from "../initialization/build-context-detection.js";
 import { generateDockerfile } from "../tools/dockerfile-generation.js";
 import { resolveTools } from "../tools/tool-resolution.js";
-import { injectNamedVolumePersistPaths } from "./config-template-writing.js";
+import {
+  injectNamedVolumePersistPaths,
+  injectRuntime,
+  readActiveRuntime,
+} from "./config-template-writing.js";
 import {
   CONFIG_TOML_TEMPLATE,
   PROJECT_CONFIG_TOML_TEMPLATE,
 } from "./template-loading.js";
+
+/** User choices that shape generated templates. */
+export interface TemplateChoices {
+  readonly toolIds: readonly string[];
+  /** Active runtime for the user config. Unset leaves the runtime line commented out. */
+  readonly runtime?: RuntimeId;
+}
 
 export interface FileDefinition {
   id: string;
   name: string;
   description?: string;
   getPath: () => string;
-  getTemplate: (toolIds: string[]) => string;
+  getTemplate: (choices: TemplateChoices) => string;
 }
 
 /**
  * Collect all network domains from selected tools that declare allowNetwork.
  */
-function collectNetworkDomains(toolIds: string[]): string[] {
+function collectNetworkDomains(toolIds: readonly string[]): string[] {
   return resolveTools(toolIds).dependencyClosure.flatMap(
     (tool) => tool.allowNetwork ?? [],
   );
 }
 
-function collectToolPersistPaths(toolIds: string[]): PersistPathInput[] {
+function collectToolPersistPaths(
+  toolIds: readonly string[],
+): PersistPathInput[] {
   return resolveTools(toolIds).dependencyClosure.flatMap(
     (tool) => tool.persistPaths ?? [],
   );
@@ -54,9 +68,10 @@ export function getUserFileDefinitions(): FileDefinition[] {
       name: "config.toml",
       description: "Global configuration",
       getPath: getGlobalConfigPath,
-      getTemplate: (toolIds) => {
+      getTemplate: ({ toolIds, runtime }) => {
         const domains = collectNetworkDomains(toolIds);
-        return injectAllowedDomains(CONFIG_TOML_TEMPLATE, domains);
+        const content = injectRuntime(CONFIG_TOML_TEMPLATE, runtime);
+        return injectAllowedDomains(content, domains);
       },
     },
     {
@@ -64,7 +79,7 @@ export function getUserFileDefinitions(): FileDefinition[] {
       name: "docker/Dockerfile",
       description: "User-level image template",
       getPath: getGlobalDockerfilePath,
-      getTemplate: (toolIds) => {
+      getTemplate: ({ toolIds }) => {
         const resolved = resolveTools(toolIds);
         return generateDockerfile({
           tools: resolved.dependencyClosure,
@@ -131,6 +146,18 @@ export function detectExistingTools(definitions: FileDefinition[]): {
 }
 
 /**
+ * Read the active runtime from the config file in the definitions.
+ * Callers that do not ask the user keep this runtime in regenerated templates.
+ */
+export function detectExistingRuntime(
+  definitions: FileDefinition[],
+): RuntimeId | undefined {
+  const configPath = definitions.find((d) => d.id === "config")?.getPath();
+  if (!configPath || !pathExists(configPath)) return undefined;
+  return readActiveRuntime(readTextFile(configPath));
+}
+
+/**
  * Project-level file definitions (used by init --project).
  */
 function getProjectBaseImage(): string {
@@ -146,7 +173,7 @@ export function getProjectFileDefinitions(): FileDefinition[] {
       description: "Project configuration",
       getPath: () =>
         getProjectConfigPath(getHostEnvironment().currentWorkingDirectory),
-      getTemplate: (toolIds) => {
+      getTemplate: ({ toolIds }) => {
         const domains = collectNetworkDomains(toolIds);
         const toolPaths = collectToolPersistPaths(toolIds);
         const content = injectAllowedDomains(
@@ -162,7 +189,7 @@ export function getProjectFileDefinitions(): FileDefinition[] {
       description: "Project-specific image",
       getPath: () =>
         getProjectDockerfilePath(getHostEnvironment().currentWorkingDirectory),
-      getTemplate: (toolIds) => {
+      getTemplate: ({ toolIds }) => {
         const resolved = resolveTools(toolIds);
         return generateDockerfile({
           tools: resolved.dependencyClosure,

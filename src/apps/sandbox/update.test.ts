@@ -124,6 +124,32 @@ describe("sandbox update", () => {
     );
   });
 
+  test("recognizes unchanged templates with a configured runtime", async () => {
+    await using app = await setupSandboxAppTest();
+    const initialization = app.cli.run("init", "--runtime", "podman");
+    await app.tui.waitForText("Select AI agents first");
+    await app.tui.user.enter();
+    await app.tui.waitForText("Configure capabilities");
+    await app.tui.user.type("G");
+    await app.tui.user.enter();
+    await app.tui.waitForText("Review capabilities");
+    await app.tui.user.enter();
+    expect((await initialization).exitCode).toBe(0);
+    app.updates.givenPackageVersion(packageName, "2.0.0");
+
+    const execution = app.cli.run("update");
+    await app.tui.waitForText("Update to 2.0.0?");
+    await app.tui.user.enter();
+    const result = await execution;
+
+    expect(result.stderr).toContain("Configuration already up to date");
+    expect(
+      app.updates
+        .operations()
+        .filter((operation) => operation.type === "binary.run"),
+    ).toHaveLength(0);
+  });
+
   test("recognizes unchanged templates on a repeated real update", async () => {
     await using app = await setupSandboxAppTest();
     app.updates.givenPackageVersion(packageName, "2.0.0");

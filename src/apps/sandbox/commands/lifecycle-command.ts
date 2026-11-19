@@ -73,6 +73,10 @@ export function registerLifecycleCommands(program: Command): void {
       "Non-interactive tool selection (comma-separated IDs, e.g. node,mise-env)",
       (value: string) => value.split(",").map((s) => s.trim()),
     )
+    .option(
+      "--runtime <id>",
+      "Container runtime for user-level config (docker, podman, apple-container, or auto)",
+    )
     .action(async (options) => {
       requireHost("init");
       const result = await initCommand(options);

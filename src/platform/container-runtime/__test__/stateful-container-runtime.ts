@@ -13,7 +13,7 @@ import type {
   ImageOperations,
 } from "../image-contract.js";
 import type { SandboxRuntimeProvider } from "../index.js";
-import type { Runtime } from "../runtime-types.js";
+import { RUNTIMES, type Runtime, type RuntimeProbe } from "../runtime-types.js";
 import {
   createSandboxImageBuilder,
   createSandboxInstanceOperations,
@@ -187,6 +187,8 @@ export interface StatefulContainerRuntimeHarness {
   };
   readonly system: {
     givenVersion(version: string): void;
+    /** Replaces the default probe: this runtime running, others not installed. */
+    givenProbes(probes: readonly RuntimeProbe[]): void;
     givenMemoryBytes(memory: number | null): void;
     givenCompatibilityIdentity(identity: string): void;
     fail(point: RuntimeFailurePoint, error: Error): void;
@@ -309,6 +311,7 @@ class StatefulRuntimeWorld {
   private readonly buildResults: ManagedBuildResult[] = [];
   private readonly buildRecords: ManagedBuildRecord[] = [];
   private version: string;
+  private probes: readonly RuntimeProbe[] | undefined;
   private compatibilityIdentity: string;
   private memoryBytes: number | null = 8 * 1024 * 1024 * 1024;
   private nextContainerId = 1;
@@ -940,6 +943,17 @@ class StatefulRuntimeWorld {
           }
           return runtime;
         },
+        probe: async () =>
+          this.probes ??
+          RUNTIMES.map((candidate) =>
+            candidate === this.runtimeName
+              ? {
+                  runtime: candidate,
+                  status: "running" as const,
+                  version: this.version,
+                }
+              : { runtime: candidate, status: "not-installed" as const },
+          ),
       },
       instances: {
         create: (values) => this.addContainer(values),
@@ -977,6 +991,9 @@ class StatefulRuntimeWorld {
       system: {
         givenVersion: (value) => {
           this.version = value;
+        },
+        givenProbes: (probes) => {
+          this.probes = probes;
         },
         givenMemoryBytes: (value) => {
           this.memoryBytes = value;

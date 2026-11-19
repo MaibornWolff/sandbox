@@ -136,6 +136,44 @@ describe("configuration service", () => {
     });
   });
 
+  test("reads the user runtime settings without project config", () => {
+    const root = createTestDir("configuration-user-runtime");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const globalPath = path.join(root, "config", "config.toml");
+    const projectPath = path.join(root, "project", ".sandbox", "config.toml");
+    fs.mkdirSync(path.dirname(globalPath), { recursive: true });
+    fs.mkdirSync(path.dirname(projectPath), { recursive: true });
+    fs.writeFileSync(
+      globalPath,
+      'runtime = "podman"\n[runtimes.apple-container]\ndns = "host-ipv6"\n',
+    );
+    fs.writeFileSync(projectPath, 'runtime = "docker"\n');
+
+    const resolution = withConfiguration(root, (service) =>
+      service.loadUserRuntimeResolution(),
+    );
+
+    expect(resolution).toEqual({
+      configuredRuntime: "podman",
+      options: { "apple-container": { dns: "host-ipv6" } },
+    });
+  });
+
+  test("leaves the user runtime unset when the user config has none", () => {
+    const root = createTestDir("configuration-user-runtime-unset");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+
+    const resolution = withConfiguration(root, (service) =>
+      service.loadUserRuntimeResolution(),
+    );
+
+    expect(resolution).toEqual({
+      options: { "apple-container": { dns: "default" } },
+    });
+  });
+
   test("accepts an unchanged trusted config and rejects it after modification", async () => {
     const root = createTestDir("configuration-service-trust");
     using cleanup = new DisposableStack();

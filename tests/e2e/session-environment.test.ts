@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { getRepoRootPath } from "#platform/git/index.js";
 import {
   cleanupProject,
   createTempProject,
@@ -46,6 +47,7 @@ function report(phase) {
   console.log(JSON.stringify({
     phase,
     instanceMarker: readFileSync(instancePath, "utf8"),
+    pid: process.pid,
     pane: process.env.HERDR_PANE_ID ?? null,
     imageDefault: process.env.SESSION_IMAGE_DEFAULT,
     sessionId: process.env.SANDBOX_SESSION_ID ?? null,
@@ -78,6 +80,7 @@ afterAll(async () => {
 interface Observation {
   phase: string;
   instanceMarker: string;
+  pid: number;
   pane: string | null;
   imageDefault: string;
   sessionId: string | null;
@@ -113,7 +116,35 @@ test("concurrent sessions share a container without sharing configured environme
     );
     assertSandboxSuccess(await held.result);
   });
-  await held.waitForOutput('"phase":"ready"');
+  const heldReady = observations(
+    await held.waitForOutput('"phase":"ready"'),
+  )[0];
+  if (!heldReady)
+    throw new Error("Missing the observation of the held session");
+
+  const status = await sb.exec([
+    "status",
+    "--json",
+    "--session",
+    heldReady.sessionId ?? "",
+  ]);
+  assertSandboxSuccess(status);
+  expect(JSON.parse(status.stdout)).toMatchObject({
+    schemaVersion: 1,
+    containers: [
+      {
+        project: { dir: await getRepoRootPath(projectDir) },
+        ready: true,
+        sessions: [
+          {
+            id: heldReady.sessionId,
+            pid: heldReady.pid,
+            command: ["node", "observe-environment.mjs", "hold"],
+          },
+        ],
+      },
+    ],
+  });
 
   const second = await sb.exec(
     ["--no-build", "run", "--", "node", "observe-environment.mjs"],

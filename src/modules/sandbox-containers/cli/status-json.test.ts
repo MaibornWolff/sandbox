@@ -24,6 +24,7 @@ describe("toStatusDocument", () => {
   test("maps a container and its sessions to the contract fields", () => {
     const document = toStatusDocument({
       projectSlug: "my-app-1a2b",
+      sessionId: null,
       runtime: "podman",
       containers: [
         containerInfo({
@@ -67,6 +68,7 @@ describe("toStatusDocument", () => {
   test("keeps unknown values as null", () => {
     const document = toStatusDocument({
       projectSlug: null,
+      sessionId: null,
       runtime: "docker",
       containers: [
         containerInfo({
@@ -111,6 +113,7 @@ describe("toStatusDocument", () => {
     expect(
       toStatusDocument({
         projectSlug: "my-app-1a2b",
+        sessionId: null,
         runtime: "apple-container",
         containers: [],
       }),

@@ -39,11 +39,21 @@ export interface ContainerStatusInfo {
 }
 
 export interface SandboxStatus {
-  /** `null` with `--all`, because the containers belong to many projects. */
+  /**
+   * `null` with `--all` and `--session`, because the containers can belong to
+   * many projects.
+   */
   projectSlug: string | null;
+  /** Full ID of the looked-up session, or `null` without `--session`. */
+  sessionId: string | null;
   runtime: "apple-container" | "docker" | "podman";
   containers: ContainerStatusInfo[];
 }
+
+/** A `--session` value that does not select exactly one session. */
+export class SessionLookupError extends Error {}
+
+const MIN_SESSION_ID_QUERY_LENGTH = 6;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -122,22 +132,10 @@ function compareContainers(
   );
 }
 
-/**
- * Gather full status info for the running sandbox containers of the current
- * project or, with `all`, of all projects.
- */
-export async function getSandboxStatus(
-  options: StatusOptions,
-): Promise<SandboxStatus> {
-  const { runtime } = await getRuntimeProvider().resolve(
-    getConfigurationService().loadUserRuntimeResolution(),
-  );
-  const projectSlug = options.all
-    ? null
-    : generateProjectSlug(
-        await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
-      );
-
+async function readContainerStatuses(
+  runtime: SandboxRuntime,
+  projectSlug: string | null,
+): Promise<ContainerStatusInfo[]> {
   const containers = (
     await findSandboxContainers(runtime, {
       status: "running",
@@ -146,7 +144,7 @@ export async function getSandboxStatus(
   ).sort(compareContainers);
 
   // Probe each container in parallel
-  const containerStatuses = await Promise.all(
+  return Promise.all(
     containers.map(async (container): Promise<ContainerStatusInfo> => {
       const sessionStatus = await readContainerSessionStatus(
         runtime,
@@ -165,10 +163,92 @@ export async function getSandboxStatus(
       };
     }),
   );
+}
 
+/**
+ * Find the one session whose ID starts with `query`. Returns its container
+ * with only this session. Throws `SessionLookupError` for no match or for more
+ * than one match.
+ */
+function selectSession(
+  containers: readonly ContainerStatusInfo[],
+  query: string,
+): { container: ContainerStatusInfo; sessionId: string } {
+  const matches = containers.flatMap((container) =>
+    (container.sessions ?? []).flatMap((session) =>
+      session.id?.startsWith(query)
+        ? [{ container, session, id: session.id }]
+        : [],
+    ),
+  );
+  const [match, ...others] = matches;
+  if (!match) {
+    const unreadable = containers
+      .filter((container) => container.sessions === null)
+      .map((container) => container.name);
+    throw new SessionLookupError(
+      `No running session with ID ${query}.${
+        unreadable.length > 0
+          ? ` Could not read the sessions of ${unreadable.join(", ")}.`
+          : ""
+      }`,
+    );
+  }
+  if (others.length > 0) {
+    const ids = matches.map(({ id }) => id).sort();
+    throw new SessionLookupError(
+      `More than one session ID starts with ${query}: ${ids.join(", ")}. Use more characters.`,
+    );
+  }
+  return {
+    container: { ...match.container, sessions: [match.session] },
+    sessionId: match.id,
+  };
+}
+
+/**
+ * Gather full status info for the running sandbox containers of the current
+ * project, of all projects with `all`, or for the one session that `session`
+ * selects in all projects.
+ */
+export async function getSandboxStatus(
+  options: StatusOptions,
+): Promise<SandboxStatus> {
+  const { session } = options;
+  if (session !== undefined && session.length < MIN_SESSION_ID_QUERY_LENGTH) {
+    throw new SessionLookupError(
+      `Use at least ${MIN_SESSION_ID_QUERY_LENGTH} characters of the session ID.`,
+    );
+  }
+
+  const { runtime } = await getRuntimeProvider().resolve(
+    getConfigurationService().loadUserRuntimeResolution(),
+  );
+  const projectSlug =
+    options.all || session !== undefined
+      ? null
+      : generateProjectSlug(
+          await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
+        );
+
+  const containers = await readContainerStatuses(runtime, projectSlug);
+  if (session === undefined) {
+    return {
+      projectSlug,
+      sessionId: null,
+      runtime: runtime.runtime,
+      containers,
+    };
+  }
+
+  getLogger().debug(
+    `Looking for session ${chalk.cyan(session)} in ${containers.length} running containers`,
+  );
+  const match = selectSession(containers, session);
   return {
     projectSlug,
+    sessionId: match.sessionId,
     runtime: runtime.runtime,
-    containers: containerStatuses,
+    containers: [match.container],
   };
 }

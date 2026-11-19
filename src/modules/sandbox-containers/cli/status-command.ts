@@ -7,6 +7,7 @@ import {
   getContainerUptime,
   getSandboxStatus,
   type SandboxStatus,
+  SessionLookupError,
 } from "../lifecycle/container-status.js";
 import type { StatusOptions } from "../sandbox-options.js";
 import { toStatusDocument } from "./status-json.js";
@@ -15,13 +16,18 @@ import { toStatusDocument } from "./status-json.js";
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
+const SHORT_SESSION_ID_LENGTH = 8;
+
+function renderScope(status: SandboxStatus): string {
+  if (status.sessionId !== null) {
+    return ` · session ${status.sessionId.slice(0, SHORT_SESSION_ID_LENGTH)}`;
+  }
+  return status.projectSlug === null ? " · all projects" : "";
+}
+
 function renderHeader(status: SandboxStatus): string {
   const lines: string[] = [];
-  lines.push(
-    chalk.bold(
-      `⬡ Sandbox Status${status.projectSlug === null ? " · all projects" : ""}`,
-    ),
-  );
+  lines.push(chalk.bold(`⬡ Sandbox Status${renderScope(status)}`));
   lines.push("");
   if (status.projectSlug !== null) {
     lines.push(`  ${chalk.dim("Project")}   ${status.projectSlug}`);
@@ -29,8 +35,6 @@ function renderHeader(status: SandboxStatus): string {
   lines.push(`  ${chalk.dim("Runtime")}   ${status.runtime}`);
   return lines.join("\n");
 }
-
-const SHORT_SESSION_ID_LENGTH = 8;
 
 function formatSessionCommand(session: ContainerSession): string {
   if (session.command?.length) return session.command.map(shellQuote).join(" ");
@@ -138,8 +142,21 @@ function renderStatus(status: SandboxStatus): string {
 // Command
 // ---------------------------------------------------------------------------
 
+/** A status failure that `statusCommand` has already printed to stderr. */
+class StatusExitError extends Error {
+  readonly exitCode = 1;
+  readonly reported = true;
+}
+
 export async function statusCommand(options: StatusOptions): Promise<void> {
-  const status = await getSandboxStatus(options);
+  let status: SandboxStatus;
+  try {
+    status = await getSandboxStatus(options);
+  } catch (error) {
+    if (!(error instanceof SessionLookupError)) throw error;
+    getTerminal().stderr.write(`${error.message}\n`);
+    throw new StatusExitError(error.message, { cause: error });
+  }
   const output = options.json
     ? JSON.stringify(toStatusDocument(status), null, 2)
     : renderStatus(status);

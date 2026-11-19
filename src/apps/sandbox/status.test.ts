@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createSessionStatusFixture } from "#modules/sandbox-containers/__test__/index.js";
+import {
+  createSessionStatusFixture,
+  type SessionStatusFixture,
+} from "#modules/sandbox-containers/__test__/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { stripAnsi } from "#test/utils.js";
 import {
@@ -9,6 +12,8 @@ import {
 
 const CLAUDE_SESSION_ID = "6f1c0d3e-9a4b-4c2d-8e7f-1a2b3c4d5e6f";
 const SHELL_SESSION_ID = "a82b48cf-c10b-48ed-9fc4-193b80ef2856";
+const CODEX_SESSION_ID = "c3d4e5f6-0a1b-4c2d-8e3f-4a5b6c7d8e9f";
+const SIMILAR_SESSION_ID = "6f1c0d9a-0000-4000-8000-000000000000";
 
 describe("sandbox status", () => {
   test("shows an empty project status", async () => {
@@ -420,6 +425,168 @@ describe("sandbox status --json", () => {
   });
 });
 
+describe("sandbox status --session", () => {
+  async function givenSessions(): Promise<SandboxAppTest> {
+    const app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    app.project.givenContainer({
+      state: "running",
+      sessions: [
+        { pid: 42, id: CLAUDE_SESSION_ID, command: ["claude", "--resume"] },
+        { pid: 43, id: SHELL_SESSION_ID, command: ["zsh"] },
+        { pid: 361 },
+      ],
+    });
+    givenOtherProjectContainer(app, {
+      name: "sandbox-other-aaaa",
+      slug: "other-aaaa",
+      dir: "/home/me/other",
+    }).givenSessions([{ pid: 7, id: CODEX_SESSION_ID, command: ["codex"] }]);
+    return app;
+  }
+
+  test("shows only the matching session and its container in the text view", async () => {
+    await using app = await givenSessions();
+
+    const result = await app.cli.run("status", "--session", CLAUDE_SESSION_ID);
+    const stdout = stripAnsi(result.stdout);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(stdout).toContain("Sandbox Status · session 6f1c0d3e");
+    expect(stdout).toContain(
+      `${generateProjectSlug(app.project.root)}  ${app.project.root}`,
+    );
+    expect(stdout).toContain("Sessions  1 active");
+    expect(stdout).toContain("└ claude --resume  6f1c0d3e  (PID 42)\n");
+    expect(stdout).not.toContain("a82b48cf");
+    expect(stdout).not.toContain("PID 361");
+    expect(stdout).not.toContain("sandbox-other-aaaa");
+  });
+
+  test("finds a session of another project by a unique prefix as JSON", async () => {
+    await using app = await givenSessions();
+
+    const result = await app.cli.run(
+      "status",
+      "--session",
+      CODEX_SESSION_ID.slice(0, 6),
+      "--json",
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      runtime: "docker",
+      containers: [
+        {
+          name: "sandbox-other-aaaa",
+          project: { slug: "other-aaaa", dir: "/home/me/other" },
+          image: "sandbox-base:latest",
+          startedAt: "2025-12-31T23:59:00.000Z",
+          ready: true,
+          hash: null,
+          sessions: [
+            {
+              id: CODEX_SESSION_ID,
+              pid: 7,
+              startedAt: "2026-01-01T00:00:00.000Z",
+              command: ["codex"],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("gives the same result with --all", async () => {
+    await using app = await givenSessions();
+
+    const single = await app.cli.run(
+      "status",
+      "--session",
+      SHELL_SESSION_ID,
+      "--json",
+    );
+    const all = await app.cli.run(
+      "status",
+      "--all",
+      "--session",
+      SHELL_SESSION_ID,
+      "--json",
+    );
+
+    expect(all).toEqual(single);
+    expect(JSON.parse(all.stdout).containers).toMatchObject([
+      { sessions: [{ id: SHELL_SESSION_ID }] },
+    ]);
+  });
+
+  test.each([
+    ["a short value", "6f1c0", "Use at least 6 characters of the session ID."],
+    ["an unknown ID", "ffffffff", "No running session with ID ffffffff."],
+    [
+      "a prefix of more than one session",
+      "6f1c0d",
+      `More than one session ID starts with 6f1c0d: ${CLAUDE_SESSION_ID}, ${SIMILAR_SESSION_ID}. Use more characters.`,
+    ],
+  ])(
+    "fails with %s and prints nothing on stdout",
+    async (_name, value, message) => {
+      await using app = await givenSessions();
+      givenOtherProjectContainer(app, {
+        name: "sandbox-similar",
+        slug: "similar-bbbb",
+      }).givenSessions([{ pid: 9, id: SIMILAR_SESSION_ID, command: ["pi"] }]);
+
+      for (const format of [[], ["--json"]]) {
+        const result = await app.cli.run(
+          "status",
+          "--session",
+          value,
+          ...format,
+        );
+
+        expect(result).toEqual({
+          exitCode: 1,
+          stdout: "",
+          stderr: `${message}\n`,
+        });
+      }
+    },
+  );
+
+  test("rejects a short value before it contacts the runtime", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const result = await app.cli.run("status", "--session", "");
+
+    expect(result).toMatchObject({ exitCode: 1, stdout: "" });
+    expect(app.runtime.resolvedConfigurations()).toEqual([]);
+    expect(app.runtime.events()).toEqual([]);
+  });
+
+  test("names the containers of failed probes when the ID is unknown", async () => {
+    await using app = await givenSessions();
+    const broken = givenOtherProjectContainer(app, {
+      name: "sandbox-broken",
+      slug: "broken-cccc",
+    });
+    broken.fail(new Error("probe exec failed"));
+
+    const unknown = await app.cli.run("status", "--session", "ffffffff");
+    const found = await app.cli.run("status", "--session", CODEX_SESSION_ID);
+
+    expect(unknown).toEqual({
+      exitCode: 1,
+      stdout: "",
+      stderr:
+        "No running session with ID ffffffff. Could not read the sessions of sandbox-broken.\n",
+    });
+    expect(found.exitCode).toBe(0);
+    expect(stripAnsi(found.stdout)).toContain("└ codex  c3d4e5f6  (PID 7)");
+  });
+});
+
 function givenOtherProjectContainer(
   app: SandboxAppTest,
   options: {
@@ -428,7 +595,7 @@ function givenOtherProjectContainer(
     readonly dir?: string;
     readonly status?: "running" | "exited";
   },
-): void {
+): SessionStatusFixture {
   const container = app.runtime.instances.create({
     name: options.name,
     image: "sandbox-base:latest",
@@ -439,5 +606,5 @@ function givenOtherProjectContainer(
     status: options.status ?? "running",
     startedAt: new Date("2025-12-31T23:59:00Z"),
   });
-  createSessionStatusFixture(container);
+  return createSessionStatusFixture(container);
 }

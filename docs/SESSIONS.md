@@ -45,6 +45,7 @@ It cannot be combined with `--verbose`.
 ```bash
 sandbox status
 sandbox status --all
+sandbox status --session <id>
 sandbox status --json
 sandbox stop
 sandbox stop --all
@@ -53,6 +54,11 @@ sandbox stop --all
 `status` shows running containers and active sessions of the current project.
 `status --all` shows the running containers of all projects, grouped by project slug and project folder.
 Containers from older Sandbox versions show only the slug.
+`status --session <id>` searches all projects and shows only the container and the session with that ID.
+Use the full `SANDBOX_SESSION_ID` or the first 6 or more characters of it.
+A prefix must match exactly one session.
+With `--all`, the result is the same.
+If no session matches, or more than one session matches, `status` prints the reason to stderr, prints nothing to stdout, and exits with code 1.
 `status --json` prints the same status as JSON for tools.
 See [machine-readable status](#machine-readable-status).
 `stop` targets the current project.
@@ -67,6 +73,7 @@ It does not provide session environment values or host bridge capabilities.
 ```bash
 sandbox status --json
 sandbox status --all --json
+sandbox status --session <id> --json
 ```
 
 `--json` prints one JSON document on stdout:
@@ -102,7 +109,7 @@ Document fields:
 |---|---|---|
 | `schemaVersion` | number | Version of the format, currently `1` |
 | `runtime` | string | The runtime that status used: `"docker"`, `"podman"`, or `"apple-container"` |
-| `containers` | array | Running Sandbox containers of the current project, or of all projects with `--all` |
+| `containers` | array | Running Sandbox containers of the current project, or of all projects with `--all`. With `--session`, only the container of that session, with only that session in `sessions`. |
 
 Container fields:
 
@@ -132,11 +139,16 @@ Rules for tools:
 - Exit code 0 means that stdout contains the document.
   Without running containers, `containers` is an empty array.
 - If status fails, for example because the runtime is unreachable, stdout is empty, stderr shows the error, and the exit code is 1.
+  This also applies to `--session` with a value that matches no session or more than one session, or with fewer than 6 characters.
+  A prefix is unique only among the sessions that Sandbox can read.
+  If Sandbox could not read a container, the message for an unknown ID names it.
 - `null` means unknown. It is not the same as `false` or an empty array.
 - Ignore fields that you do not know. A new field keeps the `schemaVersion`.
   A renamed or removed field, or a field with a new type or meaning, increments the `schemaVersion`.
 - Do not rely on the order of containers and sessions.
-- Status uses the runtime from your user configuration, or the first installed runtime, and never the `runtime` of a project configuration.
+- Status uses the runtime from your user configuration.
+  If your user configuration sets no runtime, status detects one.
+  It never uses the `runtime` of a project configuration.
   One document contains only containers of this runtime.
   See [container runtimes](RUNTIMES.md).
 

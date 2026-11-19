@@ -202,7 +202,9 @@ function resolveNodeBin(): string {
   const nodePath = findExecutable("node");
   if (nodePath) return nodePath;
 
-  throw new Error("node command not found. Install Node.js 24 and retry.");
+  throw new Error(
+    "node command not found. Install Node.js 24 or 26 and retry.",
+  );
 }
 
 function resolveTimeoutBin(): string {

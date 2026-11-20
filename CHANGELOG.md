@@ -12,11 +12,17 @@
   - `SANDBOX_RUNTIME`: the container runtime, such as `docker`, `podman`, or `apple-container`.
 - Select the container runtime as the first step of `sandbox init`. The prompt shows if each runtime is running, stopped, or not installed. It pre-selects your configured runtime, else the first running runtime, else "Auto-detect". If you select a runtime that is not running, Sandbox shows how to start it and continues.
 - Set the container runtime without the prompt with `sandbox init --runtime <id>`. Valid IDs are `docker`, `podman`, `apple-container`, and `auto`. Sandbox writes the runtime to your user `config.toml`. `auto` keeps automatic detection. When you run `sandbox init` again with a different runtime, Sandbox shows the change in the usual diff review. `sandbox init`, `sandbox config update`, and `sandbox update` keep a runtime that is already set.
+- Add `sandbox status --json` for tools. It prints a documented JSON format with a `schemaVersion`, so tools do not need to read Sandbox internals such as session marker files. See [machine-readable status](docs/SESSIONS.md#machine-readable-status).
+- Add `sandbox status --all` to show the containers of all projects.
+- Add `sandbox status --session <id>` to show one session by its `SANDBOX_SESSION_ID`. The first 6 or more characters of the ID are enough if no other session starts with them.
+- Show the session ID and the start command of each session in `sandbox status`, and mark containers that are still starting.
 
 ### Changed
 
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
 - Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
+- `sandbox status` now uses the runtime from your user configuration and no longer asks you to trust a project configuration. It now works in untrusted projects and in tools without a terminal.
+  If you set `runtime` only in a project configuration, also set it in your user configuration.
 
 ### Fixed
 

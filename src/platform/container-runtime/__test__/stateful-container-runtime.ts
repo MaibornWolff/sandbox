@@ -52,6 +52,7 @@ interface ContainerExecOptions {
 
 import {
   createManagedContainer,
+  isReadinessCommand,
   type ManagedContainer,
   type ManagedContainerSnapshot,
   type ManagedContainerState,
@@ -115,6 +116,10 @@ export type ContainerRuntimeEvent =
       readonly type: "container.logs";
       readonly containerId: string;
       readonly tail: number;
+    }
+  | {
+      readonly type: "container.inspect";
+      readonly containerId: string;
     }
   | {
       readonly type: "container.uptime";
@@ -624,7 +629,13 @@ class StatefulRuntimeWorld {
             ),
           );
       },
-      inspect,
+      inspect: async (identifier) => {
+        this.recordedEvents.push({
+          type: "container.inspect",
+          containerId: identifier,
+        });
+        return inspect(identifier);
+      },
       startDetached: create,
       async runAttached(spec) {
         await create(spec);
@@ -660,7 +671,7 @@ class StatefulRuntimeWorld {
       },
       openExec: async (id, spec) => {
         const container = this.findContainer(id);
-        if (spec.command.some((part) => part.includes("/tmp/.sandbox-ready"))) {
+        if (isReadinessCommand(spec.command)) {
           const stdout = await legacy.execInContainer(id, [...spec.command], {
             user: spec.user,
           });

@@ -121,6 +121,7 @@ export function createSandboxInstanceOperations(
         }),
         labels: entry.labels,
         state: entry.state,
+        startedAt: entry.startedAt,
       }));
     },
     inspect,

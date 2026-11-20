@@ -8,6 +8,10 @@
 # Session markers live in /tmp/sandbox-sessions/, one file per session named by PID.
 # The idle watcher (container PID 1) cleans stale markers by verifying PIDs are alive.
 #
+# Marker format (v2): the session ID and each requested argument, each followed
+# by a zero byte. An argument cannot contain a zero byte, so the fields stay
+# unambiguous. `sandbox status` decodes this format.
+#
 # Marker cleanup: best-effort via EXIT trap. Since gosu uses exec() to replace
 # this shell, the trap only fires if the script exits before reaching gosu.
 # Primary cleanup is handled by the idle watcher's kill -0 check on dead PIDs.
@@ -17,7 +21,7 @@ set -e
 
 mkdir -p /tmp/sandbox-sessions
 session_file="/tmp/sandbox-sessions/$$"
-printf '%s' "${SANDBOX_SESSION_ID:-}" > "$session_file"
+printf '%s\0' "${SANDBOX_SESSION_ID:-}" "$@" > "$session_file"
 trap 'rm -f "$session_file"' EXIT
 
 # Load the sandbox user's profile for non-interactive commands too. Prefer zsh

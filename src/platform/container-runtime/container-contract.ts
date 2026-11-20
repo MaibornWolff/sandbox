@@ -32,10 +32,10 @@ export interface ContainerSummary {
   readonly imageIdentity: string;
   readonly labels: Readonly<Record<string, string>>;
   readonly state: ContainerState;
+  readonly startedAt: Date | null;
 }
 
 export interface ContainerDetails extends ContainerSummary {
-  readonly startedAt: Date | null;
   readonly mounts: readonly ContainerMount[];
 }
 

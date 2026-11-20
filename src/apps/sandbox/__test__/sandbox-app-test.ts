@@ -18,6 +18,11 @@ import {
   type NetworkObservationFixture,
 } from "#modules/network-diagnostics/__test__/index.js";
 import {
+  createSessionStatusFixture,
+  type SessionStatusFixture,
+  type SessionStatusFixtureSession,
+} from "#modules/sandbox-containers/__test__/index.js";
+import {
   createSelfUpdateFixture,
   type SelfUpdateFixture,
 } from "#modules/self-update/__test__/index.js";
@@ -109,14 +114,12 @@ export interface SandboxAppTest {
       readonly state: Exclude<ManagedContainerStatus, "removed">;
       readonly uptime?: string;
       readonly hash?: string;
-      readonly sessions?: readonly {
-        readonly pid: string;
-        readonly command: string;
-      }[];
+      readonly sessions?: readonly SessionStatusFixtureSession[];
     }): {
       readonly id: string;
       readonly container: ManagedContainer;
       readonly network: NetworkObservationFixture;
+      readonly sessionStatus: SessionStatusFixture;
     };
     readConfig(): Promise<Config>;
     configExists(): boolean;
@@ -237,6 +240,7 @@ function createProjectFixture(options: {
         image: `sandbox-${projectSlug}:latest`,
         labels: {
           "sandbox.project": projectSlug,
+          "sandbox.project-dir": projectRoot,
           ...(containerOptions.hash
             ? { "sandbox.hash": containerOptions.hash }
             : {}),
@@ -245,13 +249,15 @@ function createProjectFixture(options: {
         startedAt: startedAtFromUptime(containerOptions.uptime),
         ...(containerOptions.uptime ? { uptime: containerOptions.uptime } : {}),
       });
+      const sessionStatus = createSessionStatusFixture(container);
       if (containerOptions.sessions) {
-        container.givenSessions(containerOptions.sessions);
+        sessionStatus.givenSessions(containerOptions.sessions);
       }
       return {
         id: container.id,
         container,
         network: createNetworkObservationFixture(container),
+        sessionStatus,
       };
     },
     async readConfig() {

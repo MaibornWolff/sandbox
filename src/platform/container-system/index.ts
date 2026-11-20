@@ -37,9 +37,15 @@ export {
 } from "./network-bootstrap.js";
 /** @lintignore Public container-system session contract. */
 export {
-  buildSessionDetailsCommand,
   buildSessionIdleCommand,
+  buildSessionStatusCommand,
 } from "./session-scripts.js";
+/** @lintignore Public container-system session status contract. */
+export {
+  type ContainerSession,
+  type ContainerSessionStatus,
+  parseSessionStatus,
+} from "./session-status.js";
 /** @lintignore Public container-system TCP boundary contract. */
 export {
   createNodeTcpService,

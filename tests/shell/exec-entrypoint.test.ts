@@ -125,11 +125,13 @@ describe("exec-entrypoint.sh", () => {
     ]);
   });
 
-  test("writes the session ID into the PID marker", async () => {
+  test("writes marker v2 with the session ID and the requested command", async () => {
     const result = await runExecEntrypoint(0);
 
     expect(result.markerPid).toMatch(/^\d+$/);
-    expect(result.markerContents).toBe(sessionId);
+    expect(result.markerContents).toBe(
+      `${sessionId}\0printf\0%s\0argument with spaces\0`,
+    );
   });
 
   test("falls back to bash when zsh is unavailable", async () => {

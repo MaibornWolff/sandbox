@@ -4,29 +4,33 @@ import {
   getRuntimeProvider,
   type SandboxRuntime,
 } from "#platform/container-runtime/index.js";
+import type { ContainerSession } from "#platform/container-system/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import { confirmDestruction } from "#platform/terminal/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import type { SandboxContainer } from "../lifecycle/container-discovery.js";
 import { findSandboxContainers } from "../lifecycle/container-discovery.js";
-import type { SessionInfo } from "../lifecycle/container-status.js";
-import { getSessionDetails } from "../lifecycle/container-status.js";
+import { readContainerSessionStatus } from "../lifecycle/container-status.js";
 import type { StopOptions } from "../sandbox-options.js";
 
+type StoppableContainer = Pick<SandboxContainer, "id" | "name" | "image">;
+
 interface ContainerWithSessions {
-  container: SandboxContainer;
-  sessions: SessionInfo[];
+  container: StoppableContainer;
+  /** Empty if the status probe failed, so that no session is cancelled. */
+  sessions: readonly ContainerSession[];
 }
 
 async function gatherSessions(
   service: SandboxRuntime,
-  containers: SandboxContainer[],
+  containers: StoppableContainer[],
 ): Promise<ContainerWithSessions[]> {
   return Promise.all(
     containers.map(async (container) => ({
       container,
-      sessions: await getSessionDetails(service, container.name),
+      sessions:
+        (await readContainerSessionStatus(service, container))?.sessions ?? [],
     })),
   );
 }
@@ -67,11 +71,11 @@ export function buildStopWarning(
 async function cancelContainerSessions(
   service: SandboxRuntime,
   containerId: string,
-  sessions: readonly SessionInfo[],
+  sessions: readonly ContainerSession[],
 ): Promise<void> {
   if (sessions.length === 0) return;
   const result = await service.instances.exec(containerId, {
-    command: ["kill", "-TERM", "--", ...sessions.map(({ pid }) => pid)],
+    command: ["kill", "-TERM", "--", ...sessions.map(({ pid }) => String(pid))],
   });
   if (result.exitCode !== 0) {
     throw new Error(

@@ -284,7 +284,7 @@ describe("sandbox status --json", () => {
   test("prints the containers of the current project as JSON", async () => {
     await using app = await setupSandboxAppTest();
     await app.project.givenConfig({ allowNetwork: [] });
-    app.project.givenContainer({
+    const { id: containerId } = app.project.givenContainer({
       state: "running",
       hash: "abc123",
       sessions: [
@@ -313,6 +313,7 @@ describe("sandbox status --json", () => {
       runtime: "docker",
       containers: [
         {
+          containerId,
           name: `sandbox-${slug}`,
           project: { slug, dir: app.project.root },
           image: `sandbox-${slug}:latest`,
@@ -479,6 +480,7 @@ describe("sandbox status --session", () => {
       runtime: "docker",
       containers: [
         {
+          containerId: app.runtime.instances.find("sandbox-other-aaaa")?.id,
           name: "sandbox-other-aaaa",
           project: { slug: "other-aaaa", dir: "/home/me/other" },
           image: "sandbox-base:latest",

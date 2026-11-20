@@ -25,6 +25,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface ContainerStatusInfo {
+  id: string;
   name: string;
   projectSlug: string;
   /** `null` for containers from older CLIs without the folder label. */
@@ -152,6 +153,7 @@ async function readContainerStatuses(
       );
 
       return {
+        id: container.id,
         name: container.name,
         projectSlug: container.projectSlug,
         projectDir: container.projectDir,

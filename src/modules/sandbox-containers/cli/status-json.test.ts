@@ -8,6 +8,7 @@ function containerInfo(
   overrides: Partial<ContainerStatusInfo> = {},
 ): ContainerStatusInfo {
   return {
+    id: "3f9c2a7d1e8b4c6a9f0e2d5b7a1c3e8f6d4b2a0c9e7f5d3b1a8c6e4f2d0b9a7c",
     name: "sandbox-my-app-1a2b",
     projectSlug: "my-app-1a2b",
     projectDir: "/home/me/my-app",
@@ -46,6 +47,8 @@ describe("toStatusDocument", () => {
       runtime: "podman",
       containers: [
         {
+          containerId:
+            "3f9c2a7d1e8b4c6a9f0e2d5b7a1c3e8f6d4b2a0c9e7f5d3b1a8c6e4f2d0b9a7c",
           name: "sandbox-my-app-1a2b",
           project: { slug: "my-app-1a2b", dir: "/home/me/my-app" },
           image: "sha256:fe5cb42fc078",

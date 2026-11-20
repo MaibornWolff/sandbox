@@ -22,6 +22,7 @@ interface StatusDocumentSession {
 }
 
 interface StatusDocumentContainer {
+  readonly containerId: string;
   readonly name: string;
   readonly project: { readonly slug: string; readonly dir: string | null };
   readonly image: string;
@@ -52,6 +53,7 @@ function toSession(session: ContainerSession): StatusDocumentSession {
 
 function toContainer(container: ContainerStatusInfo): StatusDocumentContainer {
   return {
+    containerId: container.id,
     name: container.name,
     project: { slug: container.projectSlug, dir: container.projectDir },
     image: container.image,

@@ -84,6 +84,7 @@ sandbox status --session <id> --json
   "runtime": "docker",
   "containers": [
     {
+      "containerId": "3f9c2a7d1e8b4c6a9f0e2d5b7a1c3e8f6d4b2a0c9e7f5d3b1a8c6e4f2d0b9a7c",
       "name": "sandbox-my-app-1a2b",
       "project": { "slug": "my-app-1a2b", "dir": "/home/me/projects/my-app" },
       "image": "sandbox-user:latest",
@@ -115,6 +116,7 @@ Container fields:
 
 | Field | Type | Meaning |
 |---|---|---|
+| `containerId` | string | Container ID as the runtime reports it. Use it with the commands of the CLI that `runtime` names, for example `docker stats <containerId>`. With `apple-container`, the ID is equal to the container name. |
 | `name` | string | Container name |
 | `project.slug` | string | Project slug |
 | `project.dir` | string or `null` | Project folder on the host. `null` for containers from older Sandbox versions. |

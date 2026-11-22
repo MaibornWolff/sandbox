@@ -207,6 +207,37 @@ describe("sandbox status", () => {
     expect(stdout).toContain("Up 1 minute");
   });
 
+  test("groups the containers of one slug by folder with --all", async () => {
+    await using app = await setupSandboxAppTest();
+    for (const [name, dir] of [
+      ["sandbox-work-app-1a2b", "/home/me/a/work/app"],
+      ["sandbox-work-app-1a2b-2", "/home/me/b/work/app"],
+      ["sandbox-work-app-1a2b-3", undefined],
+      ["sandbox-work-app-1a2b-4", "/home/me/a/work/app"],
+    ] as const) {
+      givenOtherProjectContainer(app, {
+        name,
+        slug: "work-app-1a2b",
+        ...(dir ? { dir } : {}),
+      });
+    }
+
+    const result = await app.cli.run("status", "--all");
+    const headingsAndContainers = stripAnsi(result.stdout)
+      .split("\n")
+      .filter((line) => /^ {2}(work-app-1a2b|● )/u.test(line));
+
+    expect(headingsAndContainers).toEqual([
+      "  work-app-1a2b",
+      "  ● sandbox-work-app-1a2b-3  Up 1 minute",
+      "  work-app-1a2b  /home/me/a/work/app",
+      "  ● sandbox-work-app-1a2b  Up 1 minute",
+      "  ● sandbox-work-app-1a2b-4  Up 1 minute",
+      "  work-app-1a2b  /home/me/b/work/app",
+      "  ● sandbox-work-app-1a2b-2  Up 1 minute",
+    ]);
+  });
+
   test("shows only the slug for a container without the folder label", async () => {
     await using app = await setupSandboxAppTest();
     givenOtherProjectContainer(app, {

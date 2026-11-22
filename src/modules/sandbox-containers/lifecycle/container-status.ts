@@ -129,6 +129,8 @@ function compareContainers(
 ): number {
   return (
     left.projectSlug.localeCompare(right.projectSlug) ||
+    // Containers without the folder label come first in their slug.
+    (left.projectDir ?? "").localeCompare(right.projectDir ?? "") ||
     left.name.localeCompare(right.name)
   );
 }

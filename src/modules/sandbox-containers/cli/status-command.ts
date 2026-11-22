@@ -127,7 +127,8 @@ function renderStatus(status: SandboxStatus): string {
     lines.push("");
     if (
       status.projectSlug === null &&
-      container.projectSlug !== previous?.projectSlug
+      (container.projectSlug !== previous?.projectSlug ||
+        container.projectDir !== previous.projectDir)
     ) {
       lines.push(renderProjectHeading(container));
     }

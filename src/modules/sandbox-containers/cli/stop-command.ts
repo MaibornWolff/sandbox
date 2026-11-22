@@ -18,8 +18,11 @@ type StoppableContainer = Pick<SandboxContainer, "id" | "name" | "image">;
 
 interface ContainerWithSessions {
   container: StoppableContainer;
-  /** Empty if the status probe failed, so that no session is cancelled. */
-  sessions: readonly ContainerSession[];
+  /**
+   * `null` if the status probe failed. These sessions get no signal, but the
+   * removal of the container still ends them.
+   */
+  sessions: readonly ContainerSession[] | null;
 }
 
 async function gatherSessions(
@@ -30,9 +33,18 @@ async function gatherSessions(
     containers.map(async (container) => ({
       container,
       sessions:
-        (await readContainerSessionStatus(service, container))?.sessions ?? [],
+        (await readContainerSessionStatus(service, container))?.sessions ??
+        null,
     })),
   );
+}
+
+function formatSessionLabel(
+  sessions: readonly ContainerSession[] | null,
+): string {
+  if (sessions === null) return "sessions unknown";
+  if (sessions.length === 0) return "no sessions";
+  return `${sessions.length} session${sessions.length === 1 ? "" : "s"}`;
 }
 
 /** @testonly */
@@ -40,8 +52,11 @@ export function buildStopWarning(
   containersWithSessions: ContainerWithSessions[],
 ): string {
   const totalSessions = containersWithSessions.reduce(
-    (sum, candidate) => sum + candidate.sessions.length,
+    (sum, candidate) => sum + (candidate.sessions?.length ?? 0),
     0,
+  );
+  const hasUnknownSessions = containersWithSessions.some(
+    (candidate) => candidate.sessions === null,
   );
   const lines: string[] = [];
   const sessionSuffix =
@@ -52,16 +67,14 @@ export function buildStopWarning(
   );
 
   for (const { container, sessions } of containersWithSessions) {
-    const sessionLabel =
-      sessions.length > 0
-        ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
-        : "no sessions";
-    lines.push(`  ${chalk.cyan(container.name)}  ${chalk.dim(sessionLabel)}`);
+    lines.push(
+      `  ${chalk.cyan(container.name)}  ${chalk.dim(formatSessionLabel(sessions))}`,
+    );
   }
 
   lines.push(
     "",
-    totalSessions > 0
+    totalSessions > 0 || hasUnknownSessions
       ? "This will cancel all open sessions. Continue?"
       : "Continue?",
   );
@@ -93,7 +106,7 @@ export async function stopContainers(
   let removed = 0;
   for (const { container, sessions } of containersWithSessions) {
     try {
-      await cancelContainerSessions(service, container.id, sessions);
+      await cancelContainerSessions(service, container.id, sessions ?? []);
     } catch (error) {
       logger.warn(
         `Failed to cancel sessions in ${container.name} before stopping it: ${getErrorMessage(error)}`,

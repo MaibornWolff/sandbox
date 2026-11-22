@@ -1061,6 +1061,35 @@ describe("sandbox container start and stop", () => {
     expect(forced.runtime.resolvedConfigurations()).toEqual(["podman"]);
   });
 
+  test("warns about unknown sessions and stops the container when the status probe fails", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    const own = app.project.givenContainer({ state: "running" });
+    own.sessionStatus.fail(new Error("probe exec failed"));
+
+    const execution = app.cli.run("stop");
+    await app.tui.waitForText("Continue?");
+    expect(app.tui.screen()).toContain("sessions unknown");
+    expect(app.tui.screen()).toContain(
+      "This will cancel all open sessions. Continue?",
+    );
+    await app.tui.user.type("y");
+
+    expect((await execution).exitCode).toBe(0);
+    expect(
+      app.runtime
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.exec" && event.command[0] === "kill",
+        ),
+    ).toEqual([]);
+    expect(
+      app.runtime.instances.all().find((container) => container.id === own.id)
+        ?.status,
+    ).toBe("removed");
+  });
+
   test("keeps the trust check for stop in an untrusted project", async () => {
     await using app = await setupSandboxAppTest({ interactive: false });
     app.project.writeConfig("readonly = true\n");

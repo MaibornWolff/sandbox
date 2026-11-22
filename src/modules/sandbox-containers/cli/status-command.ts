@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import type { ContainerSession } from "#platform/container-system/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { shellQuote } from "#shared/text/index.js";
 import {
   type ContainerStatusInfo,
@@ -148,12 +149,22 @@ class StatusExitError extends Error {
   readonly reported = true;
 }
 
+/**
+ * Any other status failure. Tools get exit code 1 for every failure, also when
+ * a runtime command exits with its own code.
+ */
+class StatusFailedError extends Error {
+  readonly exitCode = 1;
+}
+
 export async function statusCommand(options: StatusOptions): Promise<void> {
   let status: SandboxStatus;
   try {
     status = await getSandboxStatus(options);
   } catch (error) {
-    if (!(error instanceof SessionLookupError)) throw error;
+    if (!(error instanceof SessionLookupError)) {
+      throw new StatusFailedError(getErrorMessage(error), { cause: error });
+    }
     getTerminal().stderr.write(`${error.message}\n`);
     throw new StatusExitError(error.message, { cause: error });
   }

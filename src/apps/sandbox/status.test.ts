@@ -3,6 +3,7 @@ import {
   createSessionStatusFixture,
   type SessionStatusFixture,
 } from "#modules/sandbox-containers/__test__/index.js";
+import { ExecError } from "#platform/process/index.js";
 import { generateProjectSlug } from "#shared/text/index.js";
 import { stripAnsi } from "#test/utils.js";
 import {
@@ -224,6 +225,22 @@ describe("sandbox status", () => {
     const failed = await failing.cli.run("status");
     expect(failed.exitCode).toBe(1);
     expect(failed.stderr).toContain("runtime failed");
+  });
+
+  test("exits with code 1 when the runtime command fails with another exit code", async () => {
+    const message =
+      "Command failed with exit code 125: Cannot connect to Podman.";
+    for (const format of [[], ["--json"]]) {
+      await using app = await setupSandboxAppTest();
+      app.runtime.system.fail("container.list", new ExecError(message, 125));
+
+      const result = await app.cli.run("--verbose", "status", ...format);
+      const stderr = stripAnsi(result.stderr);
+
+      expect(result).toMatchObject({ exitCode: 1, stdout: "" });
+      expect(stderr).toContain(`\nError: ${message}\n`);
+      expect(stderr).toContain(`Caused by: ExecError: ${message}`);
+    }
   });
 
   test("shows status in an untrusted project with and without a terminal", async () => {

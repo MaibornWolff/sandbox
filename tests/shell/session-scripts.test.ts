@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { readdir, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildSessionIdleCommand,
@@ -125,6 +125,25 @@ describe("container session scripts", () => {
       id: SESSION_ID,
       command: null,
     });
+  });
+
+  test("status probe and idle check ignore a marker in the staging folder", async () => {
+    const fixture = await prepareSessionsDirectory(
+      markerV2([SESSION_ID, "claude"]),
+    );
+    const staging = path.join(fixture.sessionsDirectory, ".staging");
+    await mkdir(staging);
+    await rename(
+      path.join(fixture.sessionsDirectory, LIVE_PID),
+      path.join(staging, LIVE_PID),
+    );
+
+    const status = await probe(fixture);
+    const idle = await runInDirectory(buildSessionIdleCommand(), fixture);
+
+    expect(status.sessions).toEqual([]);
+    expect(idle.exitCode).toBe(0);
+    expect(await readdir(staging)).toEqual([LIVE_PID]);
   });
 
   test("idle check fails while a session is live and passes once markers are stale", async () => {

@@ -1,10 +1,9 @@
 import "core-js/stable/disposable-stack/index.js";
 import "core-js/stable/async-disposable-stack/index.js";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import chalk from "chalk";
 import ts from "typescript";
-import { getRepoRootPath } from "#platform/git/index.js";
 
 export interface DeprecationViolation {
   readonly file: string;
@@ -50,23 +49,18 @@ function loadProjects(
 }
 
 function createProjectService(project: TypeScriptProject): ts.LanguageService {
-  const snapshots = new Map<string, ts.IScriptSnapshot>();
-  function getScriptSnapshot(filename: string): ts.IScriptSnapshot | undefined {
-    const cached = snapshots.get(filename);
-    if (cached) return cached;
-    const text = ts.sys.readFile(filename);
-    if (text === undefined) return undefined;
-    const snapshot = ts.ScriptSnapshot.fromString(text);
-    snapshots.set(filename, snapshot);
-    return snapshot;
-  }
-
   return ts.createLanguageService({
     ...ts.sys,
     getCompilationSettings: () => project.config.options,
     getScriptFileNames: () => project.config.fileNames,
+    getProjectVersion: () => "0",
     getScriptVersion: () => "0",
-    getScriptSnapshot,
+    getScriptSnapshot: (filename) => {
+      const text = ts.sys.readFile(filename);
+      return text === undefined
+        ? undefined
+        : ts.ScriptSnapshot.fromString(text);
+    },
     getCurrentDirectory: () => path.dirname(project.configPath),
     getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
     useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
@@ -95,6 +89,23 @@ function deprecationViolation(
   };
 }
 
+function collectProjectViolations(
+  project: TypeScriptProject,
+  rootDirectory: string,
+  violations: Map<string, DeprecationViolation>,
+): void {
+  const service = createProjectService(project);
+  using _cleanup = { [Symbol.dispose]: () => service.dispose() };
+  for (const filename of project.config.fileNames) {
+    for (const diagnostic of service.getSuggestionDiagnostics(filename)) {
+      if (!diagnostic.reportsDeprecated) continue;
+      const violation = deprecationViolation(rootDirectory, diagnostic);
+      const key = `${violation.file}:${violation.line}:${violation.column}:${violation.message}`;
+      violations.set(key, violation);
+    }
+  }
+}
+
 export function checkDeprecations(
   rootDirectory: string,
   verbose = false,
@@ -112,16 +123,8 @@ export function checkDeprecations(
         `Checking deprecations in ${chalk.dim(project.configPath)}`,
       );
     }
-    const service = createProjectService(project);
-    using _cleanup = { [Symbol.dispose]: () => service.dispose() };
-    for (const filename of project.config.fileNames) {
-      for (const diagnostic of service.getSuggestionDiagnostics(filename)) {
-        if (!diagnostic.reportsDeprecated) continue;
-        const violation = deprecationViolation(rootDirectory, diagnostic);
-        const key = `${violation.file}:${violation.line}:${violation.column}:${violation.message}`;
-        violations.set(key, violation);
-      }
-    }
+    collectProjectViolations(project, rootDirectory, violations);
+    Bun.gc(true);
   }
   return {
     exitCode: violations.size ? 1 : 0,
@@ -129,8 +132,8 @@ export function checkDeprecations(
   };
 }
 
-async function main(): Promise<void> {
-  const rootDirectory = await getRepoRootPath(process.cwd());
+function main(): void {
+  const rootDirectory = fileURLToPath(new URL("../", import.meta.url));
   console.error(`Checking deprecated APIs in ${chalk.dim(rootDirectory)}`);
   const result = checkDeprecations(
     rootDirectory,
@@ -150,8 +153,10 @@ if (
   process.argv[1] &&
   pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
 ) {
-  await main().catch((error: unknown) => {
+  try {
+    main();
+  } catch (error: unknown) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
-  });
+  }
 }

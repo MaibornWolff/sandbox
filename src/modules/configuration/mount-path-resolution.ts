@@ -1,18 +1,14 @@
 import * as path from "node:path";
 import * as pathPosix from "node:path/posix";
-import chalk from "chalk";
 import { getHostEnvironment } from "#platform/environment/index.js";
-import {
-  pathExists,
-  realPathOrSelf,
-  validateSymlinkWithin,
-} from "#platform/filesystem/index.js";
+import { pathExists, realPathOrSelf } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import {
-  normalizePath,
   safeResolve,
   splitColonString,
+  windowsPathToDocker,
 } from "#shared/text/index.js";
+import { formatConfigPath } from "./config-path-display.js";
 import { parseMount } from "./config-value-parsing.js";
 
 const CONTAINER_HOME = "/home/sandbox";
@@ -48,7 +44,7 @@ function mountSourceExists(mount: string): boolean {
   if (sourcePath && pathExists(sourcePath)) return true;
 
   getLogger().warn(
-    `Skipping mount because source path does not exist: ${chalk.dim(sourcePath ?? "(empty)")}`,
+    `Skipping mount because source path does not exist: ${formatConfigPath(sourcePath ?? "(empty)")}`,
   );
   return false;
 }
@@ -57,7 +53,7 @@ function mountSourceExists(mount: string): boolean {
  * Resolve multiple mounts and filter out ones with non-existent sources
  */
 export function resolveExistingMounts(
-  mounts: string[],
+  mounts: readonly string[],
   projectDir: string,
   isProjectConfig: boolean,
 ): string[] {
@@ -67,7 +63,7 @@ export function resolveExistingMounts(
 }
 
 /**
- * Resolve mount path and validate for project config
+ * Resolve project sources from the project root, and other sources from the working directory.
  * @testonly
  */
 export function resolveMount(
@@ -90,47 +86,24 @@ export function resolveMount(
     throw new Error("Invalid mount string: empty source path");
   }
 
-  // For project config, validate security restrictions
-  if (isProjectConfig) {
-    // Resolve to absolute path - safeResolve handles Windows drive paths
-    // correctly in Git Bash (path.resolve alone treats them as relative)
-    const resolvedPath = safeResolve(srcPath, projectDir);
-    getLogger().debug(`Resolved project mount: ${srcPath} → ${resolvedPath}`);
+  const baseDirectory = isProjectConfig
+    ? projectDir
+    : getHostEnvironment().currentWorkingDirectory;
+  const resolvedPath = safeResolve(srcPath, baseDirectory);
+  getLogger().debug(
+    `Resolved ${isProjectConfig ? "project " : ""}mount: ${formatConfigPath(srcPath)} → ${formatConfigPath(resolvedPath)}`,
+  );
 
-    // SECURITY: Ensure resolved path stays within project directory
-    const normalizedResolved = normalizePath(resolvedPath);
-    const normalizedProject = normalizePath(path.resolve(projectDir));
-    if (
-      !normalizedResolved.startsWith(`${normalizedProject}/`) &&
-      normalizedResolved !== normalizedProject
-    ) {
-      getLogger().debug(
-        `Rejecting path outside project directory: ${srcPath} → ${resolvedPath}`,
-      );
-      throw new Error(
-        `Project config cannot mount paths outside project: ${srcPath}`,
-      );
-    }
-
-    // Additional symlink validation
-    validateSymlinkWithin(resolvedPath, projectDir);
-
-    // Resolve symlinks so Docker runtimes on macOS get the real path
-    const realPath = realPathOrSelf(resolvedPath);
-
-    // Rebuild mount string with resolved path
-    parts[0] = realPath;
-    return parseMount(parts.join(":"));
+  const inputParts = splitColonString(mountStr);
+  const usesDefaultDestination =
+    inputParts.length === 1 ||
+    (inputParts.length === 2 &&
+      (inputParts[1] === "ro" || inputParts[1] === "rw"));
+  if (usesDefaultDestination && !pathPosix.isAbsolute(parts[1] ?? "")) {
+    parts[1] = windowsPathToDocker(resolvedPath);
   }
 
-  // For global config or CLI, resolve to absolute path
-  // safeResolve handles Windows drive paths correctly in Git Bash
-  const resolvedPath = safeResolve(srcPath);
-  getLogger().debug(`Resolved mount: ${srcPath} → ${resolvedPath}`);
-
-  // Resolve symlinks so Docker runtimes on macOS get the real path
-  const realPath = realPathOrSelf(resolvedPath);
-
-  parts[0] = realPath;
+  // Container runtimes on macOS need the real host path.
+  parts[0] = realPathOrSelf(resolvedPath);
   return parseMount(parts.join(":"));
 }

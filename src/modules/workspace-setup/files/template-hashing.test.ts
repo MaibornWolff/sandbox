@@ -42,7 +42,7 @@ describe("template hashing", () => {
   it("computes SHA-256 hashes from explicit definitions", () => {
     const hashes = computeTemplateHashesForDefinitions(
       definitions({ config: "hello", dockerfile: "world" }),
-      [],
+      { toolIds: [] },
     );
     expect(Object.keys(hashes)).toEqual(["config", "dockerfile"]);
     expect(hashes.config).toHaveLength(64);

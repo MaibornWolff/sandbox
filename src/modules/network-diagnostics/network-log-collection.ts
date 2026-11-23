@@ -1,10 +1,11 @@
+import chalk from "chalk";
 import type { SandboxContainer } from "#modules/sandbox-containers/index.js";
 import type { SandboxRuntime } from "#platform/container-runtime/index.js";
+import type { ContainerLogBundle } from "#platform/container-system/index.js";
+import { getLogger } from "#platform/logging/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import { aggregateBlocked, parseBlockedLog } from "./blocked-log-parsing.js";
-import {
-  buildContainerDiagnosticCommand,
-  type NetworkDiagnosticSource,
-} from "./container-diagnostic-commands.js";
+import { fetchContainerLogBundle } from "./container-diagnostic-commands.js";
 import {
   buildIpToDomainMap,
   parseDnsAllowedDomains,
@@ -18,18 +19,17 @@ import type {
 } from "./network-diagnostics.js";
 import { aggregateProxyLog, parseProxyLog } from "./proxy-log-parsing.js";
 
-async function readContainerLog(
+/** Return null instead of failing the whole report when one container cannot be read. */
+async function readContainerLogs(
   service: SandboxRuntime,
   containerId: string,
-  source: NetworkDiagnosticSource,
-): Promise<string | null> {
+): Promise<ContainerLogBundle | null> {
   try {
-    const result = await service.instances.exec(containerId, {
-      command: buildContainerDiagnosticCommand(source),
-      user: "root",
-    });
-    return result.exitCode === 0 ? result.stdout : null;
-  } catch {
+    return await fetchContainerLogBundle(service, containerId);
+  } catch (error) {
+    getLogger().debug(
+      `Could not read network logs of ${chalk.cyan(containerId.substring(0, 12))}: ${getErrorMessage(error)}`,
+    );
     return null;
   }
 }
@@ -107,11 +107,10 @@ export async function collectContainerEntries(
   useReverseDns: boolean,
   referenceTime: number,
 ): Promise<NetworkLogEntry[]> {
-  const [blockedLog, dnsLog, proxyLog] = await Promise.all([
-    readContainerLog(service, container.id, "firewall"),
-    readContainerLog(service, container.id, "dns"),
-    readContainerLog(service, container.id, "proxy-access"),
-  ]);
+  const logs = await readContainerLogs(service, container.id);
+  const blockedLog = logs?.firewall;
+  const dnsLog = logs?.dns;
+  const proxyLog = logs?.["proxy-access"];
   const dnsMappings = buildIpToDomainMap(
     parseDnsLog(dnsLog ?? "", referenceTime),
   );

@@ -10,6 +10,9 @@ import {
   type SandboxInstance,
 } from "./utils/sandbox.js";
 
+const sessionIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 let projectDir: string;
 let sb: SandboxInstance;
 
@@ -39,6 +42,8 @@ function report(phase) {
     instanceMarker: readFileSync(instancePath, "utf8"),
     pane: process.env.HERDR_PANE_ID ?? null,
     imageDefault: process.env.SESSION_IMAGE_DEFAULT,
+    sessionId: process.env.SANDBOX_SESSION_ID ?? null,
+    markerId: readFileSync("/tmp/sandbox-sessions/" + process.pid, "utf8"),
   }));
 }
 if (process.argv[2] === "hold") {
@@ -69,6 +74,8 @@ interface Observation {
   instanceMarker: string;
   pane: string | null;
   imageDefault: string;
+  sessionId: string | null;
+  markerId: string;
 }
 
 function observations(output: string): Observation[] {
@@ -111,6 +118,8 @@ test("concurrent sessions share a container without sharing configured environme
   const secondObservation = observations(second.stdout)[0];
   if (!secondObservation)
     throw new Error(`Missing environment observation: ${second.stdout}`);
+  expect(secondObservation.sessionId ?? "").toMatch(sessionIdPattern);
+  expect(secondObservation.sessionId).toBe(secondObservation.markerId.trim());
   expect(secondObservation).toMatchObject({
     pane: "pane-B",
     imageDefault: "override-B",
@@ -123,7 +132,13 @@ test("concurrent sessions share a container without sharing configured environme
     },
   );
   assertSandboxSuccess(omitted);
-  expect(observations(omitted.stdout)[0]).toEqual({
+  const omittedObservation = observations(omitted.stdout)[0];
+  expect(omittedObservation?.sessionId ?? "").toMatch(sessionIdPattern);
+  expect(omittedObservation?.sessionId).not.toBe(secondObservation.sessionId);
+  expect(omittedObservation?.sessionId).toBe(
+    omittedObservation?.markerId.trim(),
+  );
+  expect(omittedObservation).toMatchObject({
     phase: "session",
     instanceMarker: secondObservation.instanceMarker,
     pane: null,
@@ -133,7 +148,16 @@ test("concurrent sessions share a container without sharing configured environme
   await release.disposeAsync();
   const first = await held.result;
   const firstObservations = observations(first.stdout);
-  expect(firstObservations).toEqual([
+  expect(firstObservations[0]?.sessionId ?? "").toMatch(sessionIdPattern);
+  expect(firstObservations[0]?.sessionId).not.toBe(secondObservation.sessionId);
+  expect(firstObservations[0]?.sessionId).not.toBe(
+    omittedObservation?.sessionId,
+  );
+  expect(firstObservations[0]?.sessionId).toBe(
+    firstObservations[0]?.markerId.trim(),
+  );
+  expect(firstObservations[1]?.sessionId).toBe(firstObservations[0]?.sessionId);
+  expect(firstObservations).toMatchObject([
     {
       phase: "ready",
       instanceMarker: secondObservation.instanceMarker,

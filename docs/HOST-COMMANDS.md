@@ -7,6 +7,18 @@ Every allowed command runs with your host permissions and host environment.
 It can access files outside the container.
 A rule for a writable project script gives the agent whatever host access that script can exercise.
 
+Each attached session has a unique `SANDBOX_SESSION_ID` UUID, available inside the session and to its host commands.
+Concurrent sessions have different IDs, even when they share a container.
+Allowed host commands also receive these variables, which override values inherited from the host environment:
+
+- `SANDBOX_SESSION_ID`: the calling session's UUID.
+- `SANDBOX_PROJECT_DIR`: the host project root.
+- `SANDBOX_CONTAINER_NAME`: the resolved container name. (Not its runtime ID)
+- `SANDBOX_RUNTIME`: `docker`, `podman`, or `apple-container`.
+
+These values provide context, not proof of identity or a security boundary.
+Sessions in the same container share files and processes.
+
 ## Add a narrow rule
 
 In the user or project configuration:

@@ -11,48 +11,34 @@ Use [Claude Code](https://code.claude.com/docs/en/overview), [Codex](https://dev
 sandbox run claude
 ```
 
+[Security model](docs/SECURITY.md) · [Quickstart](#quickstart) · [User guides](docs/README.md)
+
+## Security and trade-offs
+
+**Sandbox limits what an agent can reach, but it does not make untrusted code safe.**
+Read the [security model](docs/SECURITY.md) before sharing host files or credentials with an agent.
+
+- **The agent works on real files.** The whole project is writable by default, including hidden files and project secrets.
+  Starting in a subdirectory does not narrow that access.
+- **Trust can grant access outside the project.** [Approved external mounts](docs/SECURITY.md#project-trust-and-external-mounts) let a project use shared code or data in a parent or sibling folder.
+  Review the resolved host paths and access modes before approving the project configuration.
+  Read-only access still lets the agent read and copy files.
+- **Network limits do not prevent data disclosure.** The network allowlist limits destinations, but an allowed service can receive data the agent can read.
+- **Host integrations extend access.** Attached sessions can read or replace the host clipboard by default.
+  Allowed host commands run with your host permissions.
+- **Container isolation has limits.** Sessions run as a non-root user, but runtime vulnerabilities or container root can break the controls.
+
+**Review the generated settings before the first run.** `sandbox init` allows common development domains and shares selected host paths, including writable `~/.agents`.
+Remove entries you do not need.
+
 ## Why Sandbox?
 
-Sandbox focuses on customizability and developer experience for daily local work:
+- **Customize your tools.** Keep personal tools in a user image and project dependencies in a project image.
+- **Share project settings.** Commit team configuration without replacing personal settings.
+- **Keep state between runs.** Reuse agent state and dependency caches.
+- **Choose your runtime.** Use Docker, Podman, or Apple `container` with the same CLI.
 
-- Keep personal tools in a user image and project dependencies in a project image.
-- Share team configuration in the repository without giving up personal settings.
-- Choose which files, credentials, settings, and network services the agent can use.
-- Keep agent state and dependency caches between runs.
-- Use [Docker](https://docs.docker.com/engine/), [Podman](https://podman.io/docs), or [Apple `container`](https://github.com/apple/container) with the same CLI.
-- Run `sandbox assist` for help with setup and troubleshooting.
-
-Other tools offer customization too.
-Choose Sandbox if this combination fits how you work, not because it promises the strongest isolation.
-See [alternatives](#alternatives) at the end.
-
-## What does it protect?
-
-Sandbox reduces the damage from agent mistakes and prompt injection compared with running an agent directly on your host.
-It is not perfect protection.
-
-- The agent cannot read or change host files that are not exposed to the container.
-- Outbound connections are restricted to an allowlist.
-- Commands run as a non-root container user.
-- Project configuration requires trust before Sandbox applies it.
-
-The boundaries have limits:
-
-- The whole project is writable by default, including hidden files and project secrets.
-  Keep backups and review changes.
-- Mounted files, forwarded credentials, and allowed services are available to the agent.
-  An allowed service can receive your data.
-- Clipboard access is enabled by default for attached sessions.
-  Container processes can read or replace your host clipboard.
-- Allowed host commands run with your host permissions, outside the container boundary.
-- Container or runtime vulnerabilities can break isolation.
-  Sandbox does not defend against an attacker who gains root inside the container.
-
-`sandbox init` allows common development domains so agents can use APIs, package registries, and code hosts.
-For stricter security, remove domains you do not need from `allow_network` in your user configuration.
-It also shares selected host agent paths, including writable `~/.agents`.
-Review the generated configuration before the first run.
-Read the [security guide](docs/SECURITY.md) for the complete boundary and safer settings.
+See [alternatives](#alternatives) if you need a different isolation boundary.
 
 ## Quickstart
 
@@ -72,36 +58,22 @@ npm install -g @maibornwolff/sandbox
 # or: bun install -g @maibornwolff/sandbox
 ```
 
-All three options still need the host Node.js version listed above.
-Use the same package manager for [future updates](docs/UPDATES.md#update-the-cli).
-Then initialize your user setup:
+Use the same package manager for [updates](docs/UPDATES.md#update-the-cli).
+Then initialize your user configuration:
 
 ```bash
 sandbox init
 ```
 
-Select the agents and tools you need in the setup prompts.
-Review the generated user `config.toml` at the path shown by the command.
-The usual location is `~/.config/sandbox/config.toml` on macOS and Linux, or `%APPDATA%/sandbox/config.toml` on Windows.
+Select the agents and tools you need.
+Open the user `config.toml` at the path shown by `sandbox init`.
+Before you run an agent:
 
-For API-key authentication, set the key in the host terminal where you will run Sandbox.
-For example, in [Bash](https://www.gnu.org/software/bash/manual/) or [zsh](https://zsh.sourceforge.io/Doc/), use `export ANTHROPIC_API_KEY='your-key'`.
-To keep it across terminals, use your shell's startup file or a secret manager.
-Do not put the key in the repository.
-
-In the user `config.toml` created above, find the existing `env` list and uncomment or add the key's name:
-
-```toml
-# Inside the existing env = [ ... ] list:
-"ANTHROPIC_API_KEY",
-```
-
-Keep the other entries in that list.
-Only the name goes in the configuration, not the secret value.
-No API keys are forwarded by default.
-For subscription login or Codex host authentication, follow [agent authentication](docs/AUTHENTICATION.md).
-To disable host clipboard access, add `clipboard = "disabled"` to the user configuration.
-See [clipboard settings](docs/CLIPBOARD.md#disable-access) for project overrides.
+- **Set up authentication.** Sandbox does not forward API keys by default.
+  To forward one, set it in your host environment and add only its name to the existing `env` list.
+  See [agent authentication](docs/AUTHENTICATION.md) for API keys, subscription login, and host authentication.
+- **Review clipboard access.** Set `clipboard = "disabled"` if the agent does not need the host clipboard.
+  See [clipboard settings](docs/CLIPBOARD.md#disable-access) for project overrides.
 
 ### 3. Check setup and run
 
@@ -112,13 +84,11 @@ sandbox run claude
 ```
 
 Replace `claude` with an installed agent or command, such as `codex` or `npm test`.
-The first run builds the tool images and can take several minutes.
-Later runs reuse cached images and compatible running containers.
-The agent edits your real project files, not a disposable copy.
+The first run can take several minutes to build the tool images.
+Later runs reuse cached images and compatible containers.
 
-For an interactive container shell, run `sandbox`.
-For help, run `sandbox assist` on the host from your project directory.
-It starts a host agent with the Sandbox docs and configuration paths in context.
+- **Open a container shell:** Run `sandbox`.
+- **Get setup help:** Run `sandbox assist` on the host from your project directory.
 
 ## Features
 
@@ -154,12 +124,11 @@ It starts a host agent with the Sandbox docs and configuration paths in context.
 
 ## Contributing
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) to build, test, or change Sandbox.
-Start with the short [architecture guide](contributing/ARCHITECTURE.md) to understand the system.
-Report vulnerabilities through [SECURITY.md](SECURITY.md).
-Sandbox uses the [BSD 3-Clause License](LICENSE).
+- [Contributor guide](CONTRIBUTING.md): build, test, and change Sandbox.
+- [Architecture guide](contributing/ARCHITECTURE.md): understand the system and its boundaries.
+- [Security policy](SECURITY.md): report vulnerabilities privately.
 
-Built by [MaibornWolff](https://www.maibornwolff.de/).
+Built by [MaibornWolff](https://www.maibornwolff.de/) under the [BSD 3-Clause License](LICENSE).
 
 ## Alternatives
 

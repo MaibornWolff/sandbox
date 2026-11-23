@@ -42,6 +42,7 @@ describe("production container runtime provider", () => {
   test("resolves only the provider bound to the active scope", () => {
     const provider: SandboxRuntimeProvider = {
       resolve: () => Promise.reject(new Error("not used")),
+      probe: () => Promise.reject(new Error("not used")),
     };
 
     expect(

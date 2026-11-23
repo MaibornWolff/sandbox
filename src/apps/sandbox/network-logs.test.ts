@@ -62,6 +62,25 @@ describe("sandbox network logs", () => {
     expect(result.stdout).toContain("BLOCKED");
   });
 
+  test("reads all container logs with one container command", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    const { id, network } = app.project.givenContainer({ state: "running" });
+    network.block("blocked.example", 443);
+
+    const result = await app.cli.run("network", "logs", "--no-resolve");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("blocked.example");
+    expect(
+      app.runtime
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.exec" && event.containerId === id,
+        ),
+    ).toHaveLength(1);
+  });
+
   test("maps firewall IPs from DNS observations", async () => {
     await using app = await setupSandboxAppTest();
     await app.project.givenConfig({ allowNetwork: [] });
@@ -81,7 +100,7 @@ describe("sandbox network logs", () => {
     network.givenRuntimeLogs("runtime output");
     network.givenNetworkState("dnsmasq: running");
     network.givenProxyCache("cache warning");
-    network.fail("firewall", new Error("firewall unavailable"));
+    network.fail("logs", new Error("firewall unavailable"));
 
     const result = await app.cli.run("network", "logs", "--raw");
     expect(result.exitCode).toBe(0);

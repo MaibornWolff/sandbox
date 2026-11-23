@@ -27,7 +27,7 @@ function pushEnvironment(
 export function buildContainerRunArgs(
   spec: ContainerSpec,
   mode: "attached" | "detached",
-  runtime: "apple-container" | "docker" | "podman",
+  runtime: "docker" | "podman",
 ): string[] {
   const args = ["run"];
   if (mode === "detached") args.push("-d");
@@ -54,24 +54,16 @@ export function buildContainerRunArgs(
       "--user=0:0",
     );
   }
-  if (runtime !== "apple-container") {
-    args.push(
-      "--sysctl=net.ipv4.tcp_tw_reuse=1",
-      "--sysctl=net.ipv4.ip_local_port_range=1024\t65535",
-      "--sysctl=net.ipv4.tcp_fin_timeout=10",
-    );
-  }
+  args.push(
+    "--sysctl=net.ipv4.tcp_tw_reuse=1",
+    "--sysctl=net.ipv4.ip_local_port_range=1024\t65535",
+    "--sysctl=net.ipv4.tcp_fin_timeout=10",
+  );
   if (spec.resources.memoryBytes !== undefined) {
     args.push("--memory", String(spec.resources.memoryBytes));
   }
   if (spec.resources.sharedMemorySize) {
     args.push("--shm-size", spec.resources.sharedMemorySize);
-  }
-  if (
-    runtime === "apple-container" &&
-    spec.resources.memoryBytes === undefined
-  ) {
-    args.push("--memory", "2G");
   }
   args.push(
     "--ulimit",

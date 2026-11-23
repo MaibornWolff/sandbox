@@ -3,6 +3,11 @@ import { setupSandboxAppTest } from "./__test__/sandbox-app-test.js";
 
 type App = Awaited<ReturnType<typeof setupSandboxAppTest>>;
 
+async function confirmRuntime(app: App): Promise<void> {
+  await app.tui.waitForText("Select the container runtime");
+  await app.tui.user.enter();
+}
+
 async function confirmInitialAgents(app: App): Promise<void> {
   await app.tui.waitForText("Select AI agents first");
   await app.tui.user.enter();
@@ -57,6 +62,7 @@ describe("sandbox init", () => {
     await using app = await setupSandboxAppTest();
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await app.tui.waitForText("Select AI agents first");
     expect(app.tui.screen()).not.toContain("Configure capabilities");
     await app.tui.user.enter();
@@ -84,6 +90,7 @@ describe("sandbox init", () => {
     );
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await app.tui.waitForText("Select AI agents first");
     await app.tui.user.space();
     await app.tui.user.enter();
@@ -112,6 +119,7 @@ describe("sandbox init", () => {
     app.workspace.writeExecutable("java");
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await reviewUserCapabilities(app);
     expect(await execution).toMatchObject({ exitCode: 0, stderr: "" });
 
@@ -127,6 +135,7 @@ describe("sandbox init", () => {
     );
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await confirmInitialAgents(app);
     await reviewCapabilities(app);
     await openDiffActions(app, "docker/Dockerfile");
@@ -147,6 +156,7 @@ describe("sandbox init", () => {
     );
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await reviewUserCapabilities(app);
     await openDiffActions(app, "docker/Dockerfile");
     await app.tui.user.enter();
@@ -161,6 +171,7 @@ describe("sandbox init", () => {
     await using app = await setupSandboxAppTest();
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await app.tui.waitForText("Select AI agents first");
     await app.tui.user.space();
     await app.tui.user.enter();
@@ -175,10 +186,247 @@ describe("sandbox init", () => {
     ).toBe(false);
   });
 
+  test("asks for the runtime before the AI agents and writes the choice", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const execution = app.cli.run("init");
+    await app.tui.waitForText("Select the container runtime");
+    const screen = app.tui.screen();
+    expect(screen).not.toContain("Select AI agents first");
+    expect(screen).toMatch(
+      /┃ docker +✓ running \(Docker version 24\.0\.0, build fixture\)/,
+    );
+    expect(screen).toMatch(/podman +✗ not installed/);
+    expect(screen).toContain("Auto-detect");
+    await app.tui.user.enter();
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toContain("Available (docker)");
+    expect(app.runtime.resolvedConfigurations()).toEqual(["docker"]);
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "docker"$/m,
+    );
+  });
+
+  test("pre-selects the first running runtime and skips runtimes that are not installed", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "podman" });
+    app.runtime.system.givenProbes([
+      { runtime: "docker", status: "not-installed" },
+      { runtime: "podman", status: "running", version: "podman 5.2.0" },
+    ]);
+
+    const execution = app.cli.run("init");
+    await app.tui.waitForText("Select the container runtime");
+    expect(app.tui.screen()).toMatch(/docker +✗ not installed/);
+    expect(app.tui.screen()).not.toContain("apple-container");
+    await app.tui.user.up();
+    expect(app.tui.screen()).toMatch(/┃ podman +✓ running \(podman 5\.2\.0\)/);
+    await app.tui.user.enter();
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toContain("Available (podman)");
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "podman"$/m,
+    );
+  });
+
+  test("shows the start hint for a runtime that does not run and continues", async () => {
+    await using app = await setupSandboxAppTest();
+    app.runtime.system.givenProbes([
+      { runtime: "docker", status: "running", version: "Docker 27.3.1" },
+      {
+        runtime: "podman",
+        status: "not-running",
+        hint: "Run: podman machine start",
+      },
+    ]);
+
+    const execution = app.cli.run("init");
+    await app.tui.waitForText("Select the container runtime");
+    expect(app.tui.screen()).toMatch(/podman +⚠ not running/);
+    await app.tui.user.down();
+    await app.tui.user.enter();
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("podman is not running");
+    expect(result.stdout).toContain("Run: podman machine start");
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "podman"$/m,
+    );
+  });
+
+  test("pre-selects Auto-detect when no runtime runs and leaves the runtime unset", async () => {
+    await using app = await setupSandboxAppTest();
+    app.runtime.system.givenProbes([
+      { runtime: "docker", status: "not-running" },
+      { runtime: "podman", status: "not-installed" },
+    ]);
+
+    const execution = app.cli.run("init");
+    await app.tui.waitForText("Select the container runtime");
+    expect(app.tui.screen()).toMatch(/┃ Auto-detect/);
+    await app.tui.user.enter();
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("is not running");
+    expect(app.runtime.resolvedConfigurations()).toEqual([undefined]);
+    const config = app.workspace.readConfigFile("config.toml");
+    expect(config).toContain('# runtime = "docker"');
+    expect(config).not.toMatch(/^runtime =/m);
+  });
+
+  test("writes the runtime from --runtime to the user config", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const execution = app.cli.run("init", "--runtime", "podman");
+    await reviewUserCapabilities(app);
+    const result = await execution;
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("Select the container runtime");
+
+    const config = app.workspace.readConfigFile("config.toml");
+    expect(config).toMatch(/^runtime = "podman"$/m);
+    expect(config).not.toContain('# runtime = "docker"');
+  });
+
+  test("checks the configured runtime after init", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "podman" });
+
+    const execution = app.cli.run("init", "--runtime", "podman");
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toContain("Available (podman)");
+    expect(app.runtime.resolvedConfigurations()).toEqual(["podman"]);
+  });
+
+  test("does not report Docker when another runtime is configured", async () => {
+    await using app = await setupSandboxAppTest({ runtime: "docker" });
+
+    const execution = app.cli.run("init", "--runtime", "podman");
+    await reviewUserCapabilities(app);
+    const result = await execution;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("Available (docker)");
+    expect(result.stdout).toContain("Not available");
+  });
+
+  test("checks the auto-detected runtime when the kept user config is invalid", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig('runtime = "podman"\nunknown_key = true\n');
+
+    const execution = app.cli.run("init", "--runtime", "docker");
+    await reviewUserCapabilities(app);
+    await openDiffActions(app, "config.toml");
+    await app.tui.user.down();
+    await app.tui.user.enter();
+    const result = await execution;
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Available (docker)");
+    expect(result.stderr).toContain("Invalid config");
+    expect(app.runtime.resolvedConfigurations()).toEqual([undefined]);
+  });
+
+  test("leaves the runtime commented out for --runtime auto", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const execution = app.cli.run("init", "--runtime", "auto");
+    await reviewUserCapabilities(app);
+    const result = await execution;
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).toContain("Available (docker)");
+    expect(app.runtime.resolvedConfigurations()).toEqual([undefined]);
+
+    const config = app.workspace.readConfigFile("config.toml");
+    expect(config).toContain('# runtime = "docker"');
+    expect(config).not.toMatch(/^runtime =/m);
+  });
+
+  test("rejects an unknown runtime and lists the valid IDs", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const result = await app.cli.run("init", "--runtime", "foo");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("Unknown runtime: foo");
+    expect(result.stdout).toContain("docker, podman, apple-container, auto");
+    expect(app.workspace.configFileExists("config.toml")).toBe(false);
+  });
+
+  test("rejects --runtime with --project", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const result = await app.cli.run(
+      "init",
+      "--project",
+      "--runtime",
+      "docker",
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("--runtime cannot be used with --project");
+    expect(app.workspace.projectFileExists(".sandbox/config.toml")).toBe(false);
+  });
+
+  test("shows a changed runtime in the diff flow on re-run", async () => {
+    await using app = await setupSandboxAppTest();
+    const first = app.cli.run("init", "--runtime", "podman");
+    await reviewUserCapabilities(app);
+    expect((await first).exitCode).toBe(0);
+
+    const second = app.cli.run("init", "--runtime", "docker");
+    await reviewUserCapabilities(app);
+    await openDiffActions(app, "config.toml");
+    expect(app.tui.screen()).toContain('-runtime = "podman"');
+    expect(app.tui.screen()).toContain('+runtime = "docker"');
+    await app.tui.user.enter();
+    expect(await second).toMatchObject({ exitCode: 0, stderr: "" });
+
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "docker"$/m,
+    );
+  });
+
+  test("keeps the configured runtime on re-run without --runtime", async () => {
+    await using app = await setupSandboxAppTest();
+    const first = app.cli.run("init", "--runtime", "podman");
+    await reviewUserCapabilities(app);
+    expect((await first).exitCode).toBe(0);
+
+    app.runtime.system.givenProbes([
+      { runtime: "docker", status: "running", version: "Docker 27.3.1" },
+      { runtime: "podman", status: "not-running" },
+    ]);
+    const second = app.cli.run("init");
+    await app.tui.waitForText("Select the container runtime");
+    expect(app.tui.screen()).toMatch(/┃ podman/);
+    await app.tui.user.enter();
+    await reviewUserCapabilities(app);
+    const result = await second;
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("Do you want to update config.toml?");
+    expect(app.workspace.readConfigFile("config.toml")).toMatch(
+      /^runtime = "podman"$/m,
+    );
+  });
+
   test("cancels from the initial agent screen without creating user files", async () => {
     await using app = await setupSandboxAppTest();
 
     const execution = app.cli.run("init");
+    await confirmRuntime(app);
     await app.tui.waitForText("Select AI agents first");
     await app.tui.user.chord("c", { ctrl: true });
     const result = await execution;
@@ -227,7 +475,9 @@ describe("sandbox init", () => {
     await app.tui.waitForText("Customize the project image?");
     await app.tui.user.enter();
 
-    expect(await execution).toMatchObject({ exitCode: 0, stderr: "" });
+    const result = await execution;
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" });
+    expect(result.stdout).not.toContain("Select the container runtime");
     expect(app.workspace.projectFileExists(".sandbox/config.toml")).toBe(true);
     expect(app.workspace.projectFileExists(".sandbox/docker/Dockerfile")).toBe(
       false,

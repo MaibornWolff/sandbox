@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { normalize } from "node:path";
 import chalk from "chalk";
 import { getClipboardCapabilityFactory } from "#modules/clipboard/index.js";
@@ -53,6 +54,7 @@ interface ExecutorOptions {
   readonly timingLabel?: string;
   readonly beforeSpawn?: (config: Config) => void;
   readonly foreground?: boolean;
+  readonly wrapper?: boolean;
 }
 
 class SandboxExecutionExitError extends Error {
@@ -233,6 +235,14 @@ async function resolveExecutionContainer(
   }
 }
 
+function warnForWrapperConflict(enabled: boolean, conflict: boolean): void {
+  if (enabled && conflict) {
+    getLogger().warn(
+      "The trusted project session wrapper overrides the user wrapper. To use the user wrapper, invoke it manually with sandbox run --no-wrapper -- <user-wrapper> <command>.",
+    );
+  }
+}
+
 async function execute(
   service: SandboxRuntime,
   ctx: SandboxContext,
@@ -244,6 +254,7 @@ async function execute(
   const logger = getLogger();
   const environment = getHostEnvironment();
   const { command, stdin, tty, foreground } = executorOptions;
+  const sessionId = foreground ? undefined : randomUUID();
   const { config, projectRoot, repositoryRoots } = ctx;
   const currentDir = environment.currentWorkingDirectory;
   const projectSlug = generateProjectSlug(projectRoot);
@@ -284,7 +295,10 @@ async function execute(
     return;
   }
 
+  if (!sessionId) throw new Error("Session ID is missing.");
   await using commandCapability = await createHostCommandCapability({
+    sessionId,
+    runtime: service.runtime,
     commandRules: config.allowHostCommands,
     hostProjectRoot: projectRoot,
     containerProjectRoot: windowsPathToDocker(projectRoot),
@@ -312,7 +326,11 @@ async function execute(
     sessionResources.use(resolved.access);
     return resolved.containerName;
   });
-  const sessionEnvironment = { ...bridgeSession.clientEnvironment };
+  commandCapability.setContainerName(containerName);
+  const sessionEnvironment = {
+    ...bridgeSession.clientEnvironment,
+    SANDBOX_SESSION_ID: sessionId,
+  };
   if (clipboardCapabilities) {
     const clipboard = sessionResources.use(
       await prepareClipboardSession({
@@ -329,9 +347,18 @@ async function execute(
   if (executorOptions.timingLabel && verbose) {
     logger.endTiming(executorOptions.timingLabel);
   }
+  warnForWrapperConflict(
+    executorOptions.wrapper !== false,
+    config.session.wrapperConflict,
+  );
   const execution = buildSandboxExecSpec({
     currentDir,
-    command,
+    command: [
+      ...(executorOptions.wrapper === false
+        ? []
+        : config.session.commandWrapper),
+      ...command,
+    ],
     stdin,
     tty,
     environment: config.env,

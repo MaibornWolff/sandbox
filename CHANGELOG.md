@@ -5,6 +5,30 @@
 ### Added
 
 - Install the MySQL, PostgreSQL, Redis, APCu, AMQP, Xdebug, PCOV, SOAP, Imagick, and LDAP extensions with the PHP tool. Xdebug starts with `xdebug.mode=off`. Enable it per command, for example `XDEBUG_MODE=debug php script.php`.
+- Add support for session wrapper script, executed on each `sandbox` or `sandbox run` command. The wrapper is configured via a`[session]` `command_wrapper` config entry. The wrapper must be available inside the container. Use `--no-wrapper` to skip it for one session.
+- Give each sandbox session a unique ID. Allowed host commands now receive four sandbox-specific environment variables:
+  - `SANDBOX_SESSION_ID`: the session specific UUID.
+  - `SANDBOX_PROJECT_DIR`: the host project root.
+  - `SANDBOX_CONTAINER_NAME`: the resolved container name. (Not its runtime ID)
+  - `SANDBOX_RUNTIME`: the container runtime, such as `docker`, `podman`, or `apple-container`.
+- Select the container runtime as the first step of `sandbox init`. The prompt shows if each runtime is running, stopped, or not installed. It pre-selects your configured runtime, else the first running runtime, else "Auto-detect". If you select a runtime that is not running, Sandbox shows how to start it and continues.
+- Set the container runtime without the prompt with `sandbox init --runtime <id>`. Valid IDs are `docker`, `podman`, `apple-container`, and `auto`. Sandbox writes the runtime to your user `config.toml`. `auto` keeps automatic detection. When you run `sandbox init` again with a different runtime, Sandbox shows the change in the usual diff review. `sandbox init`, `sandbox config update`, and `sandbox update` keep a runtime that is already set.
+
+### Changed
+
+- Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
+- Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
+
+### Fixed
+
+- Select a running container runtime when no runtime is configured. Previously, Sandbox selected the first installed runtime even when its daemon was stopped, for example Docker when only Podman was running. If no runtime is running, Sandbox still selects the first installed one.
+- Check the configured runtime in the environment check at the end of `sandbox init`. Previously, the check ignored the `runtime` setting in your user `config.toml` and could report Docker when you had set Podman.
+- Allow trusted projects to mount folders outside the project, such as a shared library in a sibling folder.
+  The project root is the default mount, not a limit on the host files you can choose to share.
+  Sandbox shows the resolved host paths, container destinations, and access modes for requested mounts before you approve the project configuration.
+  If a symbolic link changes where a mount points, Sandbox asks for approval again.
+  After updating, review and approve previously trusted projects once more.
+  See the [security model](docs/SECURITY.md#project-trust-and-external-mounts).
 
 ## [0.73.2] - 2026-11-03
 

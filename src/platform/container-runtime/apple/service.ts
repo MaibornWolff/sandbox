@@ -4,7 +4,9 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import type { ContainerOperations } from "../container-contract.js";
 import type { RuntimeExecutor } from "../executor.js";
+import { RuntimeHostNotReadyError } from "../host-readiness.js";
 import type { ImageOperations } from "../image-contract.js";
+import type { RuntimeDefinition } from "../runtime-definition.js";
 import type { AppleContainerOptions } from "../runtime-options.js";
 import {
   createSandboxImageBuilder,
@@ -31,8 +33,11 @@ import {
   resolveAppleMountSource,
 } from "./volumes.js";
 
+const APPLE_BINARY_NAME = "container";
 const MINIMUM_VERSION = [1, 4, 1] as const;
 const APPLE_CONTAINER_MEMORY_BYTES = 2 * 1024 ** 3;
+const APPLE_START_HINT =
+  "Start the Apple container service with container system start.";
 
 function compareVersion(
   actual: readonly number[],
@@ -97,7 +102,7 @@ export class AppleContainerService
   implements SandboxRuntime, SandboxImageBuilder
 {
   readonly runtime = "apple-container" as const;
-  private readonly binaryName = "container";
+  private readonly binaryName = APPLE_BINARY_NAME;
   readonly instances: SandboxInstanceOperations;
   readonly storage: SandboxStorageOperations;
   private readonly containers: ContainerOperations;
@@ -205,14 +210,16 @@ export class AppleContainerService
     try {
       status = parseServiceStatus(probeValue(serviceProbe));
     } catch (error) {
-      throw new Error(
+      throw new RuntimeHostNotReadyError(
         `${chalk.red("Could not read the Apple container service state.")}\nStart or recover it with: ${chalk.cyan("container system start")}`,
+        APPLE_START_HINT,
         { cause: error },
       );
     }
     if (status !== "running") {
-      throw new Error(
+      throw new RuntimeHostNotReadyError(
         `${chalk.red(`Apple container service is ${status}.`)}\nStart it with: ${chalk.cyan("container system start")}`,
+        APPLE_START_HINT,
       );
     }
     return versionText;
@@ -239,3 +246,11 @@ export class AppleContainerService
     ].join("\n");
   }
 }
+
+export const APPLE_CONTAINER_RUNTIME_DEFINITION: RuntimeDefinition = {
+  runtime: "apple-container",
+  binaryName: APPLE_BINARY_NAME,
+  isSupportedOnHost: () => getHostEnvironment().platform === "darwin",
+  create: (exec, options) =>
+    new AppleContainerService(exec, options["apple-container"]),
+};

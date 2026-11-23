@@ -15,9 +15,17 @@ import type { TrustStore } from "./config.js";
 
 type TrustReason = "no-config" | "trusted" | "no-entry" | "hash-mismatch";
 
-interface TrustResult {
-  trusted: boolean;
-  reason: TrustReason;
+interface ProjectTrustOptions {
+  readonly projectRoot: string;
+  readonly sandboxDir: string;
+  readonly storePath: string;
+  readonly mounts: readonly string[];
+}
+
+interface ProjectTrust {
+  readonly trusted: boolean;
+  readonly reason: TrustReason;
+  approve(trustedAt: string, currentMounts: readonly string[]): void;
 }
 
 /** @testonly */
@@ -65,30 +73,45 @@ export function computeDirectoryHash(dirPath: string): string {
   return hash.digest("hex");
 }
 
-export function isProjectTrusted(
-  projectRoot: string,
-  sandboxDir: string,
-  storePath: string,
-): TrustResult {
-  if (!pathExists(sandboxDir)) return { trusted: true, reason: "no-config" };
-  const entry = loadTrustStore(storePath).projects[projectRoot];
-  if (!entry) return { trusted: false, reason: "no-entry" };
-  if (entry.hash !== computeDirectoryHash(sandboxDir)) {
-    return { trusted: false, reason: "hash-mismatch" };
-  }
-  return { trusted: true, reason: "trusted" };
+function getTrustReason(
+  options: ProjectTrustOptions,
+  hash: string | null,
+): TrustReason {
+  if (hash === null) return "no-config";
+  const entry = loadTrustStore(options.storePath).projects[options.projectRoot];
+  if (!entry) return "no-entry";
+  return entry.hash === hash ? "trusted" : "hash-mismatch";
 }
 
-export function trustProject(
-  projectRoot: string,
+function computeProjectTrustHash(
   sandboxDir: string,
-  storePath: string,
-  trustedAt: string,
-): void {
-  const store = loadTrustStore(storePath);
-  store.projects[projectRoot] = {
-    hash: computeDirectoryHash(sandboxDir),
-    trustedAt,
+  mounts: readonly string[],
+): string | null {
+  if (!pathExists(sandboxDir)) return null;
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify([computeDirectoryHash(sandboxDir), mounts]))
+    .digest("hex");
+}
+
+export function inspectProjectTrust(
+  options: ProjectTrustOptions,
+): ProjectTrust {
+  const hash = computeProjectTrustHash(options.sandboxDir, options.mounts);
+  const reason = getTrustReason(options, hash);
+  return {
+    trusted: reason === "trusted" || reason === "no-config",
+    reason,
+    approve(trustedAt, currentMounts) {
+      if (computeProjectTrustHash(options.sandboxDir, currentMounts) !== hash) {
+        throw new Error(
+          "Project configuration or mount access changed during approval. Run the command again to review it.",
+        );
+      }
+      if (hash === null) return;
+      const store = loadTrustStore(options.storePath);
+      store.projects[options.projectRoot] = { hash, trustedAt };
+      saveTrustStore(store, options.storePath);
+    },
   };
-  saveTrustStore(store, storePath);
 }

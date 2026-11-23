@@ -97,6 +97,26 @@ describe("container-tools network scenarios", () => {
     }
   });
 
+  test("reads all diagnostic sources as one JSON bundle", async () => {
+    await using app = await setupContainerToolsAppTest();
+    writeContainerFile(
+      app.roots.container,
+      "var/log/firewall-blocked.log",
+      "blocked\n",
+    );
+    writeContainerFile(app.roots.container, "var/log/dns-proxy.log", "dns\n");
+
+    const result = await app.cli.run("network", "diagnostics");
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      firewall: "blocked\n",
+      dns: "dns\n",
+      "proxy-access": "Proxy log file not found: /var/log/proxy-access.log\n",
+      "proxy-cache": "",
+    });
+  });
+
   test("collects exact passive network state", async () => {
     await using app = await setupContainerToolsAppTest();
     writeContainerFile(

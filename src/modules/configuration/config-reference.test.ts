@@ -19,6 +19,19 @@ describe("formatConfigReference", () => {
     expect(output).toContain("**override**");
   });
 
+  test.each(["text", "markdown"] as const)(
+    "%s format presents a TOML-facing session default and example",
+    (format) => {
+      const output = formatConfigReference(format);
+      expect(output).toContain("{ command_wrapper = [] }");
+      expect(output).toContain(
+        'session = { command_wrapper = ["my-wrapper", "--"] }',
+      );
+      expect(output).not.toContain("wrapperConflict");
+      expect(output).not.toContain("commandWrapper");
+    },
+  );
+
   test("text format includes all field names", () => {
     const output = formatConfigReference("text");
     const schemaKeys = Object.keys(tomlConfigSchema.shape);

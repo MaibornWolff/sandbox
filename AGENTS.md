@@ -43,6 +43,7 @@
 
 ## Task-specific guidance
 
+- For security reviews and fixes, read the [security model](docs/SECURITY.md) before classifying behavior as a vulnerability or restricting existing access.
 - When changing component boundaries or lifecycle, read [architecture](contributing/ARCHITECTURE.md) and update it if core concepts change.
 - When implementing behavior, fixing bugs, or adding or changing tests, use the [test-writing skill](.agents/skills/test-writing/SKILL.md) to decide what to test and at which level.
 - Before publishing or recovering a release, follow [release instructions](contributing/RELEASING.md).

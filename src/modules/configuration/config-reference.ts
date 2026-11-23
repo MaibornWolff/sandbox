@@ -35,7 +35,7 @@ export function getConfigFields(): ConfigFieldInfo[] {
     type: field.type,
     description: field.description,
     mergeStrategy: field.mergeStrategy,
-    default: formatDefault(field.defaultValue),
+    default: field.defaultDisplay ?? formatDefault(field.defaultValue),
     examples: [...field.examples],
   }));
 }

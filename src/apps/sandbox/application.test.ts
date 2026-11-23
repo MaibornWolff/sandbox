@@ -31,6 +31,7 @@ async function runWithRuntimeFailure(
     async resolve() {
       throw error;
     },
+    probe: () => Promise.reject(new Error("not used")),
   };
   const clock = createSystemClock();
   const processes = createProcessTestHarness();

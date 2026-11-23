@@ -1,4 +1,9 @@
-import type { PersistPathInput } from "#modules/configuration/index.js";
+import { parse as parseToml } from "smol-toml";
+import {
+  CONFIG_FIELD_CATALOG,
+  type PersistPathInput,
+  type RuntimeId,
+} from "#modules/configuration/index.js";
 
 function stripInlineComment(line: string): string {
   return line.replace(/#.*$/, "").trimEnd();
@@ -77,4 +82,36 @@ export function injectNamedVolumePersistPaths(
   }
 
   return `${content}\npersist_paths = [\n${entries}\n]`;
+}
+
+const COMMENTED_RUNTIME_LINE = /^#\s*runtime\s*=\s*"[^"]*"[ \t]*$/m;
+
+/**
+ * Activate the commented runtime line in a TOML config template.
+ * Leaves the template unchanged when no runtime is given.
+ */
+export function injectRuntime(content: string, runtime?: RuntimeId): string {
+  if (!runtime) return content;
+  const line = `runtime = "${runtime}"`;
+  if (COMMENTED_RUNTIME_LINE.test(content)) {
+    return content.replace(COMMENTED_RUNTIME_LINE, line);
+  }
+  return `${line}\n${content}`;
+}
+
+/**
+ * Read the top-level runtime from TOML config text.
+ * Returns undefined for invalid TOML, a missing runtime, or an unknown ID.
+ * Validates only the runtime field, so config updates keep the runtime of
+ * files that the full config loader rejects.
+ */
+export function readActiveRuntime(content: string): RuntimeId | undefined {
+  let runtime: unknown;
+  try {
+    runtime = parseToml(content).runtime;
+  } catch {
+    return undefined;
+  }
+  const result = CONFIG_FIELD_CATALOG.runtime.schema.safeParse(runtime);
+  return result.success ? result.data : undefined;
 }

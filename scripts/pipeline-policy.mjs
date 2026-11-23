@@ -21,8 +21,7 @@ export function evaluateWorkflowRuns(runs, requirements, sourceCommit) {
           entry.head_branch === "main",
       )
       .sort((left, right) => right.id - left.id)[0];
-    if (!run || run.status !== "completed")
-      return { path, state: "pending", jobs };
+    if (run?.status !== "completed") return { path, state: "pending", jobs };
     if (run.conclusion !== "success")
       throw new Error(`${path} did not succeed for ${sourceCommit}`);
     return { path, state: "success", jobs, run };

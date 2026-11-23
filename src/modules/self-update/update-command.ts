@@ -1,6 +1,7 @@
 import chalk from "chalk";
 import {
   computeTemplateHashes,
+  detectExistingRuntime,
   detectExistingTools,
   getUserFileDefinitions,
   haveTemplatesChanged,
@@ -78,12 +79,13 @@ async function performUpdate(): Promise<boolean> {
 async function handleTemplateUpdates(): Promise<boolean> {
   const definitions = getUserFileDefinitions();
   const { toolIds } = detectExistingTools(definitions);
-  const changed = haveTemplatesChanged(toolIds);
+  const choices = { toolIds, runtime: detectExistingRuntime(definitions) };
+  const changed = haveTemplatesChanged(choices);
   if (changed) {
     writeStandardOutput("\nChecking for configuration updates...");
     await updateInstalledTemplates();
   }
-  saveTemplateHashes(computeTemplateHashes(toolIds));
+  saveTemplateHashes(computeTemplateHashes(choices));
   return changed;
 }
 

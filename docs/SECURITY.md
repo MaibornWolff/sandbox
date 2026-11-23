@@ -1,50 +1,55 @@
 # Security
 
-Sandbox reduces the damage an agent can cause compared with running it directly on the host.
-It does not make untrusted code safe in every case.
+**Sandbox limits what an agent can reach.** It reduces the damage an agent can cause compared with running it directly on the host.
+It does not make untrusted code safe or protect data from an agent you give access to.
 
 ## What the boundary does
 
-The container runtime separates agent processes and the container filesystem from the host.
-Sessions run as a non-root user after privileged startup configures the environment and firewall.
-
-Only exposed host paths are available through the container filesystem.
-The complete project is exposed read-write by default, even when you start from a subdirectory.
-This includes hidden files, `.git`, and secrets in the project.
-Extra mounts are read-only unless configured otherwise.
-
-The [network allowlist](NETWORK-FIREWALL.md) restricts outbound destinations.
-[Project trust](PROJECTS.md) requires approval before Sandbox applies project configuration or Dockerfiles.
+- **Filesystem.** The container filesystem exposes only the host paths made available to it.
+  The complete project is writable by default, including hidden files, `.git`, and project secrets.
+  Starting in a subdirectory does not narrow that access.
+- **Network.** The [network allowlist](NETWORK-FIREWALL.md) limits where outbound connections can go.
+- **Privileges.** Sessions run as a non-root user after privileged startup configures the environment and firewall.
+- **Project configuration.** [Project trust](PROJECTS.md) requires approval before Sandbox applies project settings or Dockerfiles.
 
 These controls reduce the reach of mistakes and prompt injection.
 They do not detect malicious instructions or stop destructive edits to writable files.
 
 ## Project trust and external mounts
 
-The project root defines the default mount, not the limit of approved host filesystem access.
-A trusted project can request additional mounts, including parent folders, sibling folders, and symbolic links to paths outside the project.
-This lets a project use shared code or data without copying it into the repository.
+**The project root is the default mount, not the limit of access you can approve.**
 
-The trust decision covers the complete project configuration.
-Before interactive approval, Sandbox shows the resolved host sources, container destinations, and access modes for the requested project mounts.
-Changes to the configuration or to resolved project mount access require approval again.
-A read-only mount still gives the agent access to the contents.
-See [file mounts](MOUNTS.md#expose-another-host-path) for how to review and grant that access.
+- **Why allow external mounts?** A project can use a shared library, a parent workspace, or local data without copying it into the repository.
+  A path outside the repository can be necessary for the work, and a path inside it can still contain secrets.
+  Repository location alone does not tell Sandbox which files you intend to share.
+- **What do you approve?** Trust applies to the complete project configuration, not just the mounts.
+  Before interactive approval, Sandbox shows the resolved host sources, container destinations, and access modes for the requested project mounts.
+  For a symbolic link, review the target, not just the link name.
+- **When does approval expire?** Sandbox requires approval again when the project configuration or resolved project mount access changes.
+  This prevents approval for one folder or access mode from carrying over to another.
+- **What can the agent do?** A read-only mount protects files from changes through that mount, not from being read or copied.
+  A read-write mount also lets the agent change or delete files.
+  Share the smallest folder and use the least access the task needs.
 
-In a security review, distinguish approved access from access beyond the approved scope.
-An external mount requested by a trusted project is not a vulnerability on its own.
-Treat access without the required approval, access to a different target than the one approved, or write access through a read-only mount as potential vulnerabilities.
-Preserve approved external mounts when fixing an approval or isolation failure.
+See [file mounts](MOUNTS.md#expose-another-host-path) for setup and review steps.
+
+### How to review security changes
+
+- **Intended access:** A trusted project mounts the parent folder, sibling folder, or external symbolic-link target that the user approved.
+  The fact that the target is outside the repository is not a vulnerability on its own.
+- **Potential vulnerability:** Sandbox applies access without the required approval, exposes a different target, or allows writes through a read-only mount.
+  State what access the user approved and what extra access the agent received.
+- **Fix the boundary, not the feature.** Preserve approved external mounts when fixing an approval or isolation failure.
 
 ## What remains exposed
 
-- The agent can read secrets in project files, mounts, settings, persisted credentials, and forwarded environment variables.
-- An allowed service can receive any data the agent can read.
+- **Secrets.** The agent can read secrets in project files, mounts, settings, persisted credentials, and forwarded environment variables.
+- **Allowed destinations.** An allowed service can receive any data the agent can read.
   An allowlist is not a data-loss prevention system.
-- Wildcard domains can permit data transfer in crafted subdomain names.
-- The generated configuration allows many developer services and mounts selected host agent paths, including writable `~/.agents`.
-  Review it before use.
-- The generated environment sets `MISE_TRUSTED_CONFIG_PATHS=/` for [mise](https://mise.jdx.dev/cli/trust.html).
+  Wildcard domains can also permit data transfer in crafted subdomain names.
+- **Generated configuration.** Sandbox allows many developer services and mounts selected host agent paths, including writable `~/.agents`.
+  Review the generated configuration before use.
+- **Tool configuration.** The generated environment sets `MISE_TRUSTED_CONFIG_PATHS=/` for [mise](https://mise.jdx.dev/cli/trust.html).
   Repository mise configuration is trusted inside the container without a separate prompt.
   This is independent of Sandbox's `.sandbox/` trust check.
 - [Shared settings](SETTINGS-SYNC.md) and global persistent data connect projects.
@@ -54,26 +59,22 @@ Preserve approved external mounts when fixing an approval or isolation failure.
 - [Clipboard access](CLIPBOARD.md) lets attached container processes read and replace the host clipboard by default.
 - [Allowed host commands](HOST-COMMANDS.md) run with the host user permissions and environment.
   Broad rules, a mounted runtime socket, or unrestricted container-runtime commands can expose the whole host.
-- Published ports expose container services through the runtime.
+- **Published ports.** The runtime can expose container services on the host.
   Bind to a host loopback address where supported, and check the runtime's port behavior.
-- Sessions in one container share a user, filesystem, and processes.
+- **Shared sessions.** Sessions in one container share a user, filesystem, and processes.
   Different session environment values do not isolate their secrets.
 
 ## What Sandbox does not defend against
 
-Sandbox does not promise protection against container escapes, kernel or runtime vulnerabilities, or root escalation inside the container.
-An attacker who gains container root can change protected state, including the firewall.
-The underlying isolation depends on the selected runtime and host setup.
-Do not assume a container has a separate kernel or the same boundary as a dedicated microVM.
-
-Builds execute Dockerfile instructions and download third-party tools.
-The session firewall is not a security boundary for image builds.
-Review project Dockerfiles, dependency sources, and tools before you trust them.
-
-An agent can edit the writable `.sandbox/` directory.
-Sandbox asks for trust again when its contents change.
-Review the changes rather than approving the next prompt automatically.
-`--trust` and `SANDBOX_TRUST_ALL=1` bypass this review.
+- **Container escapes and root escalation.** Sandbox relies on the runtime and host for isolation.
+  Kernel and runtime vulnerabilities can break that boundary.
+  A container does not necessarily have a separate kernel or the same boundary as a dedicated microVM.
+  Container root can change protected state, including the firewall.
+- **Image builds.** The session firewall does not protect builds that execute Dockerfile instructions and download third-party tools.
+  Review project Dockerfiles, dependency sources, and tools before you trust them.
+- **Automatic approval.** An agent can edit the writable `.sandbox/` directory.
+  Review any changes when Sandbox prompts again.
+  `--trust` and `SANDBOX_TRUST_ALL=1` bypass the interactive review.
 
 ## Reduce access
 

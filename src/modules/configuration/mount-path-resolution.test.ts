@@ -105,28 +105,18 @@ describe("resolveMount", () => {
   });
 
   describe("project config (isProjectConfig=true)", () => {
-    test("rejects absolute paths outside project", async () => {
-      expect(() => resolveMount("/tmp", projectDir, true)).toThrow(
-        "Project config cannot mount paths outside project",
+    test("accepts an external shared folder relative to the project root", () => {
+      expect(resolveMount("../shared:/reference", projectDir, true)).toBe(
+        "/test/shared:/reference:ro",
       );
     });
-
-    test("rejects tilde paths that expand outside project", async () => {
-      expect(() => resolveMount("~/.npmrc", projectDir, true)).toThrow(
-        "Project config cannot mount paths outside project",
-      );
-    });
-
-    test("rejects Windows absolute paths outside project (C:/Users/...)", () => {
-      expect(() =>
-        resolveMount("C:/Users/foo/.npmrc", projectDir, true),
-      ).toThrow("Project config cannot mount paths outside project");
-    });
-
-    test("rejects Windows absolute paths outside project (C:\\Users\\...)", () => {
-      expect(() =>
-        resolveMount("C:\\Users\\foo\\.npmrc", projectDir, true),
-      ).toThrow("Project config cannot mount paths outside project");
+    test.each([
+      ["/external/data:/data:rw", "/external/data:/data:rw"],
+      ["~/.npmrc", "/home/test/.npmrc:/home/sandbox/.npmrc:ro"],
+      ["C:/Users/alex/data:/data", "C:/Users/alex/data:/data:ro"],
+      ["C:\\Users\\alex\\data:/data", "C:\\Users\\alex\\data:/data:ro"],
+    ])("allows external source %s", (mount, expected) => {
+      expect(resolveMount(mount, projectDir, true)).toBe(expected);
     });
 
     test("accepts absolute path within project directory", () => {
@@ -153,52 +143,15 @@ describe("resolveMount", () => {
       expect(result).toContain(":/dest:rw");
     });
 
-    describe("path traversal security", () => {
-      test("rejects sibling directory traversal (../sibling)", async () => {
-        expect(() => resolveMount("../sibling", projectDir, true)).toThrow(
-          "Project config cannot mount paths outside project",
-        );
-      });
-
-      test("rejects parent directory traversal (../../parent)", async () => {
-        expect(() => resolveMount("../../parent", projectDir, true)).toThrow(
-          "Project config cannot mount paths outside project",
-        );
-      });
-
-      test("rejects deep parent traversal (../../../escape)", async () => {
-        expect(() => resolveMount("../../../escape", projectDir, true)).toThrow(
-          "Project config cannot mount paths outside project",
-        );
-      });
-
-      test("accepts subdirectory paths (./sub)", async () => {
-        const result = resolveMount("./sub", projectDir, true);
-        expect(result).toContain(path.join(projectDir, "sub"));
-      });
-
-      test("accepts nested subdirectory paths (./sub/nested)", async () => {
-        const result = resolveMount("./sub/nested", projectDir, true);
-        expect(result).toContain(path.join(projectDir, "sub", "nested"));
-      });
-
-      test("accepts current directory (.)", async () => {
-        const result = resolveMount(".", projectDir, true);
-        expect(result).toContain(projectDir);
-      });
-
-      test("rejects traversal with destination mapping", async () => {
-        expect(() =>
-          resolveMount("../../parent:/dest", projectDir, true),
-        ).toThrow("Project config cannot mount paths outside project");
-      });
-
-      test("rejects path traversal with forward-slash project dir", () => {
-        // Simulates projectDir from getRepoRootPath (always forward slashes after fix)
-        expect(() =>
-          resolveMount("../escape", "C:/Users/test/project", true),
-        ).toThrow("Project config cannot mount paths outside project");
-      });
+    test.each([
+      ["../sibling", "/test/sibling:/test/sibling:ro"],
+      ["../../parent:rw", "/parent:/parent:rw"],
+      ["../../../shared:/dest", "/shared:/dest:ro"],
+      ["./sub", "/test/project/sub:/test/project/sub:ro"],
+      ["./sub/nested", "/test/project/sub/nested:/test/project/sub/nested:ro"],
+      [".", "/test/project:/test/project:ro"],
+    ])("resolves relative project mount %s", (mount, expected) => {
+      expect(resolveMount(mount, projectDir, true)).toBe(expected);
     });
   });
 });

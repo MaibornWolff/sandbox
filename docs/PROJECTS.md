@@ -26,8 +26,9 @@ Project configuration can expose host files, allow network access, permit host c
 Read the complete `.sandbox/` directory before trusting an unfamiliar repository.
 
 Sandbox asks you to trust the directory before using it.
-It asks again when a file changes.
+It asks again when the configuration or the resolved access requested by project mounts changes.
 An agent can edit these files because the project is writable.
+See [file mounts](MOUNTS.md#expose-another-host-path) for what Sandbox shows at approval.
 
 For trusted automation, pass `--trust` or set `SANDBOX_TRUST_ALL=1`.
 Both bypass the interactive trust check.

@@ -8,7 +8,7 @@ import { getHostEnvironment } from "#platform/environment/index.js";
 import { pathExists } from "#platform/filesystem/index.js";
 import { resolveRepositoryContext } from "#platform/git/index.js";
 import { getLogger } from "#platform/logging/index.js";
-import { promptConfirmation } from "#platform/terminal/index.js";
+import { getTerminal, promptConfirmation } from "#platform/terminal/index.js";
 import {
   injectAllowedDomains,
   readNetworkConfigFile,
@@ -18,19 +18,18 @@ import type { ConfigOverrides, RuntimeId } from "./config.js";
 import { applyCliOptions } from "./config-cli-overrides.js";
 import { createConfigFromDefaults } from "./config-defaults.js";
 import { applyTomlConfig } from "./config-merging.js";
+import { formatConfigPath } from "./config-path-display.js";
 import {
   getGlobalConfigPath,
   getProjectConfigPath,
   getProjectSandboxDir,
 } from "./config-paths.js";
 import type { LoadConfigResult } from "./load-config-result.js";
-import {
-  getTrustStorePath,
-  isProjectTrusted,
-  trustProject,
-} from "./project-trust.js";
+import { resolveExistingMounts } from "./mount-path-resolution.js";
+import { getTrustStorePath, inspectProjectTrust } from "./project-trust.js";
 import { loadTomlConfig } from "./toml-config-loading.js";
-import { formatTrustPrompt } from "./trust-prompt.js";
+import type { TomlConfig } from "./toml-config-schema.js";
+import { formatProjectMountAccess, formatTrustPrompt } from "./trust-prompt.js";
 
 type ConfigTarget = "global" | "project";
 
@@ -63,6 +62,18 @@ class ConfigurationExitError extends Error {
   readonly exitCode = 1;
 }
 
+function resolveTomlMounts(
+  toml: TomlConfig | null,
+  projectRoot: string,
+  isProjectConfig: boolean,
+): string[] {
+  return resolveExistingMounts(
+    toml?.mounts ?? [],
+    projectRoot,
+    isProjectConfig,
+  );
+}
+
 export function createConfigurationService(): ConfigurationService {
   const environment = getHostEnvironment();
   const logger = getLogger();
@@ -70,55 +81,64 @@ export function createConfigurationService(): ConfigurationService {
   const globalConfigPath = getGlobalConfigPath();
   const trustStorePath = getTrustStorePath();
 
-  function trust(projectRoot: string, sandboxDir: string): void {
-    trustProject(
-      projectRoot,
-      sandboxDir,
-      trustStorePath,
-      new Date(clock.now()).toISOString(),
-    );
-  }
-
   async function promptTrust(
     sandboxDir: string,
     reason: "no-entry" | "hash-mismatch",
+    mounts: readonly string[],
   ): Promise<boolean> {
     logger.warn(
       reason === "no-entry"
-        ? `Found project config at ${sandboxDir}`
-        : `Project config has changed: ${sandboxDir}`,
+        ? `Found project config at ${formatConfigPath(sandboxDir)}`
+        : `Project config or mount access has changed: ${formatConfigPath(sandboxDir)}`,
     );
-    const accepted = await promptConfirmation(formatTrustPrompt());
-    if (accepted) logger.success("Project config trusted");
-    return accepted;
+    getTerminal().stderr.write(`${formatProjectMountAccess(mounts)}\n`);
+    return promptConfirmation(formatTrustPrompt());
   }
 
-  async function checkProjectTrust(
-    projectRoot: string,
-    sandboxDir: string,
-    options: ConfigOverrides,
-  ): Promise<void> {
+  async function checkProjectTrust(options: {
+    readonly projectRoot: string;
+    readonly sandboxDir: string;
+    readonly mounts: readonly string[];
+    readonly trust: boolean;
+  }): Promise<void> {
+    const { projectRoot, sandboxDir, mounts } = options;
+    const approval = inspectProjectTrust({
+      projectRoot,
+      sandboxDir,
+      mounts,
+      storePath: trustStorePath,
+    });
+    logger.debug(
+      `Project trust: ${approval.reason} for ${formatConfigPath(projectRoot)}`,
+    );
     if (options.trust || environment.variables.SANDBOX_TRUST_ALL === "1") {
-      trust(projectRoot, sandboxDir);
+      approval.approve(
+        new Date(clock.now()).toISOString(),
+        resolveExistingMounts(mounts, projectRoot, true),
+      );
       return;
     }
-    const result = isProjectTrusted(projectRoot, sandboxDir, trustStorePath);
-    if (result.trusted) return;
+    if (approval.trusted) return;
     if (!environment.interactive) {
       logger.error(
-        `Untrusted project config at ${sandboxDir}.\n  Use --trust or set SANDBOX_TRUST_ALL=1 to bypass.`,
+        `Untrusted project config at ${formatConfigPath(sandboxDir)}.\n  Use --trust or set SANDBOX_TRUST_ALL=1 to bypass.`,
       );
       throw new ConfigurationExitError("Project config is not trusted.");
     }
     const accepted = await promptTrust(
       sandboxDir,
-      result.reason === "hash-mismatch" ? "hash-mismatch" : "no-entry",
+      approval.reason === "hash-mismatch" ? "hash-mismatch" : "no-entry",
+      mounts,
     );
     if (!accepted) {
       logger.error("Project config not trusted. Exiting.");
       throw new ConfigurationExitError("Project config is not trusted.");
     }
-    trust(projectRoot, sandboxDir);
+    approval.approve(
+      new Date(clock.now()).toISOString(),
+      resolveExistingMounts(mounts, projectRoot, true),
+    );
+    logger.success("Project config trusted");
   }
 
   return {
@@ -130,29 +150,36 @@ export function createConfigurationService(): ConfigurationService {
       const { projectRoot, ...repositoryRoots } = repositoryContext;
       const globalConfig = loadTomlConfig(globalConfigPath);
       const sandboxDir = getProjectSandboxDir(projectRoot);
-      if (pathExists(sandboxDir))
-        await checkProjectTrust(projectRoot, sandboxDir, options);
       const projectConfig = loadTomlConfig(getProjectConfigPath(projectRoot));
       const configuredRuntime: RuntimeId | undefined =
         projectConfig?.runtime ?? globalConfig?.runtime;
       const config = createConfigFromDefaults(configuredRuntime ?? "docker");
-      if (globalConfig) {
-        await applyTomlConfig(
-          config,
-          globalConfig,
-          "global",
+      const projectMounts = resolveTomlMounts(projectConfig, projectRoot, true);
+      if (pathExists(sandboxDir)) {
+        await checkProjectTrust({
           projectRoot,
-          environment.variables,
-        );
+          sandboxDir,
+          mounts: projectMounts,
+          trust: options.trust ?? false,
+        });
+      }
+      if (globalConfig) {
+        applyTomlConfig({
+          config,
+          toml: globalConfig,
+          source: "global",
+          mounts: resolveTomlMounts(globalConfig, projectRoot, false),
+          variables: environment.variables,
+        });
       }
       if (projectConfig) {
-        await applyTomlConfig(
+        applyTomlConfig({
           config,
-          projectConfig,
-          "project",
-          projectRoot,
-          environment.variables,
-        );
+          toml: projectConfig,
+          source: "project",
+          mounts: projectMounts,
+          variables: environment.variables,
+        });
       }
       applyCliOptions(config, options, projectRoot, environment.variables);
       if (config.noProxy && !config.fullNetwork) {

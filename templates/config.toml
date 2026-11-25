@@ -241,8 +241,6 @@ mounts = [
   "~/.codex/auth.json:ro",   # Use host Codex login. The normal browser login flow relies on localhost redirects.
 ]
 
-# Options under table headers:
-
 # Apple container DNS: "default" keeps the runtime resolver.
 # Use "host" for primary macOS DNS, or "host-ipv6" for its bridge DNS proxy.
 # [runtimes.apple-container]

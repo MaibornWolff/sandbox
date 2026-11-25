@@ -9,7 +9,7 @@ import {
   ALL_NETWORK_PORTS,
   allowsAllNetworkPorts,
 } from "../network-port-selection.js";
-import { trustProject } from "../project-trust.js";
+import { inspectProjectTrust } from "../project-trust.js";
 import { loadTomlConfig } from "../toml-config-loading.js";
 
 interface TrustedProjectConfigOptions {
@@ -68,10 +68,10 @@ export function writeTrustedProjectConfig(
     options.content ??
       `${runtimeLine}allow_network = [\n${lines}\n]\n${hostCommands}`,
   );
-  trustProject(
-    options.projectRoot,
-    sandboxDirectory,
-    options.trustStorePath,
-    "2026-01-01T00:00:00.000Z",
-  );
+  inspectProjectTrust({
+    projectRoot: options.projectRoot,
+    sandboxDir: sandboxDirectory,
+    storePath: options.trustStorePath,
+    mounts: [],
+  }).approve("2026-01-01T00:00:00.000Z", []);
 }

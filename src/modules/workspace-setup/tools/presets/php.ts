@@ -14,7 +14,8 @@ const php = defineCategory({
 const phpTool = {
   id: "php",
   name: "PHP 8.5",
-  description: "PHP scripting language with common extensions",
+  description:
+    "PHP scripting language with database, cache, debug, and common extensions",
   category: php,
   detect: {
     duringUserInit: [hasExecutable("php")],
@@ -28,8 +29,9 @@ const phpTool = {
         "rm /tmp/sury-keyring.deb",
         "echo 'deb [signed-by=/usr/share/keyrings/debsuryorg-archive-keyring.gpg] https://packages.sury.org/php/ trixie main' > /etc/apt/sources.list.d/sury-php.list",
         "apt-get update",
-        "apt-get install -y --no-install-recommends php8.5-cli php8.5-curl php8.5-mbstring php8.5-xml php8.5-zip php8.5-intl php8.5-sqlite3 php8.5-gd php8.5-bcmath",
+        "apt-get install -y --no-install-recommends php8.5-cli php8.5-curl php8.5-mbstring php8.5-xml php8.5-zip php8.5-intl php8.5-sqlite3 php8.5-gd php8.5-bcmath php8.5-mysql php8.5-pgsql php8.5-redis php8.5-apcu php8.5-amqp php8.5-xdebug php8.5-pcov php8.5-soap php8.5-imagick php8.5-ldap",
         "rm -rf /var/lib/apt/lists/*",
+        "echo 'xdebug.mode=off' >> /etc/php/8.5/mods-available/xdebug.ini",
       ]),
     ],
   },

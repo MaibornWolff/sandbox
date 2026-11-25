@@ -45,7 +45,9 @@ See [repository guidance](../AGENTS.md) for dependency and ownership rules.
 ## Configuration, images, and data
 
 [Configuration](../docs/CONFIGURATION.md) separates built-in defaults, user preferences, project requirements, and one-run overrides.
-Project trust is checked before project files affect access or builds.
+Sandbox resolves project mounts before checking trust so the approval covers the requested access.
+It checks trust before project files affect access or builds.
+See the [security model](../docs/SECURITY.md#project-trust-and-external-mounts) for the intended boundary.
 
 [Image layers](../docs/LAYERED-IMAGES.md) separate base, user, and project tools.
 A changed parent invalidates child layers.

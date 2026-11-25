@@ -12,6 +12,7 @@ Install these dependencies:
 - GNU `timeout` or `gtimeout`
 - util-linux `script` on Linux, or the built-in BSD `script` on macOS
 - Git
+- Python 3.9 or newer on Linux or macOS for the Podman attached-session test
 
 Allow outbound Domain Name System (DNS) and secure Hypertext Transfer Protocol (HTTPS) traffic for network and tool-installation fixtures.
 
@@ -63,6 +64,15 @@ The Podman job fixes the rootless image-store path because fixtures isolate `HOM
 Use the CI workflow's manual trigger to run E2E tests on a branch. Pushes to `main` also run E2E tests. Renovate pull requests and pull requests with the `run-e2e` label also run the core suite. Other pull requests run the faster checks only. Branch pushes do not start CI.
 
 Apple containers require a self-hosted Apple silicon runner with macOS 26 or newer. GitHub-hosted macOS runners [do not support nested virtualization](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The [Apple runtime requirements](https://github.com/apple/container#requirements) also exclude Linux runners. CI therefore tests Docker and Podman only.
+
+## Podman Attached-Session Test
+
+Run this test directly on a Linux or macOS host with a working Podman runtime:
+
+```bash
+bun run build
+SANDBOX_TEST_RUNTIME=podman bun test tests/e2e/attached-session-shutdown.test.ts
+```
 
 ## Apple Runtime Selection
 

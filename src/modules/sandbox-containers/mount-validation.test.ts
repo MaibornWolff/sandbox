@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import {
+  validateContainerMountDestinations,
   validateMountPath as validateMountPathWithoutScope,
   validateProtectedMountPaths,
 } from "./mount-validation.js";
@@ -42,6 +43,31 @@ test("protects runtime files from parent, child, and equivalent mount destinatio
     validateProtectedMountPaths("/opt/sandbox-cli", [
       "/opt/sandbox-cli-other",
       "/home/sandbox",
+    ]),
+  ).not.toThrow();
+});
+
+test.each([
+  "/run",
+  "/run/sandbox",
+  "/run/sandbox/ready",
+  "/run/sandbox/session-shutdown/record",
+  "/var",
+  "/var/run",
+  "/var/run/sandbox",
+  "/var/run/sandbox/session-shutdown/record",
+])("protects Sandbox runtime state from a mount at %s", (destination) => {
+  expect(() =>
+    validateContainerMountDestinations("/opt/sandbox-cli", [destination]),
+  ).toThrow("overlaps the managed Sandbox runtime state");
+});
+
+test("allows mounts beside Sandbox runtime state", () => {
+  expect(() =>
+    validateContainerMountDestinations("/opt/sandbox-cli", [
+      "/run/my-app",
+      "/var/run/my-app",
+      "/run/sandbox-ready",
     ]),
   ).not.toThrow();
 });

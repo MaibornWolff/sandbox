@@ -42,18 +42,13 @@ describe("buildSandboxExecSpec", () => {
     });
   });
 
-  test("sets the working directory and forwards command arguments through the entrypoint", () => {
+  test("sets the working directory and forwards command arguments unchanged", () => {
     const result = execSpec({
       currentDir: "/test/project/src",
       command: ["echo", "hello", "world"],
     });
     expect(result.spec.workingDirectory).toBe("/test/project/src");
-    expect(result.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "echo",
-      "hello",
-      "world",
-    ]);
+    expect(result.spec.command).toEqual(["echo", "hello", "world"]);
     expect(environment(result)).not.toHaveProperty("SANDBOX");
   });
 

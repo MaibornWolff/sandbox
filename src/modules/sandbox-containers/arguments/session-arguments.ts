@@ -56,7 +56,7 @@ export function buildSandboxExecSpec(options: BuildSandboxExecSpecOptions): {
   );
   return {
     spec: {
-      command: ["/usr/local/bin/exec-entrypoint.sh", ...options.command],
+      command: options.command,
       environment,
       workingDirectory,
     },

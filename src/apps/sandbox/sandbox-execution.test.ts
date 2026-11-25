@@ -45,6 +45,12 @@ function expectHookLauncher(
   });
 }
 
+function expectGuestStop(app: Awaited<ReturnType<typeof setupSandboxAppTest>>) {
+  return app.processes.expectStart({
+    match: { name: "container exec stream", argsInclude: "__stop-session" },
+  });
+}
+
 describe("sandbox session hooks", () => {
   test("keeps attached context and the control lease through a failing end hook", async () => {
     await using app = await setupSandboxAppTest();
@@ -64,6 +70,7 @@ command_wrapper = ["wrapper"]
 `,
       { trusted: true },
     );
+    const stop = expectGuestStop(app);
     const end = expectHookLauncher(app);
     const start = expectHookLauncher(app);
     const attached = app.processes.expectStart({ match: { stdio: "inherit" } });
@@ -74,7 +81,14 @@ command_wrapper = ["wrapper"]
     start.exit();
     await attached.waitForStart();
     expect(end.pid).toBeUndefined();
-    attached.exit({ signal: "SIGTERM" });
+    app.processes.emitTermination("SIGTERM");
+    await attached.waitForSignal();
+    attached.exit({ exitCode: 143 });
+    await stop.waitForStart();
+    expect(end.pid).toBeUndefined();
+    expect(app.runtime.instances.all()[0]?.controls).toHaveLength(1);
+    stop.emitStderr("Guest process did not exit.\n");
+    stop.exit({ exitCode: 1 });
     await end.waitForStart();
     expect(app.runtime.instances.all()[0]?.controls).toHaveLength(1);
     end.emitStdout("exit:29\n");
@@ -82,6 +96,7 @@ command_wrapper = ["wrapper"]
     end.exit();
     const result = await execution;
     expect(result.exitCode).toBe(143);
+    expect(result.stderr).toContain("Guest process did not exit.");
     expect(result.stderr).toContain(
       "Lifecycle hook session.end #1 exited with code 29.",
     );
@@ -89,6 +104,14 @@ command_wrapper = ["wrapper"]
     expect(app.runtime.instances.all()[0]?.controls).toHaveLength(0);
 
     const attachedSpec = attachedExecution(app)?.spec;
+    expect(attachedSpec?.command.slice(0, 6)).toEqual([
+      "/usr/bin/python3",
+      "-I",
+      "-S",
+      "/opt/sandbox-cli/src/platform/container-system/guest/session-shutdown.py",
+      "__launch-session",
+      attachedSpec?.environment?.SANDBOX_SESSION_ID ?? "",
+    ]);
     const launches = app.runtime
       .events()
       .filter((event) => event.type === "container.exec-stream")
@@ -103,11 +126,7 @@ command_wrapper = ["wrapper"]
     expect(JSON.parse(launches[0]?.spec.command[3] ?? "null")).toMatchObject({
       command: ["./start", "a b"],
     });
-    expect(attachedSpec?.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "wrapper",
-      "true",
-    ]);
+    expect(attachedSpec?.command.slice(6)).toEqual(["wrapper", "true"]);
   });
 
   test("does not launch the command or cleanup after a blocking start failure", async () => {
@@ -141,7 +160,7 @@ command = ["./end"]
     ).toHaveLength(1);
   });
 
-  test("skips end hooks if the attached adapter throws", async () => {
+  test("attempts session stop before the end hook if attachment fails", async () => {
     await using app = await setupSandboxAppTest();
     app.project.writeConfig(
       `
@@ -152,6 +171,7 @@ command = ["./cleanup"]
 `,
       { trusted: true },
     );
+    expectGuestStop(app).exit();
     const end = expectHookLauncher(app);
     end.emitStdout("ok\n");
     end.exit();
@@ -161,7 +181,69 @@ command = ["./cleanup"]
     const result = await app.cli.run("run", "true");
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("runtime attach failed");
+    expect(end.pid).toBeDefined();
+    const events = app.runtime.events();
+    const stop = events.findIndex(
+      (event) =>
+        event.type === "container.exec-stream" &&
+        event.spec.command.includes("__stop-session"),
+    );
+    expect(stop).toBeGreaterThanOrEqual(0);
+    const cleanup = events[stop];
+    const attached = attachedExecution(app);
+    expect(cleanup).toMatchObject({
+      containerId: attached?.containerId,
+      spec: {
+        user: "root",
+        command: [
+          "/usr/bin/python3",
+          "-I",
+          "-S",
+          "/opt/sandbox-cli/src/platform/container-system/guest/session-shutdown.py",
+          "__stop-session",
+          attached?.spec.environment?.SANDBOX_SESSION_ID,
+        ],
+      },
+    });
+    expect(stop).toBeLessThan(
+      events.findIndex(
+        (event) =>
+          event.type === "container.exec-stream" &&
+          event.spec.command.includes("__run-hook"),
+      ),
+    );
+  });
+
+  test("attempts the end hook after a timed-out stop on attachment loss", async () => {
+    await using app = await setupSandboxAppTest();
+    app.project.writeConfig(
+      `
+clipboard = "disabled"
+[[hooks]]
+event = "session.end"
+command = ["./cleanup"]
+wait = true
+`,
+      { trusted: true },
+    );
+    const stop = expectGuestStop(app);
+    const end = expectHookLauncher(app);
+    app.processes
+      .expectStart({ match: { stdio: "inherit" } })
+      .exit({ signal: "SIGHUP" });
+    const execution = app.cli.run("run", "true");
+    await stop.waitForStart();
+    await app.clock.waitForSleep();
+    await app.clock.advanceBy(3_000);
+    await stop.waitForInputEnd();
     expect(end.pid).toBeUndefined();
+    stop.exit();
+    await end.waitForStart();
+    end.emitStdout("ok\n");
+    end.exit();
+    const result = await execution;
+    expect(result.exitCode).toBe(129);
+    expect(result.stderr).toContain("Cleanup exec timed out.");
   });
 
   test("shows a blocking container start warning without verbose mode", async () => {
@@ -262,8 +344,7 @@ describe("sandbox shell and run", () => {
           ? await app.cli.run()
           : await app.cli.run("run", "echo", "hello world");
       expect(result.exitCode).toBe(0);
-      expect(attachedExecution(app)?.spec.command).toEqual([
-        "/usr/local/bin/exec-entrypoint.sh",
+      expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
         "my-wrapper",
         "--option with spaces",
         "--",
@@ -293,15 +374,13 @@ describe("sandbox shell and run", () => {
       const result = await app.cli.run(...args);
       expect(result.exitCode).toBe(0);
       expect(result.stderr).not.toContain("overrides the user wrapper");
-      expect(attachedExecution(app)?.spec.command).toEqual([
-        "/usr/local/bin/exec-entrypoint.sh",
+      expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
         ...command,
       ]);
       givenSuccessfulInteractiveProcess(app);
       const next = await app.cli.run("run", "true");
       expect(next.stderr).toContain("overrides the user wrapper");
-      expect(attachedExecution(app)?.spec.command).toEqual([
-        "/usr/local/bin/exec-entrypoint.sh",
+      expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
         "project-wrapper",
         "true",
       ]);
@@ -314,8 +393,7 @@ describe("sandbox shell and run", () => {
     givenSuccessfulInteractiveProcess(app);
     const result = await app.cli.run("run", "--", "command", "--no-wrapper");
     expect(result.exitCode).toBe(0);
-    expect(attachedExecution(app)?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
+    expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
       "user-wrapper",
       "command",
       "--no-wrapper",
@@ -330,8 +408,7 @@ describe("sandbox shell and run", () => {
     });
     givenSuccessfulInteractiveProcess(app);
     expect((await app.cli.run("run", "true")).exitCode).toBe(0);
-    expect(attachedExecution(app)?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
+    expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
       "user-wrapper",
       "true",
     ]);
@@ -347,8 +424,7 @@ describe("sandbox shell and run", () => {
       const result = await app.cli.run("run", "true");
       expect(result.exitCode).toBe(0);
       expect(result.stderr).not.toContain("overrides the user wrapper");
-      expect(attachedExecution(app)?.spec.command).toEqual([
-        "/usr/local/bin/exec-entrypoint.sh",
+      expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
         "user-wrapper",
         "true",
       ]);
@@ -368,8 +444,7 @@ describe("sandbox shell and run", () => {
     expect(result.stderr).toContain(
       "The trusted project session wrapper overrides the user wrapper.",
     );
-    expect(attachedExecution(app)?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
+    expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
       "project-wrapper",
       "true",
     ]);
@@ -390,8 +465,7 @@ describe("sandbox shell and run", () => {
     expect(result.stderr).toContain(
       "The trusted project session wrapper overrides the user wrapper.",
     );
-    expect(attachedExecution(app)?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
+    expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
       "/project/sb-wrapper",
       "true",
     ]);
@@ -408,8 +482,7 @@ describe("sandbox shell and run", () => {
     app.global.writeConfig('[session]\ncommand_wrapper = ["second"]\n');
     givenSuccessfulInteractiveProcess(app);
     expect((await app.cli.run("run", "true")).exitCode).toBe(0);
-    expect(attachedExecution(app)?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
+    expect(attachedExecution(app)?.spec.command.slice(6)).toEqual([
       "second",
       "true",
     ]);
@@ -603,10 +676,7 @@ describe("sandbox shell and run", () => {
     expect(result.stderr).toContain("Creating sandbox container");
     expect(result.stderr).toContain("Starting sandbox shell");
     const execution = attachedExecution(app);
-    expect(execution?.spec.command).toEqual([
-      "/usr/local/bin/exec-entrypoint.sh",
-      "zsh",
-    ]);
+    expect(execution?.spec.command.slice(6)).toEqual(["zsh"]);
     expect(execution?.session).toMatchObject({
       attachStdin: true,
       allocateTerminal: true,
@@ -637,6 +707,15 @@ describe("sandbox shell and run", () => {
     expect(result.exitCode).toBe(37);
     expect(result.stderr).not.toContain("Error:");
     expect(result.stderr).toContain("Stopped host bridge session");
+    expect(
+      app.runtime
+        .events()
+        .some(
+          (event) =>
+            event.type === "container.exec-stream" &&
+            event.spec.command.includes("__stop-session"),
+        ),
+    ).toBe(false);
   });
 
   test("attaches non-terminal stdin to the root shell without allocating a TTY", async () => {
@@ -678,11 +757,14 @@ describe("sandbox shell and run", () => {
       (await interactive.cli.run("run", "--", "sh", "-c", "echo ok")).exitCode,
     ).toBe(0);
     expect(attachedExecution(interactive)).toMatchObject({
-      spec: {
-        command: ["/usr/local/bin/exec-entrypoint.sh", "sh", "-c", "echo ok"],
-      },
       session: { attachStdin: true, allocateTerminal: true },
     });
+
+    expect(attachedExecution(interactive)?.spec.command.slice(6)).toEqual([
+      "sh",
+      "-c",
+      "echo ok",
+    ]);
 
     await using piped = await setupSandboxAppTest({ interactive: false });
     givenSuccessfulInteractiveProcess(piped);

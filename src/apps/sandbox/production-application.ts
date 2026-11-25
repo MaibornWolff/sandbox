@@ -36,6 +36,7 @@ import {
 } from "#platform/process/index.js";
 import {
   createProcessTerminal,
+  installTerminalOutputProtection,
   type ProcessTerminalStreams,
   provideTerminal,
 } from "#platform/terminal/index.js";
@@ -61,6 +62,7 @@ export async function runSandboxApplicationWithClipboard(
   terminalStreams: ProcessTerminalStreams,
   createClipboard: (platform: NodeJS.Platform) => NativeClipboardService,
 ): Promise<number> {
+  installTerminalOutputProtection(terminalStreams);
   const environment = readProcessEnvironment();
   const controller = new AbortController();
   const terminal = createProcessTerminal({

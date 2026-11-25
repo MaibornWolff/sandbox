@@ -1,9 +1,5 @@
 import { posix, win32 } from "node:path";
-import {
-  CONTAINER_READY_FILE,
-  CONTAINER_START_FAILED_FILE,
-  CONTAINER_START_PHASE_FILE,
-} from "#platform/container-system/index.js";
+import { CONTAINER_STATE_DIRECTORY } from "#platform/container-system/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { realPathOrSelf } from "#platform/filesystem/index.js";
 
@@ -34,15 +30,14 @@ export function validateContainerMountDestinations(
   destinations: readonly string[],
 ): void {
   validateProtectedMountPaths(runtimePackage, destinations);
-  for (const marker of [
-    CONTAINER_READY_FILE,
-    CONTAINER_START_PHASE_FILE,
-    CONTAINER_START_FAILED_FILE,
+  for (const directory of [
+    CONTAINER_STATE_DIRECTORY,
+    `/var${CONTAINER_STATE_DIRECTORY}`,
   ]) {
     validateProtectedMountPaths(
-      marker,
+      directory,
       destinations,
-      "container readiness marker",
+      "Sandbox runtime state",
     );
   }
 }

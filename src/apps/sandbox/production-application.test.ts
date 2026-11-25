@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { PassThrough } from "node:stream";
+import { PassThrough, Writable } from "node:stream";
 import { getVersion } from "#modules/self-update/index.js";
 import { getTestRepoRootPath } from "#test/utils.js";
 import { createUpdateWorkerFixture } from "./__test__/update-worker.js";
@@ -116,6 +116,48 @@ describe("production sandbox application", () => {
     expect(terminal.stdout()).toBe(`${getVersion()}\n`);
     expect(terminal.stderr()).toBe("");
   });
+
+  test.each([
+    {
+      destination: "stdout",
+      code: "EPIPE",
+      isTTY: false,
+      args: ["--version"],
+      exitCode: 0,
+    },
+    {
+      destination: "stderr",
+      code: "EIO",
+      isTTY: true,
+      args: ["unknown-command"],
+      exitCode: 1,
+    },
+  ] as const)(
+    "preserves the CLI result after an asynchronous $destination disconnect",
+    async ({ destination, code, isTTY, args, exitCode }) => {
+      let finishWrite: (() => void) | undefined;
+      const output = Object.assign(
+        new Writable({
+          write(_chunk, _encoding, callback) {
+            finishWrite = () =>
+              callback(Object.assign(new Error(`write ${code}`), { code }));
+          },
+        }),
+        { isTTY },
+      );
+      const terminal = recordingTerminalStreams();
+
+      const result = await runProductionSandboxApplication(args, {
+        ...terminal.streams,
+        [destination]: output,
+      });
+
+      expect(result).toBe(exitCode);
+      expect(finishWrite).toBeDefined();
+      finishWrite?.();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    },
+  );
 
   test("preserves process exit codes and releases production resources", async () => {
     const success = await runProductionProcess(["--version"]);

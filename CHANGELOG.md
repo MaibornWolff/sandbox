@@ -19,11 +19,12 @@
 
 ### Changed
 
-- Sandbox reserves `/run/sandbox-ready`, `/run/sandbox-start-hooks`, and `/run/sandbox-start-failed` for container readiness. If a mount covers one of these paths or all of `/run`, change its destination to a narrower path such as `/run/<your-app>`.
+- Sandbox reserves `/run/sandbox/`. If a [mount covers that directory](docs/MOUNTS.md#expose-another-host-path), use a narrower destination such as `/run/<your-app>`.
 
 ### Fixed
 
 - Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
+- Fix session cleanup when the terminal closes, without stopping other sessions in the same container.
 
 ## [0.74.0] - 2026-11-24
 

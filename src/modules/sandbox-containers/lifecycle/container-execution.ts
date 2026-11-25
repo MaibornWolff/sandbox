@@ -13,11 +13,18 @@ import {
   cleanupSandboxRuntimeAfterSession,
   prepareSandboxRuntime,
 } from "#modules/sandbox-runtime/index.js";
+import { getClock, waitWithTimeout } from "#platform/clock/index.js";
 import type {
+  SandboxInstanceOperations,
   SandboxInstanceSpec,
   SandboxRuntime,
+  TerminalSessionOptions,
 } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
+import {
+  buildSessionLaunchCommand,
+  buildSessionStopCommand,
+} from "#platform/container-system/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { readPackageVersion } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
@@ -48,6 +55,7 @@ import {
   ContainerReadinessError,
   prepareContainerSession,
 } from "./container-session.js";
+import { readControlLines } from "./control-watchdog.js";
 import { resolveHostAgentTitle } from "./host-agent-title.js";
 import { prepareSandboxEnvironment } from "./sandbox-preparation.js";
 import { runSessionHooks } from "./session-hooks.js";
@@ -255,6 +263,78 @@ function warnForWrapperConflict(enabled: boolean, conflict: boolean): void {
   }
 }
 
+async function stopGuestSession(
+  containers: SandboxInstanceOperations,
+  containerName: string,
+  runtimeDirectory: string,
+  sessionId: string,
+): Promise<void> {
+  const logger = getLogger();
+  logger.debug(`Stopping guest session ${chalk.cyan(sessionId)}.`);
+  try {
+    await using cleanup = await containers.openExec(containerName, {
+      user: "root",
+      command: buildSessionStopCommand(runtimeDirectory, sessionId),
+    });
+    let diagnostic = "";
+    const result = await waitWithTimeout(
+      Promise.all([
+        cleanup.completion,
+        readControlLines(cleanup.stdout, () => undefined),
+        readControlLines(cleanup.stderr, (line) => {
+          diagnostic ||= line;
+        }),
+      ]),
+      { clock: getClock(), milliseconds: 3_000 },
+    );
+    if (!result.completed) throw new Error("Cleanup exec timed out.");
+    const [{ exitCode }] = result.value;
+    if (exitCode !== 0) {
+      throw new Error(
+        diagnostic || `Cleanup exec exited with code ${exitCode}.`,
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      `Could not stop guest session ${sessionId}: ${getErrorMessage(error)}`,
+    );
+  }
+}
+
+async function runAttachedSession(
+  hookSession: Omit<Parameters<typeof runSessionHooks>[0], "event" | "signal">,
+  options: {
+    readonly session: TerminalSessionOptions;
+    readonly signal: AbortSignal;
+    readonly runtimeDirectory: string;
+    readonly sessionId: string;
+  },
+) {
+  const { containers, containerId, spec } = hookSession;
+  const { session, signal, runtimeDirectory, sessionId } = options;
+  await runSessionHooks({ ...hookSession, event: "session.start", signal });
+  signal.throwIfAborted();
+  let attachmentLost = true;
+  try {
+    const result = await containers.execAttached(containerId, spec, session);
+    attachmentLost = result.signal !== undefined;
+    return result;
+  } finally {
+    if (attachmentLost || signal.aborted) {
+      await stopGuestSession(
+        containers,
+        containerId,
+        runtimeDirectory,
+        sessionId,
+      );
+    }
+    await runSessionHooks({ ...hookSession, event: "session.end" }).catch(
+      (error: unknown) =>
+        getLogger().warn(`Session end hook failed: ${getErrorMessage(error)}`),
+    );
+  }
+}
+
 async function execute(
   service: SandboxRuntime,
   ctx: SandboxContext,
@@ -266,7 +346,6 @@ async function execute(
   const logger = getLogger();
   const environment = getHostEnvironment();
   const { command, stdin, tty, foreground } = executorOptions;
-  const sessionId = foreground ? undefined : randomUUID();
   const { config, projectRoot, repositoryRoots } = ctx;
   const currentDir = environment.currentWorkingDirectory;
   const projectSlug = generateProjectSlug(projectRoot);
@@ -307,7 +386,7 @@ async function execute(
     return;
   }
 
-  if (!sessionId) throw new Error("Session ID is missing.");
+  const sessionId = randomUUID();
   await using commandCapability = await createHostCommandCapability({
     sessionId,
     runtime: service.runtime,
@@ -370,14 +449,15 @@ async function execute(
     executorOptions.wrapper !== false,
     config.session.wrapperConflict,
   );
+  const runtimeDirectory = runtimePackage.mount.containerPath;
   const execution = buildSandboxExecSpec({
     currentDir,
-    command: [
+    command: buildSessionLaunchCommand(runtimeDirectory, sessionId, [
       ...(executorOptions.wrapper === false
         ? []
         : config.session.commandWrapper),
       ...command,
-    ],
+    ]),
     stdin,
     tty,
     environment: config.env,
@@ -392,30 +472,27 @@ async function execute(
     spec: execution.spec,
     hooks: config.hooks,
   };
-  await runSessionHooks({
-    ...hookSession,
-    event: "session.start",
-    signal: beforeCommand.signal,
-  });
-  beforeCommand.signal.throwIfAborted();
   const title = resolveHostAgentTitle(command);
   if (title) logger.debug(`Host agent title: ${chalk.cyan(title)}`);
-  const result = await service.instances.execAttached(
-    containerName,
-    execution.spec,
-    {
-      ...execution.session,
-      ...(title ? { title } : {}),
-      forwardSignal: (signal) => commandCapability.forwardSignal(signal),
-    },
-  );
-  await runSessionHooks({ ...hookSession, event: "session.end" });
-  await sessionResources
-    .disposeAsync()
-    .catch((error: unknown) =>
-      logger.warn(`Session cleanup failed: ${getErrorMessage(error)}`),
-    );
-  throwForChildExit(result.exitCode);
+  try {
+    const result = await runAttachedSession(hookSession, {
+      session: {
+        ...execution.session,
+        ...(title ? { title } : {}),
+        forwardSignal: (signal) => commandCapability.forwardSignal(signal),
+      },
+      signal: beforeCommand.signal,
+      runtimeDirectory,
+      sessionId,
+    });
+    throwForChildExit(result.exitCode);
+  } finally {
+    await sessionResources
+      .disposeAsync()
+      .catch((error: unknown) =>
+        logger.warn(`Session cleanup failed: ${getErrorMessage(error)}`),
+      );
+  }
 }
 
 export async function executeInSandbox(

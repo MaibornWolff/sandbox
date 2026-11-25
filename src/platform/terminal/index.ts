@@ -5,6 +5,7 @@ export {
 } from "./editor.js";
 export { launchInteractiveAgent } from "./interactive-agent.js";
 export { writeStandardError, writeStandardOutput } from "./output.js";
+export { installTerminalOutputProtection } from "./output-disconnect.js";
 export {
   promptConfirmation,
   promptSelectionConfirmation,

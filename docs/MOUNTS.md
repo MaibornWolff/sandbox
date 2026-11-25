@@ -55,6 +55,8 @@ Formats:
 `~` expands to the host home for a source and the container home for a destination.
 Relative sources in user configuration or CLI flags resolve from the host working directory.
 Custom destinations might not exist on the host, so error paths can differ.
+Sandbox reserves `/run/sandbox/`, also available as `/var/run/sandbox/`.
+If a mount covers that directory, use a narrower destination such as `/run/<your-app>`.
 
 A read-only mount still exposes its contents, including credentials.
 Do not mount your complete home directory or a container-runtime socket unless you accept the resulting access.

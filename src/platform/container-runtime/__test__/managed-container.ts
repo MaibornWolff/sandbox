@@ -72,7 +72,7 @@ function commandKey(command: readonly string[]): string {
 }
 
 function isReadinessCommand(command: readonly string[]): boolean {
-  return command.some((value) => value.includes("/run/sandbox-ready"));
+  return command.some((value) => value.includes("/run/sandbox/ready"));
 }
 
 function isSessionDetailsCommand(command: readonly string[]): boolean {

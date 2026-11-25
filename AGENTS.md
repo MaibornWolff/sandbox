@@ -52,6 +52,7 @@
 
 - Treat every rule as an attention cost. Keep only intentional, repository-specific guidance that changes future decisions.
 - Treat feedback as evidence to consider, not an automatic instruction to add a rule. Add guidance only when it changes future decisions across tasks, and first check whether an existing rule can be sharpened.
-- Put conditional guidance in the narrowest relevant scope and state when to read it. Leave commands, layouts, and configuration details in their authoritative files when they are easy to find.
+- Put conditional guidance in the narrowest relevant scope and state when to read it.
+- Never restate implementation or test logic in documentation. Focus on user tasks and high-level design decisions. Describe runtime behavior only when readers need it to use, configure, or operate Sandbox.
 - Write product usage, configuration, and operation guides in `docs/`, contributor guides in `contributing/`, and agent workflows and decision rules in repository-local skills. Keep only essential rules and activation pointers in `AGENTS.md`.
 - Write direct instructions without uppercase requirement labels. Remove repetition, conflicts, and rules the agent follows without being told.

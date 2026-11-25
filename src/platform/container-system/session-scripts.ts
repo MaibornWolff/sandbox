@@ -1,5 +1,38 @@
 import { CONTAINER_SESSIONS_DIRECTORY } from "./container-paths.js";
 
+function buildSessionOperation(
+  runtimeDirectory: string,
+  operation: "__launch-session" | "__stop-session",
+  sessionId: string,
+): string[] {
+  return [
+    "/usr/bin/python3",
+    "-I",
+    "-S",
+    `${runtimeDirectory}/src/platform/container-system/guest/session-shutdown.py`,
+    operation,
+    sessionId,
+  ];
+}
+
+export function buildSessionLaunchCommand(
+  runtimeDirectory: string,
+  sessionId: string,
+  command: readonly string[],
+): string[] {
+  return [
+    ...buildSessionOperation(runtimeDirectory, "__launch-session", sessionId),
+    ...command,
+  ];
+}
+
+export function buildSessionStopCommand(
+  runtimeDirectory: string,
+  sessionId: string,
+): string[] {
+  return buildSessionOperation(runtimeDirectory, "__stop-session", sessionId);
+}
+
 const SESSION_CONTROL_MARKERS_DIRECTORY = `${CONTAINER_SESSIONS_DIRECTORY}/.controls`;
 
 const detectActiveSession = [

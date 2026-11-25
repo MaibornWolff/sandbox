@@ -186,7 +186,7 @@ describe("container lifecycle hooks", () => {
     expect(app.entrypoint.isReady()).toBe(false);
     expect(
       fs.existsSync(
-        path.join(app.roots.container, "run", "sandbox-start-hooks"),
+        path.join(app.roots.container, "run", "sandbox", "start-hooks"),
       ),
     ).toBe(true);
     hooks.start.exit({ stdout: "ok\n" });
@@ -224,7 +224,7 @@ describe("container lifecycle hooks", () => {
     expect(app.entrypoint.isReady()).toBe(false);
     expect(
       fs.existsSync(
-        path.join(app.roots.container, "run", "sandbox-start-failed"),
+        path.join(app.roots.container, "run", "sandbox", "start-failed"),
       ),
     ).toBe(true);
     expect(hooks.stop.pid).toBeUndefined();
@@ -256,7 +256,7 @@ describe("container PID 1 production application lifecycle", () => {
     expect(result.stderr).toContain("[container-tools] ready\n");
     expect(result.stderr).toContain("[container-tools] syncing settings\n");
     expect(
-      fs.existsSync(path.join(app.roots.container, "run", "sandbox-ready")),
+      fs.existsSync(path.join(app.roots.container, "run", "sandbox", "ready")),
     ).toBe(false);
     expect(app.processes.actions().map((action) => action.type)).toEqual([
       "start",

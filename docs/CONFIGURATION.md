@@ -138,7 +138,7 @@ timeout = "5s"
 | `container.start` | After network and settings setup, before the container is ready. |
 | `container.stop` | During graceful shutdown, after Sandbox attempts to terminate sessions and before it syncs settings. |
 | `session.start` | After session setup and before the attached command starts. |
-| `session.end` | After the container runtime reports a status for the attached command and before Sandbox releases session resources. |
+| `session.end` | When an attached session ends. |
 
 Both `event` and `command` are required.
 Set `command` to a nonempty array with the executable first.
@@ -153,10 +153,8 @@ Session hooks use the attached command's working directory and session environme
 - `timeout` is an optional positive duration in `ms`, `s`, `m`, or `h`, such as `"10s"` or `"1.5s"`. Sandbox rounds up to whole milliseconds. The timeout applies in both wait modes. Shutdown can end a hook sooner.
 - `on_error` is valid only on `container.start` and `session.start`. For a blocking hook, the default `"fail"` prevents container readiness or command launch if the hook fails. Set `"warn"` to report the failure and continue. Background hook failures do not stop the lifecycle or appear in CLI output.
 
-Cleanup hooks are best effort. A failure does not skip later cleanup hooks or replace the attached command's exit status.
-A runtime can report an error status even if the command did not start. Write cleanup hooks that can handle missing session state.
-Use `wait = true` if cleanup needs session resources or must finish before normal shutdown continues.
-A hard kill can prevent cleanup, and Sandbox does not replay missed hooks.
+Cleanup hooks are best effort. Do not rely on them for critical cleanup.
+Use `wait = true` if a hook needs session resources or must finish before shutdown continues.
 `sandbox container start` does not run session hooks.
 
 Changing container hooks can require a new container.

@@ -21,6 +21,7 @@ export {
   CONTAINER_READY_FILE,
   CONTAINER_START_FAILED_FILE,
   CONTAINER_START_PHASE_FILE,
+  CONTAINER_STATE_DIRECTORY,
 } from "./container-paths.js";
 /** @lintignore Public container-system diagnostic contract. */
 export {
@@ -46,6 +47,8 @@ export {
 export {
   buildSessionDetailsCommand,
   buildSessionIdleCommand,
+  buildSessionLaunchCommand,
+  buildSessionStopCommand,
 } from "./session-scripts.js";
 /** @lintignore Public container-system TCP boundary contract. */
 export {

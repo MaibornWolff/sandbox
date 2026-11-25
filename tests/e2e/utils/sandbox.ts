@@ -287,6 +287,14 @@ export function createSandbox(opts?: SandboxOptions) {
     appleDns: process.env.SANDBOX_TEST_APPLE_DNS,
   });
 
+  const binary = opts?.binary ?? SANDBOX_BIN;
+  const sandboxEnvironment = {
+    ...podmanEnvironment,
+    ...opts?.env,
+    ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
+    HOME: homeDir,
+  };
+
   async function execute(
     args: string[],
     execOptions: SandboxExecOptions,
@@ -297,11 +305,7 @@ export function createSandbox(opts?: SandboxOptions) {
     const commandArgs = [timeoutBin];
     // Keep interactive children in the terminal's foreground process group.
     if (terminal) commandArgs.push("--foreground");
-    commandArgs.push(
-      String(timeout),
-      opts?.binary ?? SANDBOX_BIN,
-      ...sandboxArgs,
-    );
+    commandArgs.push(String(timeout), binary, ...sandboxArgs);
     const allArgs = terminal
       ? buildTerminalCommandArgs({
           scriptPath: resolveTerminalBin(),
@@ -368,16 +372,11 @@ export function createSandbox(opts?: SandboxOptions) {
     execOptions: SandboxExecOptions = {},
   ): SandboxCommandInteraction {
     return startSandboxCommand({
-      binary: opts?.binary ?? SANDBOX_BIN,
+      binary,
       args,
       cwd,
       configDir,
-      env: {
-        ...podmanEnvironment,
-        ...opts?.env,
-        ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
-        HOME: homeDir,
-      },
+      env: sandboxEnvironment,
       defaultTimeout,
       execOptions,
     });
@@ -391,6 +390,17 @@ export function createSandbox(opts?: SandboxOptions) {
     configDir,
     exec,
     execTerminal,
+    fixtureProcess: {
+      binary,
+      cwd,
+      env: {
+        ...process.env,
+        ...sandboxEnvironment,
+        SANDBOX_TRUST_ALL: "1",
+        SANDBOX_CONFIG_DIR: configDir,
+        TERM: "xterm-256color",
+      },
+    },
     start,
 
     run(...cmd: string[]): Promise<SandboxResult> {

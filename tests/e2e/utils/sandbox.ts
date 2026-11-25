@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { getExitCodeForSignal } from "#platform/process/index.js";
 import {
@@ -238,6 +245,22 @@ function createIsolatedHome(configDir: string): string {
   return homeDir;
 }
 
+function preservePodmanConnection(
+  runtime: string | undefined,
+): Readonly<Record<string, string>> {
+  if (runtime !== undefined && runtime !== "podman") return {};
+  if (process.env.PODMAN_CONNECTIONS_CONF !== undefined) return {};
+
+  const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  const connectionFile = resolve(
+    configHome,
+    "containers/podman-connections.json",
+  );
+  return existsSync(connectionFile)
+    ? { PODMAN_CONNECTIONS_CONF: connectionFile }
+    : {};
+}
+
 export function createSandbox(opts?: SandboxOptions) {
   const cwd = opts?.cwd ?? process.cwd();
   const defaultTimeout = opts?.timeoutSeconds ?? DEFAULT_TIMEOUT;
@@ -251,13 +274,16 @@ export function createSandbox(opts?: SandboxOptions) {
     process.env.DOCKER_CONFIG ??
     (process.env.HOME ? join(process.env.HOME, ".docker") : undefined);
 
+  const runtime = getE2eRuntime();
+  const podmanEnvironment = preservePodmanConnection(runtime);
+
   const templateConfigPath = process.env.SANDBOX_RUNTIME_ROOT
     ? resolve(process.env.SANDBOX_RUNTIME_ROOT, "templates/config.toml")
     : resolve(__dirname, "../../../templates/config.toml");
   createE2eGlobalConfig({
     templatePath: templateConfigPath,
     configPath: join(configDir, "config.toml"),
-    runtime: getE2eRuntime(),
+    runtime,
     appleDns: process.env.SANDBOX_TEST_APPLE_DNS,
   });
 
@@ -294,6 +320,7 @@ export function createSandbox(opts?: SandboxOptions) {
       cwd,
       env: {
         ...process.env,
+        ...podmanEnvironment,
         ...opts?.env,
         ...execOptions.env,
         ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
@@ -346,6 +373,7 @@ export function createSandbox(opts?: SandboxOptions) {
       cwd,
       configDir,
       env: {
+        ...podmanEnvironment,
         ...opts?.env,
         ...(dockerConfigDir ? { DOCKER_CONFIG: dockerConfigDir } : {}),
         HOME: homeDir,

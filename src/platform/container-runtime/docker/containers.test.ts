@@ -239,6 +239,23 @@ describe("Docker container operations", () => {
     expect((await operations.inspect("container-1"))?.state).toBe("stopping");
   });
 
+  test("returns null when Podman removes a container before inspection", async () => {
+    const commands = createStatefulRuntimeCommandExecutor();
+    commands.givenFailure(
+      { command: "podman", args: ["inspect", "container-1"] },
+      new ExecError("Command failed with exit code 125", 125, {
+        stderr: 'Error: no such object: "container-1"',
+        stdout: "[]",
+      }),
+    );
+    const operations = createDockerContainerOperations({
+      binaryName: "podman",
+      runtime: "podman",
+      exec: commands.executor,
+    });
+    await expect(operations.inspect("container-1")).resolves.toBeNull();
+  });
+
   test("returns null for absence and throws for malformed output", async () => {
     const missing = createStatefulRuntimeCommandExecutor();
     missing.givenFailure(

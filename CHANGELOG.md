@@ -36,6 +36,7 @@
 
 ### Fixed
 
+- Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
 - Select a running container runtime when no runtime is configured. Previously, Sandbox selected the first installed runtime even when its daemon was stopped, for example Docker when only Podman was running. If no runtime is running, Sandbox still selects the first installed one.
 - Check the configured runtime in the environment check at the end of `sandbox init`. Previously, the check ignored the `runtime` setting in your user `config.toml` and could report Docker when you had set Podman.
 - Allow trusted projects to mount folders outside the project, such as a shared library in a sibling folder.

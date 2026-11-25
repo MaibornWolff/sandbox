@@ -40,7 +40,7 @@ interface DockerInspection {
 function isMissingContainer(error: unknown): boolean {
   return (
     error instanceof ExecError &&
-    /no such container|no container with name or id|container not found/iu.test(
+    /no such container|no such object:|no container with name or id|container not found/iu.test(
       `${error.stderr}\n${error.stdout}\n${error.message}`,
     )
   );

@@ -2,8 +2,6 @@
 
 ## [Unreleased]
 
-## [0.74.0] - 2026-11-24
-
 ### Added
 
 - Run commands inside the container at container start and stop or session start and end.
@@ -18,6 +16,19 @@
   ```
 
   See [lifecycle hook configuration](docs/CONFIGURATION.md#lifecycle-hooks) for all events and options.
+
+### Changed
+
+- Sandbox reserves `/run/sandbox-ready`, `/run/sandbox-start-hooks`, and `/run/sandbox-start-failed` for container readiness. If a mount covers one of these paths or all of `/run`, change its destination to a narrower path such as `/run/<your-app>`.
+
+### Fixed
+
+- Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
+
+## [0.74.0] - 2026-11-24
+
+### Added
+
 - Install the MySQL, PostgreSQL, Redis, APCu, AMQP, Xdebug, PCOV, SOAP, Imagick, and LDAP extensions with the PHP tool. Xdebug starts with `xdebug.mode=off`. Enable it per command, for example `XDEBUG_MODE=debug php script.php`.
 - Add support for session wrapper script, executed on each `sandbox` or `sandbox run` command. The wrapper is configured via a`[session]` `command_wrapper` config entry. The wrapper must be available inside the container. Use `--no-wrapper` to skip it for one session.
 - Give each sandbox session a unique ID. Allowed host commands now receive four sandbox-specific environment variables:
@@ -30,13 +41,11 @@
 
 ### Changed
 
-- Sandbox reserves `/run/sandbox-ready`, `/run/sandbox-start-hooks`, and `/run/sandbox-start-failed` for container readiness. If a mount covers one of these paths or all of `/run`, change its destination to a narrower path such as `/run/<your-app>`.
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
 - Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
 
 ### Fixed
 
-- Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
 - Select a running container runtime when no runtime is configured. Previously, Sandbox selected the first installed runtime even when its daemon was stopped, for example Docker when only Podman was running. If no runtime is running, Sandbox still selects the first installed one.
 - Check the configured runtime in the environment check at the end of `sandbox init`. Previously, the check ignored the `runtime` setting in your user `config.toml` and could report Docker when you had set Podman.
 - Allow trusted projects to mount folders outside the project, such as a shared library in a sibling folder.

@@ -2,7 +2,10 @@ import * as crypto from "node:crypto";
 import chalk from "chalk";
 import type { SandboxInstanceOperations } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
-import { openSessionControl } from "./session-control.js";
+import {
+  CONTAINER_START_FAILED,
+  openSessionControl,
+} from "./session-control.js";
 
 const IPTABLES = "/usr/sbin/iptables";
 
@@ -179,6 +182,7 @@ export async function prepareContainerSession(options: {
   readonly containerId: string;
   readonly endpoint?: string;
   readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }): Promise<AsyncDisposable> {
   const { containers, containerId, endpoint, timeoutMs = 30_000 } = options;
   const plan = endpoint
@@ -206,9 +210,22 @@ export async function prepareContainerSession(options: {
     attempts,
     timeoutMs,
     command: plan?.add ?? [],
-  }).catch((error: unknown) => failSession({ error }));
+    signal: options.signal,
+  }).catch(async (error: unknown) => {
+    if (options.signal?.aborted) {
+      await cleanFailedSession(containers, containerId, plan);
+      options.signal.throwIfAborted();
+    }
+    return failSession({ error });
+  });
   resources.use(prepared.control);
   const { result } = prepared;
+  if (
+    result.exitCode === CONTAINER_START_FAILED &&
+    !result.stdout.split("\n").includes(ready)
+  ) {
+    throw new Error(`Container ${containerId} failed during startup hooks.`);
+  }
   if (result.exitCode !== 0) {
     if (result.stdout.split("\n").includes(ready)) {
       await cleanFailedSession(containers, containerId, plan);

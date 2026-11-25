@@ -11,6 +11,8 @@ export {
   type AllowedNetwork,
   type Config,
   type ConfigOverrides,
+  type HookConfig,
+  type HookEvent,
   type PersistPath,
   type PersistPathInput,
   RUNTIME_IDS,

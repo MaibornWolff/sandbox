@@ -27,7 +27,10 @@ export function createClipboardSessionFixture(processes: ProcessTestHarness) {
     },
     prepare() {
       const process = processes.expectStart({
-        match: { name: "container exec stream" },
+        match: {
+          name: "container exec stream",
+          argsInclude: "clipboard-proxy",
+        },
       });
       void process.waitForStart().then(() => {
         sessions.push(process);

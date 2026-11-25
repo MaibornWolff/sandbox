@@ -1,9 +1,12 @@
 import { StringDecoder } from "node:string_decoder";
+import { stripVTControlCharacters } from "node:util";
 import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getLogger } from "#platform/logging/index.js";
 
 const MAX_LINES = 200;
 const MAX_LINE_LENGTH = 16_384;
+const START_HOOK_WARNING =
+  /^\[container-tools\] ⚠ (Lifecycle hook container\.start #\d+ [a-zA-Z0-9 ]+\.)$/u;
 
 export interface StartupLogCapture extends AsyncDisposable {
   reportFailure(): void;
@@ -14,6 +17,7 @@ export function captureStartupLogs(
   runtime: SandboxRuntime,
   containerName: string,
 ): StartupLogCapture {
+  const logger = getLogger();
   const lines: string[] = [];
   const decoder = new StringDecoder("utf8");
   let pending = "";
@@ -23,7 +27,11 @@ export function captureStartupLogs(
       pending.replace(/\r$/u, "") + (truncated ? " [truncated]" : "");
     lines.push(line);
     if (lines.length > MAX_LINES) lines.shift();
-    if (debug) getLogger().debug(line);
+    const warning = START_HOOK_WARNING.exec(
+      stripVTControlCharacters(line),
+    )?.[1];
+    if (warning) logger.warn(warning);
+    else if (debug) logger.debug(line);
     pending = "";
     truncated = false;
   };
@@ -56,7 +64,7 @@ export function captureStartupLogs(
   let stopped: Promise<void> | undefined;
   const stop = (): Promise<void> => {
     stopped ??= subscription.stop().then(flush, (error: unknown) => {
-      getLogger().warn(
+      logger.warn(
         `Could not stop startup log capture for ${containerName}: ${error instanceof Error ? error.message : String(error)}`,
       );
       flush();
@@ -65,7 +73,7 @@ export function captureStartupLogs(
   };
   return {
     reportFailure() {
-      getLogger().error(
+      logger.error(
         lines.length > 0
           ? `Container startup logs for ${containerName}:\n${lines.join("\n")}`
           : `Container startup for ${containerName} produced no captured logs`,

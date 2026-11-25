@@ -2,6 +2,7 @@ import chalk from "chalk";
 import type {
   Config,
   ConfigOverrides,
+  HookConfig,
   PersistPath,
   SettingsEntry,
 } from "#modules/configuration/index.js";
@@ -193,6 +194,21 @@ function displayEnvironment(env: string[]): void {
   }
 }
 
+function displayHooks(hooks: readonly HookConfig[]): void {
+  if (hooks.length === 0) return;
+  writeLine(`\n${chalk.bold("Lifecycle Hooks:")}`);
+  for (const hook of hooks) {
+    const settings = [
+      `wait=${hook.wait}`,
+      `timeout=${hook.timeoutMs === undefined ? "none" : `${hook.timeoutMs}ms`}`,
+      ...(hook.onError === undefined ? [] : [`on_error=${hook.onError}`]),
+    ];
+    writeLine(
+      `  ${formatLabel(hook.event)} ${chalk.cyan(JSON.stringify(hook.command[0]))} ${chalk.dim(`(${settings.join(", ")})`)}`,
+    );
+  }
+}
+
 /**
  * Display options configuration
  */
@@ -272,6 +288,7 @@ export async function showConfig(options: ConfigOverrides): Promise<void> {
   displayMounts(config, projectRoot);
   displayVolumes(config);
   displayEnvironment(config.env);
+  displayHooks(config.hooks);
   displayOptions(config);
 
   writeLine("");

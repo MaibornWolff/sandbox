@@ -6,6 +6,7 @@ const ALLOWED_SOURCE_ROOTS = [
   "src/modules/configuration/",
   "src/modules/host-bridge/",
   "src/modules/network/",
+  "src/modules/sandbox-hooks/",
   "src/modules/sandbox-settings/",
   "src/modules/storage/",
   "src/platform/clock/",

@@ -4,7 +4,10 @@ import { provideClock } from "#platform/clock/index.js";
 import { createRuntimeExecProcess } from "#platform/container-runtime/__test__/index.js";
 import { runWithDependencies } from "#platform/dependency-injection/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
-import { openSessionControl } from "./session-control.js";
+import {
+  CONTAINER_START_FAILED,
+  openSessionControl,
+} from "./session-control.js";
 
 function controlFixture(options: {
   stdout: string;
@@ -52,6 +55,12 @@ for (const scenario of [
     expected: 124,
   },
   {
+    name: "preserves explicit container start hook failure",
+    stdout: "sandbox-start-hooks-running\n",
+    exitCode: CONTAINER_START_FAILED,
+    expected: CONTAINER_START_FAILED,
+  },
+  {
     name: "preserves preparation failure",
     stdout: "sandbox-session-ready\n",
     exitCode: 23,
@@ -91,6 +100,70 @@ test("closes the control when readiness output exceeds its limit", () =>
       "Container session control output exceeded its limit",
     );
     expect(fixture.closed).toBe(true);
+  }));
+
+test("keeps a responsive startup hook phase open past the bootstrap budget", () =>
+  runWithTestLogger(async () => {
+    const clock = createTestClock();
+    await using resources = new AsyncDisposableStack();
+    resources.defer(() => clock.dispose());
+    const phaseSeen = Promise.withResolvers<void>();
+    const ready = Promise.withResolvers<void>();
+    const closed = Promise.withResolvers<{ exitCode: number }>();
+    const control = {
+      stdout: (async function* () {
+        yield Buffer.from("sandbox-start-hooks-running\n");
+        phaseSeen.resolve();
+        await ready.promise;
+        yield Buffer.from(
+          "sandbox-session-ready\nsandbox-session-control-ready\n",
+        );
+        await closed.promise;
+      })(),
+      stderr: (async function* () {
+        yield Buffer.alloc(0);
+      })(),
+      completion: closed.promise,
+      async [Symbol.asyncDispose]() {
+        closed.resolve({ exitCode: 0 });
+      },
+    };
+    await runWithDependencies([provideClock(clock.clock)], async () => {
+      const preparation = openSessionControl({
+        containers: { openExec: async () => control },
+        containerId: "session",
+        attempts: 2,
+        timeoutMs: 100,
+        command: [],
+      });
+      await phaseSeen.promise;
+      await clock.advanceBy(3_000);
+      ready.resolve();
+      const prepared = await preparation;
+      resources.use(prepared.control);
+      expect(prepared.result.exitCode).toBe(0);
+    });
+  }));
+
+test("times out when the startup hook heartbeat stops", () =>
+  runWithTestLogger(async () => {
+    const clock = createTestClock();
+    await using resources = new AsyncDisposableStack();
+    resources.defer(() => clock.dispose());
+    const fixture = controlFixture({
+      stdout: "sandbox-start-hooks-running\n",
+      keepOpen: true,
+    });
+    await runWithDependencies([provideClock(clock.clock)], async () => {
+      const preparation = fixture.open();
+      await clock.waitForSleep();
+      // A single pulse permits the hook phase but cannot hold the lease forever.
+      await clock.advanceBy(1_100);
+      await clock.advanceBy(5_000);
+      const prepared = await preparation;
+      resources.use(prepared.control);
+      expect(prepared.result.exitCode).toBe(124);
+    });
   }));
 
 test("times out silent readiness and closes the control", () =>

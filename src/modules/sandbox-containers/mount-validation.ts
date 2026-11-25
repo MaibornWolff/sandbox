@@ -1,10 +1,16 @@
 import { posix, win32 } from "node:path";
+import {
+  CONTAINER_READY_FILE,
+  CONTAINER_START_FAILED_FILE,
+  CONTAINER_START_PHASE_FILE,
+} from "#platform/container-system/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { realPathOrSelf } from "#platform/filesystem/index.js";
 
 export function validateProtectedMountPaths(
   protectedPath: string,
   destinations: readonly string[],
+  resource = "Sandbox runtime",
 ): void {
   const root = posix.normalize(protectedPath).replace(/\/$/, "");
   for (const destination of destinations) {
@@ -17,9 +23,27 @@ export function validateProtectedMountPaths(
       root.startsWith(`${normalized}/`)
     ) {
       throw new Error(
-        `Mount destination ${destination} overlaps the managed Sandbox runtime at ${protectedPath}. Choose another destination.`,
+        `Mount destination ${destination} overlaps the managed ${resource} at ${protectedPath}. Choose another destination.`,
       );
     }
+  }
+}
+
+export function validateContainerMountDestinations(
+  runtimePackage: string,
+  destinations: readonly string[],
+): void {
+  validateProtectedMountPaths(runtimePackage, destinations);
+  for (const marker of [
+    CONTAINER_READY_FILE,
+    CONTAINER_START_PHASE_FILE,
+    CONTAINER_START_FAILED_FILE,
+  ]) {
+    validateProtectedMountPaths(
+      marker,
+      destinations,
+      "container readiness marker",
+    );
   }
 }
 

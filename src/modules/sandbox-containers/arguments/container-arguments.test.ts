@@ -129,6 +129,12 @@ describe("buildSandboxInstanceSpec", () => {
     });
   });
 
+  test("prevents custom mounts from replacing protected lifecycle markers", async () => {
+    await expect(
+      buildSpec({ ...createTestConfig(), mounts: ["/data:/run:rw"] }),
+    ).rejects.toThrow("overlaps the managed container readiness marker");
+  });
+
   test("preserves mount order and nested writable mounts", async () => {
     const spec = await buildSpec({
       ...createTestConfig(),

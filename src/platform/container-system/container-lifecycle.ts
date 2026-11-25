@@ -8,6 +8,8 @@ import { executeContainerCommand } from "./command.js";
 import {
   CONTAINER_READY_FILE,
   CONTAINER_SESSIONS_DIRECTORY,
+  CONTAINER_START_FAILED_FILE,
+  CONTAINER_START_PHASE_FILE,
 } from "./container-paths.js";
 
 const CONTAINER_MOUNTS_FILE = "/proc/mounts";
@@ -26,7 +28,12 @@ function containerPath(absolutePath: string): string {
 }
 
 export function prepareContainerState(): void {
-  fs.rmSync(containerPath(CONTAINER_READY_FILE), { force: true });
+  clearContainerReady();
+  fs.rmSync(containerPath(CONTAINER_START_PHASE_FILE), { force: true });
+  fs.rmSync(containerPath(CONTAINER_START_FAILED_FILE), { force: true });
+  fs.mkdirSync(path.dirname(containerPath(CONTAINER_READY_FILE)), {
+    recursive: true,
+  });
   const sessionsDirectory = containerPath(CONTAINER_SESSIONS_DIRECTORY);
   fs.mkdirSync(sessionsDirectory, { recursive: true });
   // A host connection can create its control marker before this initialization.
@@ -154,6 +161,20 @@ export function startIdeBridge(
 
 export function markContainerReady(): void {
   fs.closeSync(fs.openSync(containerPath(CONTAINER_READY_FILE), "a"));
+  fs.rmSync(containerPath(CONTAINER_START_PHASE_FILE), { force: true });
+}
+
+export function clearContainerReady(): void {
+  fs.rmSync(containerPath(CONTAINER_READY_FILE), { force: true });
+}
+
+export function markContainerStartHooks(): void {
+  fs.closeSync(fs.openSync(containerPath(CONTAINER_START_PHASE_FILE), "a"));
+}
+
+export function markContainerStartupFailed(): void {
+  fs.closeSync(fs.openSync(containerPath(CONTAINER_START_FAILED_FILE), "a"));
+  fs.rmSync(containerPath(CONTAINER_START_PHASE_FILE), { force: true });
 }
 
 /** @lintignore Public container session activity model. */

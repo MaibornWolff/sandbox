@@ -33,6 +33,221 @@ function givenSuccessfulInteractiveProcess(
     .resolveResult({ exitCode: 0, stdout: "", stderr: "" });
 }
 
+function expectHookLauncher(
+  app: Awaited<ReturnType<typeof setupSandboxAppTest>>,
+) {
+  return app.processes.expectStart({
+    match: {
+      name: "container exec stream",
+      argsInclude: "__run-hook",
+      stdio: "stream",
+    },
+  });
+}
+
+describe("sandbox session hooks", () => {
+  test("keeps attached context and the control lease through a failing end hook", async () => {
+    await using app = await setupSandboxAppTest();
+    app.project.writeConfig(
+      `
+env = ["HOOK_VALUE=from-config"]
+[[hooks]]
+event = "session.start"
+command = ["./start", "a b"]
+wait = true
+[[hooks]]
+event = "session.end"
+command = ["./end"]
+wait = true
+[session]
+command_wrapper = ["wrapper"]
+`,
+      { trusted: true },
+    );
+    const end = expectHookLauncher(app);
+    const start = expectHookLauncher(app);
+    const attached = app.processes.expectStart({ match: { stdio: "inherit" } });
+    const execution = app.cli.run("run", "true");
+    await start.waitForStart();
+    expect(attached.pid).toBeUndefined();
+    start.emitStdout("ok\n");
+    start.exit();
+    await attached.waitForStart();
+    expect(end.pid).toBeUndefined();
+    attached.exit({ signal: "SIGTERM" });
+    await end.waitForStart();
+    expect(app.runtime.instances.all()[0]?.controls).toHaveLength(1);
+    end.emitStdout("exit:29\n");
+    end.emitStderr("discarded diagnostic");
+    end.exit();
+    const result = await execution;
+    expect(result.exitCode).toBe(143);
+    expect(result.stderr).toContain(
+      "Lifecycle hook session.end #1 exited with code 29.",
+    );
+    expect(result.stderr).not.toContain("discarded diagnostic");
+    expect(app.runtime.instances.all()[0]?.controls).toHaveLength(0);
+
+    const attachedSpec = attachedExecution(app)?.spec;
+    const launches = app.runtime
+      .events()
+      .filter((event) => event.type === "container.exec-stream")
+      .filter((event) => event.spec.command.includes("__run-hook"));
+    expect(launches).toHaveLength(2);
+    for (const { spec } of launches) {
+      expect(spec.user).toBe("sandbox");
+      expect(spec.workingDirectory).toBe(attachedSpec?.workingDirectory);
+      expect(spec.environment).toEqual(attachedSpec?.environment);
+    }
+    expect(attachedSpec?.environment?.SANDBOX_SESSION_ID).toBeTruthy();
+    expect(JSON.parse(launches[0]?.spec.command[3] ?? "null")).toMatchObject({
+      command: ["./start", "a b"],
+    });
+    expect(attachedSpec?.command).toEqual([
+      "/usr/local/bin/exec-entrypoint.sh",
+      "wrapper",
+      "true",
+    ]);
+  });
+
+  test("does not launch the command or cleanup after a blocking start failure", async () => {
+    await using app = await setupSandboxAppTest();
+    app.project.writeConfig(
+      `
+clipboard = "disabled"
+[[hooks]]
+event = "session.start"
+command = ["./missing"]
+wait = true
+[[hooks]]
+event = "session.end"
+command = ["./end"]
+`,
+      { trusted: true },
+    );
+    const launcher = expectHookLauncher(app);
+    launcher.emitStdout("spawn\n");
+    launcher.exit();
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Lifecycle hook session.start #1 could not start its command.",
+    );
+    expect(attachedExecution(app)).toBeUndefined();
+    expect(
+      app.runtime
+        .events()
+        .filter((event) => event.type === "container.exec-stream"),
+    ).toHaveLength(1);
+  });
+
+  test("skips end hooks if the attached adapter throws", async () => {
+    await using app = await setupSandboxAppTest();
+    app.project.writeConfig(
+      `
+clipboard = "disabled"
+[[hooks]]
+event = "session.end"
+command = ["./cleanup"]
+`,
+      { trusted: true },
+    );
+    const end = expectHookLauncher(app);
+    end.emitStdout("ok\n");
+    end.exit();
+    app.processes
+      .expectStart({ match: { stdio: "inherit" } })
+      .rejectResult(new Error("runtime attach failed"));
+    const result = await app.cli.run("run", "true");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("runtime attach failed");
+    expect(end.pid).toBeUndefined();
+  });
+
+  test("shows a blocking container start warning without verbose mode", async () => {
+    await using app = await setupSandboxAppTest();
+    app.project.writeConfig(
+      `
+[[hooks]]
+event = "container.start"
+command = ["./start"]
+wait = true
+on_error = "warn"
+`,
+      { trusted: true },
+    );
+    const logs = app.processes.expectStart({
+      match: { name: "container log stream" },
+    });
+    logs.exitOnSignal();
+    givenSuccessfulInteractiveProcess(app);
+    const execution = app.cli.run("run", "true");
+    await Promise.race([
+      logs.waitForStart(),
+      execution.then((result) => {
+        throw new Error(`Expected startup log stream: ${result.stderr}`);
+      }),
+    ]);
+    logs.emitStdout("[container-tools] ordinary startup diagnostic\n");
+    logs.emitStdout(
+      "[container-tools] ⚠ Lifecycle hook container.start #1 exited with code 29.\n",
+    );
+    const result = await execution;
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      "Lifecycle hook container.start #1 exited with code 29.",
+    );
+    expect(result.stderr).not.toContain("ordinary startup diagnostic");
+  });
+
+  test("reuses on session-only hook edits and recreates on container hook edits without rebuilding images", async () => {
+    await using app = await setupSandboxAppTest();
+    for (const [index, [containerCommand, sessionCommand]] of [
+      ["one", "first"],
+      ["one", "second"],
+      ["two", "second"],
+    ].entries()) {
+      app.project.writeConfig(
+        `
+clipboard = "disabled"
+[[hooks]]
+event = "container.start"
+command = ["${containerCommand}", "boot-argument-not-for-logs"]
+[[hooks]]
+event = "session.start"
+command = ["${sessionCommand}"]
+`,
+        { trusted: true },
+      );
+      const launcher = expectHookLauncher(app);
+      launcher.emitStdout("ok\n");
+      launcher.exit();
+      givenSuccessfulInteractiveProcess(app);
+      const result = await app.cli.run("--verbose", "run", "true");
+      expect(result.exitCode).toBe(0);
+      if (index === 0) {
+        expect(result.stderr).not.toContain("boot-argument-not-for-logs");
+      }
+    }
+    const events = app.runtime.events();
+    const executions = events.filter(
+      (event) => event.type === "container.exec-attached",
+    );
+    expect(executions).toHaveLength(3);
+    expect(executions[0]?.containerId).toBe(executions[1]?.containerId);
+    expect(executions[2]?.containerId).not.toBe(executions[1]?.containerId);
+    const firstExec = events.findIndex(
+      (event) => event.type === "container.exec-attached",
+    );
+    expect(
+      events.slice(0, firstExec).some((event) => event.type === "image.build"),
+    ).toBe(true);
+    expect(
+      events.slice(firstExec).some((event) => event.type === "image.build"),
+    ).toBe(false);
+  });
+});
+
 describe("sandbox shell and run", () => {
   test.each(["shell", "run"] as const)(
     "runs the %s session through the configured prefix",

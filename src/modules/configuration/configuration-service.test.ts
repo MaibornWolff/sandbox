@@ -174,6 +174,100 @@ describe("configuration service", () => {
     });
   });
 
+  test("defaults to no lifecycle hooks when neither file declares them", async () => {
+    const root = createTestDir("configuration-hooks-default");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    fs.mkdirSync(path.join(root, "project"));
+
+    const loaded = await withConfiguration(root, (service) => service.load({}));
+
+    expect(loaded.config.hooks).toEqual([]);
+  });
+
+  test("appends trusted project hooks after user hooks and preserves repeats", async () => {
+    const root = createTestDir("configuration-hooks-merge");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const projectRoot = path.join(root, "project");
+    const configRoot = path.join(root, "config");
+    const repeatedHook = `[[hooks]]
+event = "session.start"
+command = ["./prepare", "$(literal)", ""]
+`;
+    fs.mkdirSync(configRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(configRoot, "config.toml"),
+      `${repeatedHook}
+[[hooks]]
+event = "container.start"
+command = ["./prepare-container"]
+wait = true
+timeout = "2.007s"
+on_error = "warn"
+`,
+    );
+    const projectHooks = `${repeatedHook}
+[[hooks]]
+event = "session.end"
+command = ["./cleanup"]
+wait = true
+timeout = "20ms"
+
+[[hooks]]
+event = "container.stop"
+command = ["./cleanup-container"]
+`;
+    writeTrustedProjectConfig({
+      projectRoot,
+      trustStorePath: path.join(configRoot, "trusted-projects.json"),
+      content: projectHooks,
+    });
+
+    const loaded = await withConfiguration(
+      root,
+      (service) => service.load({}),
+      {},
+    );
+
+    const repeated = {
+      event: "session.start",
+      command: ["./prepare", "$(literal)", ""],
+      wait: false,
+      onError: "fail",
+    } as const;
+    expect(loaded.config.hooks).toStrictEqual([
+      repeated,
+      {
+        event: "container.start",
+        command: ["./prepare-container"],
+        wait: true,
+        timeoutMs: 2_007,
+        onError: "warn",
+      },
+      repeated,
+      {
+        event: "session.end",
+        command: ["./cleanup"],
+        wait: true,
+        timeoutMs: 20,
+      },
+      {
+        event: "container.stop",
+        command: ["./cleanup-container"],
+        wait: false,
+      },
+    ]);
+
+    fs.writeFileSync(
+      path.join(projectRoot, ".sandbox", "config.toml"),
+      projectHooks.replace('./cleanup"', './changed-cleanup"'),
+    );
+    await expect(
+      withConfiguration(root, (service) => service.load({}), {}),
+    ).rejects.toThrow("Project config is not trusted.");
+  });
+
   test("accepts an unchanged trusted config and rejects it after modification", async () => {
     const root = createTestDir("configuration-service-trust");
     using cleanup = new DisposableStack();

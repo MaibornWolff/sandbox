@@ -23,6 +23,7 @@ const SECRET_PATTERNS = [
   /credential/i,
   /session/i,
   /cookie/i,
+  /^SANDBOX_HOOK_BOOT$/u,
 ];
 
 const SENSITIVE_ASSIGNMENT_OPTIONS = ["-e", "--env", "--build-arg"];

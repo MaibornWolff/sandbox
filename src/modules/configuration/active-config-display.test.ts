@@ -42,6 +42,7 @@ describe("showActiveConfig", () => {
           ["open", { regex: ".+" }],
           ["bun", "run", "test:e2e"],
         ],
+        hooks: [{ event: "session.end", command: ["cleanup"], wait: true }],
         shmSize: "2g",
       },
       true,
@@ -51,6 +52,8 @@ describe("showActiveConfig", () => {
     expect(output).toContain("1 env var(s)");
     expect(output).toContain("1 port(s)");
     expect(output).toContain("2 allowed host command rule(s)");
+    expect(output).toContain("1 lifecycle hook(s)");
+    expect(output).not.toContain("cleanup");
     expect(output).toContain("shm_size=2g");
   });
 });

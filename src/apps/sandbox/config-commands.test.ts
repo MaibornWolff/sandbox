@@ -18,6 +18,40 @@ describe("config commands through the sandbox application", () => {
     expect(defaultResult).toEqual(result);
   });
 
+  test("shows normalized hooks in order without printing their arguments", async () => {
+    await using app = await setupSandboxAppTest();
+    app.global.writeConfig(`
+[[hooks]]
+event = "session.start"
+command = ["./setup", "private-argument"]
+wait = true
+timeout = "1.5s"
+`);
+    app.project.writeConfig(
+      `
+[[hooks]]
+event = "session.end"
+command = ["./cleanup"]
+`,
+      { trusted: true },
+    );
+    const result = await app.cli.run("config", "show");
+    expect(result.exitCode).toBe(0);
+    const output = stripAnsi(result.stdout);
+    const hooks = output
+      .split("\n")
+      .filter((line) => /^\s*session\.(start|end)\b/.test(line));
+    expect(hooks.map((line) => line.trim().split(/\s+/)[0])).toEqual([
+      "session.start",
+      "session.end",
+    ]);
+    expect(hooks[0]).toContain("timeout=1500ms");
+    expect(hooks[0]).toContain("on_error=fail");
+    expect(hooks[1]).toContain("wait=false");
+    expect(hooks[1]).toContain("timeout=none");
+    expect(output).not.toContain("private-argument");
+  });
+
   test("shows Apple container as a first-class runtime value", async () => {
     await using app = await setupSandboxAppTest({ runtime: "apple-container" });
     app.global.writeConfig(

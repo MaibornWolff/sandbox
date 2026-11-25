@@ -10,6 +10,7 @@ import {
   RUNTIME_IDS,
   type RuntimeId,
 } from "./config.js";
+import { hookConfigSchema } from "./hook-config-schema.js";
 
 export type MergeStrategy = "accumulate" | "override";
 type DefaultDecision = "runtime" | "value" | "optional";
@@ -169,6 +170,19 @@ export const CONFIG_FIELD_CATALOG = {
     defaultDisplay: "{ command_wrapper = [] }",
     examples: ['session = { command_wrapper = ["my-wrapper", "--"] }'],
   }),
+  hooks: defineField({
+    configKey: "hooks",
+    schema: z.array(hookConfigSchema).optional(),
+    type: "array of tables with event, command, optional wait, timeout, and on_error",
+    description:
+      'In-container commands for container.start, container.stop, session.start, and session.end. Each hook needs a nonempty command array. User hooks run before trusted project hooks. wait defaults to false. timeout is optional and accepts positive durations in ms, s, m, or h. on_error is start-only and defaults to "fail".',
+    mergeStrategy: "accumulate",
+    defaultDecision: "value",
+    defaultValue: [],
+    examples: [
+      '[[hooks]]\nevent = "session.start"\ncommand = ["./scripts/session-helper", "start"]\nwait = true\ntimeout = "10s"',
+    ],
+  }),
   env: defineField({
     configKey: "env",
     schema: z.array(z.string()).optional(),
@@ -270,6 +284,7 @@ export function createCatalogDefaults(runtime: RuntimeId): Config {
       ...sessionDefault,
       commandWrapper: [...sessionDefault.commandWrapper],
     },
+    hooks: [...(CONFIG_FIELD_CATALOG.hooks.defaultValue ?? [])],
     readonly: CONFIG_FIELD_CATALOG.readonly.defaultValue ?? false,
     clipboard: CONFIG_FIELD_CATALOG.clipboard.defaultValue ?? "enabled",
     persistPaths: [...(CONFIG_FIELD_CATALOG.persist_paths.defaultValue ?? [])],

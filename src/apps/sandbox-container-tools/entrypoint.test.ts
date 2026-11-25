@@ -127,6 +127,110 @@ function finalLifecycleLabels(app: ContainerToolsAppTest): readonly string[] {
   });
 }
 
+function givenContainerHooks(app: ContainerToolsAppTest) {
+  const base = { command: ["./script"], wait: true };
+  const args = [
+    "sandbox",
+    "/usr/local/bin/sandbox-container-tools",
+    "__run-hook",
+    "once",
+  ];
+  return {
+    start: app.processes.expectStart({
+      match: {
+        args: [
+          ...args,
+          JSON.stringify({
+            event: "container.start",
+            ...base,
+            onError: "fail",
+          }),
+        ],
+      },
+    }),
+    stop: app.processes.expectStart({
+      match: {
+        args: [...args, JSON.stringify({ event: "container.stop", ...base })],
+      },
+    }),
+  };
+}
+
+const HOOKS_ENVIRONMENT = {
+  SANDBOX_HOOK_BOOT: JSON.stringify({
+    version: 1,
+    projectRoot: "/work/project",
+    hooks: [
+      {
+        event: "container.start",
+        command: ["./script"],
+        wait: true,
+        onError: "fail",
+      },
+      { event: "container.stop", command: ["./script"], wait: true },
+    ],
+  }),
+};
+
+describe("container lifecycle hooks", () => {
+  test("gates readiness and completes stop hooks before settings sync", async () => {
+    await using app = await setupContainerToolsAppTest({
+      variables: HOOKS_ENVIRONMENT,
+    });
+    const hooks = givenContainerHooks(app);
+    const execution = app.cli.run("entrypoint");
+    expect(await hooks.start.waitForStart()).toMatchObject({
+      command: "/usr/sbin/gosu",
+      cwd: "/work/project",
+    });
+    expect(app.entrypoint.isReady()).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(app.roots.container, "run", "sandbox-start-hooks"),
+      ),
+    ).toBe(true);
+    hooks.start.exit({ stdout: "ok\n" });
+    await app.entrypoint.waitForReady();
+    app.signals.send("SIGTERM");
+    await hooks.stop.waitForStart();
+    expect(app.entrypoint.isReady()).toBe(false);
+    expect(
+      app.processes.requests.some((request) => request.args?.includes("sync")),
+    ).toBe(false);
+    hooks.stop.exit({ stdout: "ok\n" });
+    expect((await execution).exitCode).toBe(143);
+    expect(
+      app.processes.requests.some((request) => request.args?.includes("sync")),
+    ).toBe(true);
+  });
+
+  test("marks a failed start and does not dispatch stop on partial startup", async () => {
+    await using app = await setupContainerToolsAppTest({
+      variables: HOOKS_ENVIRONMENT,
+    });
+    const hooks = givenContainerHooks(app);
+    const execution = app.cli.run("entrypoint");
+    await hooks.start.waitForStart();
+    hooks.start.exit({
+      stdout: "exit:23\n",
+      stderr: "discarded launcher detail",
+    });
+    const result = await execution;
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Lifecycle hook container.start #1 exited with code 23.",
+    );
+    expect(result.stderr).not.toContain("discarded launcher detail");
+    expect(app.entrypoint.isReady()).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(app.roots.container, "run", "sandbox-start-failed"),
+      ),
+    ).toBe(true);
+    expect(hooks.stop.pid).toBeUndefined();
+  });
+});
+
 describe("container PID 1 production application lifecycle", () => {
   test("publishes readiness and shuts down after a scoped clock idle tick", async () => {
     await using app = await setupContainerToolsAppTest({
@@ -152,8 +256,8 @@ describe("container PID 1 production application lifecycle", () => {
     expect(result.stderr).toContain("[container-tools] ready\n");
     expect(result.stderr).toContain("[container-tools] syncing settings\n");
     expect(
-      fs.existsSync(path.join(app.roots.container, "tmp", ".sandbox-ready")),
-    ).toBe(true);
+      fs.existsSync(path.join(app.roots.container, "run", "sandbox-ready")),
+    ).toBe(false);
     expect(app.processes.actions().map((action) => action.type)).toEqual([
       "start",
       "start",
@@ -813,7 +917,7 @@ describe("container PID 1 real entrypoint startup scenarios", () => {
       stdout: "",
       stderr: "ide-bridge exited with code 29\n",
     });
-    expect(app.entrypoint.isReady()).toBe(true);
+    expect(app.entrypoint.isReady()).toBe(false);
     expect(childEventLabels(app)).toEqual(["spawn:ide-bridge"]);
     expect(app.signals.subscriptions()).toBe(1);
   });
@@ -1235,7 +1339,7 @@ describe("container PID 1 real entrypoint shutdown scenarios", () => {
       expect(result.stderr).toEndWith(
         `Invalid SANDBOX_IDLE_TIMEOUT_SECONDS: ${invalidTimeout}\n`,
       );
-      expect(app.entrypoint.isReady()).toBe(true);
+      expect(app.entrypoint.isReady()).toBe(false);
       expect(app.settings.finalSyncRequests()).toBe(1);
     });
   }

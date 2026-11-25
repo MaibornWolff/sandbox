@@ -21,7 +21,12 @@ import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { readPackageVersion } from "#platform/filesystem/index.js";
 import { getLogger } from "#platform/logging/index.js";
+import {
+  getExitCodeForSignal,
+  getProcessManager,
+} from "#platform/process/index.js";
 import { confirmDestruction, getTerminal } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
 import {
   generateProjectSlug,
   normalizePath,
@@ -45,6 +50,7 @@ import {
 } from "./container-session.js";
 import { resolveHostAgentTitle } from "./host-agent-title.js";
 import { prepareSandboxEnvironment } from "./sandbox-preparation.js";
+import { runSessionHooks } from "./session-hooks.js";
 import { captureStartupLogs } from "./startup-logs.js";
 
 interface ExecutorOptions {
@@ -122,6 +128,7 @@ async function prepareResolvedSession(
     readonly containerName: string;
     readonly created: boolean;
     readonly endpoint?: string;
+    readonly signal: AbortSignal;
   },
 ): Promise<{
   readonly containerName: string;
@@ -138,8 +145,9 @@ async function prepareResolvedSession(
     containerId: options.containerName,
     endpoint: options.endpoint,
     timeoutMs: options.created ? 30_000 : 5_000,
+    signal: options.signal,
   }).catch(async (error) => {
-    if (logCapture) {
+    if (logCapture && !options.signal.aborted) {
       await logCapture.stop();
       logCapture.reportFailure();
     }
@@ -159,6 +167,7 @@ async function resolveExecutionContainer(
     readonly projectSlug: string;
     readonly skipReuse: boolean;
     readonly endpoint?: string;
+    readonly signal: AbortSignal;
   },
 ): Promise<{
   readonly containerName: string;
@@ -174,6 +183,7 @@ async function resolveExecutionContainer(
       ),
       created: true,
       endpoint: options.endpoint,
+      signal: options.signal,
     });
   }
 
@@ -207,6 +217,7 @@ async function resolveExecutionContainer(
     return await prepareResolvedSession(service, {
       ...result,
       endpoint: options.endpoint,
+      signal: options.signal,
     });
   } catch (error) {
     if (result.created || !(error instanceof ContainerReadinessError))
@@ -231,6 +242,7 @@ async function resolveExecutionContainer(
     return prepareResolvedSession(service, {
       ...result,
       endpoint: options.endpoint,
+      signal: options.signal,
     });
   }
 }
@@ -315,6 +327,12 @@ async function execute(
     ],
   });
   await using sessionResources = new AsyncDisposableStack();
+  const beforeCommand = new AbortController();
+  void getProcessManager().termination.then((signal) =>
+    beforeCommand.abort(
+      new SandboxExecutionExitError(getExitCodeForSignal(signal)),
+    ),
+  );
   const containerName = await service.withInstanceStartup(async () => {
     const resolved = await resolveExecutionContainer(service, {
       containerSpec,
@@ -322,6 +340,7 @@ async function execute(
       projectSlug,
       skipReuse,
       endpoint: config.noProxy ? undefined : bridgeSession.endpoint,
+      signal: beforeCommand.signal,
     });
     sessionResources.use(resolved.access);
     return resolved.containerName;
@@ -367,6 +386,18 @@ async function execute(
     verbose,
   });
 
+  const hookSession = {
+    containers: service.instances,
+    containerId: containerName,
+    spec: execution.spec,
+    hooks: config.hooks,
+  };
+  await runSessionHooks({
+    ...hookSession,
+    event: "session.start",
+    signal: beforeCommand.signal,
+  });
+  beforeCommand.signal.throwIfAborted();
   const title = resolveHostAgentTitle(command);
   if (title) logger.debug(`Host agent title: ${chalk.cyan(title)}`);
   const result = await service.instances.execAttached(
@@ -378,6 +409,12 @@ async function execute(
       forwardSignal: (signal) => commandCapability.forwardSignal(signal),
     },
   );
+  await runSessionHooks({ ...hookSession, event: "session.end" });
+  await sessionResources
+    .disposeAsync()
+    .catch((error: unknown) =>
+      logger.warn(`Session cleanup failed: ${getErrorMessage(error)}`),
+    );
   throwForChildExit(result.exitCode);
 }
 

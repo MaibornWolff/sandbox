@@ -40,6 +40,8 @@ export const architecture = defineArchitecture({
         "websocket",
         "x11-clipboard",
         "network",
+        "configuration",
+        "sandbox-hooks",
         "sandbox-settings",
         "container-system",
         "clock",
@@ -122,9 +124,12 @@ export const architecture = defineArchitecture({
         "logging",
       ],
     },
+    "sandbox-hooks": { dependencies: ["configuration"] },
     "sandbox-containers": {
       dependencies: [
         "sandbox-runtime",
+        "sandbox-hooks",
+        "process",
         "configuration",
         "sandbox-images",
         "sandbox-resources",

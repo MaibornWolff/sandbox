@@ -37,6 +37,7 @@ Review the requested change. Do not review unrelated existing code.
    - **Correctness:** Check that the change works correctly and securely without breaking existing behavior. Check error handling, cleanup, and tests.
    - **Standards:** Check code quality and and maintainability and how well the code style matches the existing style. Do so using the repository rules. Read the [code-smell guide](references/code-smells.md) for design checks.
    - **Requirements:** Check for missing, partial or incorrect behaviour or scope extensions or conflicts between the implementation and the requested change.
+   - **Test structure:** If behavior or tests change, run `bun .agents/skills/review/scripts/test-tree.mjs` for the review scope (`--help` for options). Read the relevant assertions. Flag duplicated coverage, oversized scenarios, and brittle assertions. Keep overlap that proves a distinct boundary. Use the [test-writing skill](../test-writing/SKILL.md) to choose the test level.
 3. Consolidate findings into one list, ranked by impact:
    - Merge duplicates across perspectives and reviewers. Keep the relevant category labels.
    - Give each finding a unique sequential identifier, such as `F1` and `F2`.

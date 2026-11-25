@@ -3,6 +3,7 @@ export {
   getCurrentPid,
   probePid as getProcessIdentityStatus,
 } from "./node-process-adapter.js";
+export { runIsolatedGuestCommand } from "./node-process-group.js";
 export { createNodeProcessManager } from "./node-process-manager.js";
 export { ExecError, executeProcessCommand } from "./process-command.js";
 export { runWithProcessManager } from "./process-lifecycle.js";

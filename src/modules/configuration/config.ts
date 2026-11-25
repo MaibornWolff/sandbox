@@ -44,12 +44,30 @@ export interface SettingsEntry {
   mode: SettingsMode;
 }
 
+export const HOOK_EVENTS = [
+  "container.start",
+  "container.stop",
+  "session.start",
+  "session.end",
+] as const;
+
+export type HookEvent = (typeof HOOK_EVENTS)[number];
+
+export interface HookConfig {
+  readonly event: HookEvent;
+  readonly command: readonly string[];
+  readonly wait: boolean;
+  readonly timeoutMs?: number;
+  readonly onError?: "fail" | "warn";
+}
+
 export interface Config {
   runtime: RuntimeId;
   runtimes: ContainerRuntimeOptions;
   mounts: string[];
   env: string[];
   session: { commandWrapper: string[]; wrapperConflict: boolean };
+  hooks: readonly HookConfig[];
   readonly: boolean;
   clipboard: ClipboardMode;
   persistPaths: PersistPath[];

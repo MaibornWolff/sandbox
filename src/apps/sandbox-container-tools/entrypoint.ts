@@ -4,11 +4,15 @@ import {
   parseGuestHostMappings,
   parseNetworkBootstrapRequest,
 } from "#modules/network/index.js";
+import { HOOK_BOOT_ENV, parseBootHooks } from "#modules/sandbox-hooks/index.js";
 import { type Clock, getClock } from "#platform/clock/index.js";
 import {
+  clearContainerReady,
   getTcpService,
   inspectSessionActivity,
   markContainerReady,
+  markContainerStartHooks,
+  markContainerStartupFailed,
   parseIdeBridgePort,
   prepareContainerState,
   repairMountOwnership,
@@ -29,6 +33,7 @@ import {
 } from "#platform/process/index.js";
 
 import { getErrorMessage } from "#shared/errors/index.js";
+import { runContainerHooks } from "./container-hooks.js";
 
 function idleTimeoutMilliseconds(value: string | undefined): number {
   if (value === undefined) return 5_000;
@@ -48,6 +53,9 @@ export async function runContainerEntrypoint(
   const processes = getProcessManager();
   getTcpService();
   let receivedSignal: NodeJS.Signals | undefined;
+  let ready = false;
+  let graceful = false;
+  let hookPlan: ReturnType<typeof parseBootHooks>;
   const networkCancellation = new AbortController();
   const signalReceived = processes.termination;
   void signalReceived.then((signal) => {
@@ -61,6 +69,7 @@ export async function runContainerEntrypoint(
     logger.debug("entrypoint starting");
     prepareContainerState();
     logger.debug("container state prepared");
+    hookPlan = parseBootHooks(environment.variables[HOOK_BOOT_ENV]);
     repairMountOwnership();
     logger.debug("mount ownership repaired");
     const hostAccessName = environment.variables.SANDBOX_HOST_ACCESS_NAME;
@@ -101,11 +110,18 @@ export async function runContainerEntrypoint(
         ? undefined
         : startIdeBridge(idePort, hostAccessName);
 
-    logger.debug("ready");
-    markContainerReady();
     const ownerFailure = ideLifecycle
       ? Promise.race([ideLifecycle.failure, startupResult.lifecycle.failure])
       : startupResult.lifecycle.failure;
+    const hookSignal = await waitForContainerStartHooks({
+      hookPlan,
+      signalReceived,
+      ownerFailure,
+    });
+    if (hookSignal) return getExitCodeForSignal(hookSignal);
+    markContainerReady();
+    ready = true;
+    logger.debug("ready");
     await waitForShutdown(
       environment,
       clock,
@@ -113,13 +129,81 @@ export async function runContainerEntrypoint(
       signalReceived,
       () => receivedSignal !== undefined,
     );
+    graceful = true;
+  } finally {
+    await finishContainer({
+      processes,
+      ready,
+      signal: receivedSignal,
+      hookPlan: graceful ? hookPlan : undefined,
+    });
+  }
+  return receivedSignal ? getExitCodeForSignal(receivedSignal) : 0;
+}
+
+async function waitForContainerStartHooks(options: {
+  readonly hookPlan: ReturnType<typeof parseBootHooks>;
+  readonly signalReceived: Promise<NodeJS.Signals>;
+  readonly ownerFailure: Promise<Error>;
+}): Promise<NodeJS.Signals | undefined> {
+  const { hookPlan, signalReceived, ownerFailure } = options;
+  if (!hookPlan?.hooks.some((hook) => hook.event === "container.start")) return;
+  markContainerStartHooks();
+  const cancellation = new AbortController();
+  const running = runContainerHooks({
+    plan: hookPlan,
+    event: "container.start",
+    signal: cancellation.signal,
+  });
+  try {
+    const signal = await Promise.race([
+      running.then(() => undefined),
+      signalReceived,
+      ownerFailure.then((error) => {
+        throw error;
+      }),
+    ]);
+    if (signal) markContainerStartupFailed();
+    return signal;
+  } catch (error) {
+    getLogger().error(getErrorMessage(error));
+    markContainerStartupFailed();
+    throw error;
+  } finally {
+    cancellation.abort();
+    await Promise.allSettled([running]);
+  }
+}
+
+async function finishContainer(options: {
+  readonly processes: ProcessManager;
+  readonly ready: boolean;
+  readonly signal: NodeJS.Signals | undefined;
+  readonly hookPlan: ReturnType<typeof parseBootHooks>;
+}): Promise<void> {
+  const { ready, processes, signal, hookPlan } = options;
+  const stopPlan = hookPlan?.hooks.some(
+    (hook) => hook.event === "container.stop",
+  )
+    ? hookPlan
+    : undefined;
+  try {
+    if (ready) clearContainerReady();
+    if (stopPlan) {
+      try {
+        await terminateContainerSessions(signal ?? "SIGTERM");
+      } finally {
+        await runContainerHooks({ plan: stopPlan, event: "container.stop" });
+      }
+    }
   } finally {
     try {
-      await shutdownManagedChildren(processes, receivedSignal);
+      await shutdownManagedChildren(processes, signal);
     } finally {
       try {
-        await terminateContainerSessions(receivedSignal ?? "SIGTERM");
+        if (!stopPlan) await terminateContainerSessions(signal ?? "SIGTERM");
       } finally {
+        const logger = getLogger();
         logger.debug("syncing settings");
         try {
           await runSettingsSyncAsSandbox();
@@ -131,7 +215,6 @@ export async function runContainerEntrypoint(
       }
     }
   }
-  return receivedSignal ? getExitCodeForSignal(receivedSignal) : 0;
 }
 
 async function prepareNetworkStartup(options: {

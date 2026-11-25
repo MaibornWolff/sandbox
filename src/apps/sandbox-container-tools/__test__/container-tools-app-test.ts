@@ -145,7 +145,7 @@ export interface ContainerToolsAppTest {
 }
 
 const INITIAL_TIME = Date.UTC(2026, 0, 1);
-const READY_FILE = "/tmp/.sandbox-ready";
+const READY_FILE = "/run/sandbox-ready";
 const SESSIONS_DIRECTORY = "/tmp/sandbox-sessions";
 const SETTINGS_COMMAND = "/usr/sbin/gosu";
 const SETTINGS_APPLY_ARGS = [

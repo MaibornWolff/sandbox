@@ -301,6 +301,52 @@ test_no_match = [["git", "status"]]
     }
   });
 
+  const startEvent = 'event = "session.start"';
+  const command = 'command = ["run"]';
+  const startHook = `${startEvent}\n${command}`;
+
+  test.each<[string, string]>([
+    [command, "hooks.0.event"],
+    [startEvent, "hooks.0.command"],
+    [`event = "project.start"\n${command}`, "hooks.0.event"],
+    [`${startEvent}\ncommand = "run"`, "hooks.0.command"],
+    [`${startEvent}\ncommand = []`, "hooks.0.command"],
+    [`${startEvent}\ncommand = [""]`, "hooks.0.command"],
+    [`${startEvent}\ncommand = ["run", 1]`, "hooks.0.command.1"],
+    [
+      `${startEvent}\ncommand = ["\\u0000run"]`,
+      "hooks.0.command.0: Hook arguments must not contain a NUL character.",
+    ],
+    [
+      `${startEvent}\ncommand = ["run", "before\\u0000after"]`,
+      "hooks.0.command.1: Hook arguments must not contain a NUL character.",
+    ],
+    [`${startHook}\nwait = "true"`, "hooks.0.wait"],
+    [`${startHook}\non_error = "ignore"`, "hooks.0.on_error"],
+    [`${startHook}\ntimeout = 10`, "hooks.0.timeout"],
+    ...["0s", "-1s", "Infinitys", "10", "1d", "9007199254740992ms"].map(
+      (duration): [string, string] => [
+        `${startHook}\ntimeout = "${duration}"`,
+        "hooks.0.timeout",
+      ],
+    ),
+    ...["container.stop", "session.end"].map((event): [string, string] => [
+      `event = "${event}"\n${command}\non_error = "fail"`,
+      "hooks.0.on_error: on_error is only allowed on start events.",
+    ]),
+    [`${startHook}\ntarget = "host"`, 'hooks.0: Unrecognized key: "target"'],
+    [`${startHook}\nuser = "root"`, 'hooks.0: Unrecognized key: "user"'],
+  ])("rejects an invalid hook: %j (%s)", (hook, issue) => {
+    const root = createTestDir("toml-hook-errors");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const file = path.join(root, "config.toml");
+    fs.writeFileSync(file, `[[hooks]]\n${hook}\n`);
+
+    expect(() => loadTomlConfig(file)).toThrow(`Invalid config at ${file}`);
+    expect(() => loadTomlConfig(file)).toThrow(issue);
+  });
+
   test("rejects unknown top-level and nested configuration fields", () => {
     const root = createTestDir("toml-unknown-fields");
     using cleanup = new DisposableStack();

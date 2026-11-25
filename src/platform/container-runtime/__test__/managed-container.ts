@@ -72,7 +72,7 @@ function commandKey(command: readonly string[]): string {
 }
 
 function isReadinessCommand(command: readonly string[]): boolean {
-  return command.some((value) => value.includes("/tmp/.sandbox-ready"));
+  return command.some((value) => value.includes("/run/sandbox-ready"));
 }
 
 function isSessionDetailsCommand(command: readonly string[]): boolean {
@@ -121,15 +121,15 @@ export function createManagedContainer(
   }
 
   function resolveReadinessScript(command: readonly string[]): string {
-    const script =
-      command[0] === "sh" && command[1] === "-c" ? command[2] : undefined;
-    const attempts = script?.match(/\[ "\$i" -ge (\d+) \]/u)?.[1];
+    const scriptIndex = command.indexOf("-c") + 1;
+    const script = command[scriptIndex];
+    const attempts = script?.match(/\[ "\$i" -lt (\d+) \]/u)?.[1];
     if (!attempts) return resolveReadiness();
     container.waitUntilReady(Number(attempts));
+    const followUp = command.slice(scriptIndex + 2);
     const output =
-      command.length > 4 ? container.resolveExecResult(command.slice(4)) : "";
-    const message = script?.match(/printf '%s\\n' '([^']*)'/u)?.[1] ?? "";
-    return `${message}\n${output}`;
+      followUp.length > 0 ? container.resolveExecResult(followUp) : "";
+    return `sandbox-session-ready\n${output}`;
   }
 
   const container: ManagedContainerState = {

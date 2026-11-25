@@ -74,15 +74,24 @@ See [mounts](../docs/MOUNTS.md), [persistence](../docs/PERSISTENCE.md), and [sha
 3. Prepare runtime files, mounts, and storage.
 4. Reuse a compatible running container or start one.
 5. For a new container, configure the firewall, apply copied settings, and wait for required services.
-6. Open the attached session bridge and enabled clipboard access.
-7. Run the command as the non-root user.
-8. Close session capabilities and host child processes when the command ends.
-9. After the last session, synchronize new mount-mode settings and stop the idle container.
+6. Run `container.start` hooks before publishing readiness.
+7. Open the attached session bridge and enabled clipboard access, then run `session.start` hooks.
+8. Run the attached command as the non-root user.
+9. When the runtime returns a status, run `session.end` hooks before closing session capabilities.
+10. On graceful container shutdown, close readiness and stop active sessions before running `container.stop` hooks.
+11. Synchronize new mount-mode settings before the container exits.
 
 Concurrent sessions can share one container.
 They are not separate security domains.
 Reuse depends on configuration, image identity, and runtime content.
-Session-only environment changes do not prevent reuse.
+Session-only environment and hook changes do not prevent reuse.
+The trusted container hook plan is fixed at boot and is part of the container reuse identity, not the tool image identity.
+
+The container entrypoint owns container events.
+The host session workflow owns session events and dispatches `session.end` only when the attached adapter returns a status.
+Some runtimes can return a status for a transport failure, so an end hook must tolerate missing session state.
+The shared hook runner starts each command as a separate non-root guest process with no terminal.
+It passes the session environment, but does not run the attached command's login shell or wrapper.
 
 Keep detailed adapter behavior in its owning code and tests.
 For test design when changing lifecycle or external boundaries, use the [test-writing skill](../.agents/skills/test-writing/SKILL.md).

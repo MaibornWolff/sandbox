@@ -17,6 +17,9 @@ export function showActiveConfig(cfg: Config): void {
   if (allowedHostCommands > 0) {
     active.push(`${allowedHostCommands} allowed host command rule(s)`);
   }
+  if (cfg.hooks.length > 0) {
+    active.push(`${cfg.hooks.length} lifecycle hook(s)`);
+  }
   if (cfg.shmSize) active.push(`shm_size=${cfg.shmSize}`);
   if (
     cfg.runtime === "apple-container" &&

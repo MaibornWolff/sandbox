@@ -1,4 +1,8 @@
 import type { Config } from "#modules/configuration/index.js";
+import {
+  HOOK_BOOT_ENV,
+  serializeBootHooks,
+} from "#modules/sandbox-hooks/index.js";
 import { getFinalImage } from "#modules/sandbox-images/index.js";
 import {
   CACHE_VOLUME,
@@ -29,8 +33,8 @@ import {
 } from "#shared/text/index.js";
 import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
 import {
+  validateContainerMountDestinations,
   validateMountPath,
-  validateProtectedMountPaths,
 } from "../mount-validation.js";
 import {
   addIdeBridgePortEnvironment,
@@ -190,14 +194,17 @@ export async function buildSandboxInstanceSpec(
   });
   logger.endTiming("Fetch mounts");
 
-  validateProtectedMountPaths(options.runtimePackage.mount.containerPath, [
-    targetProjectRoot,
-    ...(externalWorktree ? [windowsPathToDocker(externalWorktree)] : []),
-    ...persistentResult.mounts.map((mount) => mount.containerPath),
-    ...preparedSettings.mounts.map((mount) => mount.containerPath),
-    ...namedVolumeMounts.map((mount) => mount.containerPath),
-    ...customMounts.map((mount) => mount.targetPath),
-  ]);
+  validateContainerMountDestinations(
+    options.runtimePackage.mount.containerPath,
+    [
+      targetProjectRoot,
+      ...(externalWorktree ? [windowsPathToDocker(externalWorktree)] : []),
+      ...persistentResult.mounts.map((mount) => mount.containerPath),
+      ...preparedSettings.mounts.map((mount) => mount.containerPath),
+      ...namedVolumeMounts.map((mount) => mount.containerPath),
+      ...customMounts.map((mount) => mount.targetPath),
+    ],
+  );
   Object.assign(environment, preparedSettings.environment);
 
   logMounts(persistentResult.mounts, "Persistent mounts");
@@ -253,6 +260,8 @@ export async function buildSandboxInstanceSpec(
     "Startup",
     Object.entries(environment).map(([name, value]) => `${name}=${value}`),
   );
+  const hookBootPlan = serializeBootHooks(config.hooks, targetProjectRoot);
+  if (hookBootPlan !== undefined) environment[HOOK_BOOT_ENV] = hookBootPlan;
   const spec: SandboxInstanceSpec = {
     name: "",
     image: { reference: getFinalImage(projectRoot), digest: "" },

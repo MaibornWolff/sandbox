@@ -58,6 +58,11 @@ export function applyTomlConfig(options: {
 
   applySessionWrapperOverride(config, toml, source === "project");
 
+  if (toml.hooks?.length) {
+    config.hooks = [...config.hooks, ...toml.hooks];
+    getLogger().debug(`  Lifecycle hooks: ${toml.hooks.length} added`);
+  }
+
   // Environment variables (accumulate)
   if (toml.env !== undefined) {
     const envVars = parseEnvList(toml.env, variables);

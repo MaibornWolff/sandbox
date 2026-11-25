@@ -56,7 +56,7 @@ interface Deferred<T> {
 
 type ProcessTestMatch = Partial<
   Pick<ProcessTestRequest, "command" | "args" | "name" | "stdio">
->;
+> & { readonly argsInclude?: string };
 
 interface ProcessExitOptions {
   readonly exitCode?: number;
@@ -494,10 +494,12 @@ function cloneRequest(request: StartProcessRequest): ProcessTestRequest {
 
 function matches(
   request: ProcessTestRequest,
-  match: ProcessTestMatch,
+  { argsInclude, ...match }: ProcessTestMatch,
 ): boolean {
+  if (argsInclude !== undefined && !request.args?.includes(argsInclude))
+    return false;
   return Object.entries(match).every(([key, expected]) => {
-    const actual = request[key as keyof ProcessTestMatch];
+    const actual = request[key as keyof typeof match];
     return Array.isArray(expected)
       ? Array.isArray(actual) &&
           expected.length === actual.length &&

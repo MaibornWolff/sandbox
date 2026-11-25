@@ -34,14 +34,17 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
     /^src\/platform\/environment\/(?:host-environment|sandbox-environment|system)\.ts$/u,
     /^src\/platform\/terminal\/terminal\.ts$/u,
   ],
-  time: [/^src\/platform\/clock\/clock\.ts$/u],
+  time: [
+    /^src\/platform\/clock\/clock\.ts$/u,
+    /^src\/platform\/process\/node-process-group\.ts$/u,
+  ],
   filesystem: [
     /^src\/platform\/filesystem\//u,
     /^src\/platform\/process\/node-process-adapter\.ts$/u,
     /^src\/platform\/x11-clipboard\/display\.ts$/u,
     /^src\/platform\/container-system\/(?:container-lifecycle|diagnostics|network-bootstrap|network-files)\.ts$/u,
   ],
-  process: [/^src\/platform\/process\/node-process-adapter\.ts$/u],
+  process: [/^src\/platform\/process\/node-process-(?:adapter|group)\.ts$/u],
   "network I/O": [
     /^src\/platform\/container-runtime\/apple\/(?:host-access|networking)\.ts$/u,
     /^src\/platform\/container-system\/(?:dns|tcp-service)\.ts$/u,
@@ -59,6 +62,10 @@ const PROCESS_FACTORY_FILES = new Map<string, ReadonlySet<string>>([
       "linuxStartTime",
       "probePid",
     ]),
+  ],
+  [
+    "src/platform/process/node-process-group.ts",
+    new Set(["runIsolatedGuestCommand", "signalGroup", "startSupervisor"]),
   ],
   [
     "src/platform/environment/host-environment.ts",
@@ -80,6 +87,10 @@ const PROCESS_FACTORY_FILES = new Map<string, ReadonlySet<string>>([
 
 const TIMER_FACTORY_FILES = new Map<string, ReadonlySet<string>>([
   ["src/platform/clock/clock.ts", new Set(["createSystemClock"])],
+  [
+    "src/platform/process/node-process-group.ts",
+    new Set(["atDeadline", "runIsolatedGuestCommand", "startSupervisor"]),
+  ],
   [
     "src/platform/container-system/tcp-service.ts",
     new Set(["createNodeTcpService"]),

@@ -1,9 +1,12 @@
 /** @lintignore Public container lifecycle contract. */
 export {
+  clearContainerReady,
   getSessionControlMarkerDirectory,
   type IdeBridgeLifecycle,
   inspectSessionActivity,
   markContainerReady,
+  markContainerStartHooks,
+  markContainerStartupFailed,
   parseIdeBridgePort,
   prepareContainerState,
   repairMountOwnership,
@@ -14,7 +17,11 @@ export {
   writeSshProxyConfiguration,
 } from "./container-lifecycle.js";
 /** @lintignore Public container-system path contract. */
-export { CONTAINER_READY_FILE } from "./container-paths.js";
+export {
+  CONTAINER_READY_FILE,
+  CONTAINER_START_FAILED_FILE,
+  CONTAINER_START_PHASE_FILE,
+} from "./container-paths.js";
 /** @lintignore Public container-system diagnostic contract. */
 export {
   CONTAINER_LOG_SOURCES,

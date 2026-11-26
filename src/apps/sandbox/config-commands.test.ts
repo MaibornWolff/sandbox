@@ -18,6 +18,18 @@ describe("config commands through the sandbox application", () => {
     expect(defaultResult).toEqual(result);
   });
 
+  test("rejects mistyped config subcommands with a suggestion", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const result = await app.cli.run("config", "updte");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe(
+      "error: unknown command 'updte'\n(Did you mean update?)\n",
+    );
+  });
+
   test("shows Apple container as a first-class runtime value", async () => {
     await using app = await setupSandboxAppTest({ runtime: "apple-container" });
     app.global.writeConfig(

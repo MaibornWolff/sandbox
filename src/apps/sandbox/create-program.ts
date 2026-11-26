@@ -16,6 +16,7 @@ import { registerContainerCommands } from "./commands/container-command.js";
 import { registerEscapeCommand } from "./commands/escape-command.js";
 import { registerLifecycleCommands } from "./commands/lifecycle-command.js";
 import { registerNetworkCommands } from "./commands/network-command.js";
+import { rejectUnknownCommand } from "./commands/unknown-command.js";
 import {
   displaySandboxInfo,
   isInsideSandbox,
@@ -29,7 +30,7 @@ function registerCommands(program: Command): void {
   program.action(async (options, cmd) => {
     const unknownArgs = cmd.args.filter((arg: string) => !arg.startsWith("-"));
     if (unknownArgs.length > 0) {
-      cmd.error(`error: unknown command '${unknownArgs[0]}'`);
+      rejectUnknownCommand(cmd, unknownArgs[0]);
     }
     if (isInsideSandbox()) {
       displaySandboxInfo();

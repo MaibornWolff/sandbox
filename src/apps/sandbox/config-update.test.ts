@@ -131,10 +131,9 @@ describe("sandbox config update", () => {
     );
   });
 
-  test("keeps current templates, persists hashes, and prints final guidance", async () => {
+  test("keeps current templates and prints final guidance", async () => {
     await using app = await setupSandboxAppTest();
     await initializeUser(app);
-    app.workspace.removeDataFile("sandbox/state.json");
 
     const result = await app.cli.run("config", "update");
 
@@ -143,13 +142,6 @@ describe("sandbox config update", () => {
     expect(result.stdout).toContain(
       "Done. Run sandbox build if any Dockerfile changed.",
     );
-    const state = JSON.parse(
-      app.workspace.readDataFile("sandbox/state.json"),
-    ) as { templateHashes?: Record<string, string> };
-    expect(Object.keys(state.templateHashes ?? {}).sort()).toEqual([
-      "config",
-      "dockerfile",
-    ]);
   });
 
   test("accepts one changed project template and skips another", async () => {
@@ -232,7 +224,7 @@ describe("sandbox config update", () => {
     expect(result.stderr).toContain("Failed to write");
   });
 
-  test("isolates parallel Git, hashes, settings, editors, files, and paths", async () => {
+  test("isolates parallel Git, settings, editors, files, and paths", async () => {
     await using first = await setupSandboxAppTest();
     await using second = await setupSandboxAppTest();
     first.workspace.git.givenRepository({
@@ -295,8 +287,5 @@ describe("sandbox config update", () => {
     expect(first.editor.launchedPaths()).not.toEqual(
       second.editor.launchedPaths(),
     );
-    const firstState = first.workspace.readDataFile("sandbox/state.json");
-    const secondState = second.workspace.readDataFile("sandbox/state.json");
-    expect(firstState).not.toBe(secondState);
   });
 });

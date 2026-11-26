@@ -10,10 +10,6 @@ import {
   getUserFileDefinitions,
   hasExistingConfig,
 } from "./files/generated-file-definition.js";
-import {
-  computeTemplateHashes,
-  saveTemplateHashes,
-} from "./files/template-hashing.js";
 import { selectTools } from "./tools/tool-selection.js";
 
 interface ConfigUpdateOptions {
@@ -76,10 +72,6 @@ export async function configUpdateCommand(
       runtime: options.project ? undefined : detectExistingRuntime(definitions),
     };
     await processFileUpdates(definitions, choices);
-
-    if (!options.project) {
-      saveTemplateHashes(computeTemplateHashes(choices));
-    }
 
     writeStandardOutput(
       `Done. Run ${chalk.cyan("sandbox build")} if any Dockerfile changed.`,

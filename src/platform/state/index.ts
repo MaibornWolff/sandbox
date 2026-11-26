@@ -18,7 +18,6 @@ export {
 const stateSchema = z.looseObject({
   latestVersion: z.string().optional(),
   latestVersionCheckedAt: z.number().optional(),
-  templateHashes: z.record(z.string(), z.string()).optional(),
   sandboxImages: z
     .record(
       z.string(),

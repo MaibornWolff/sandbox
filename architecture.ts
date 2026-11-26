@@ -198,7 +198,6 @@ export const architecture = defineArchitecture({
         "configuration",
         "sandbox-resources",
         "sandbox-settings",
-        "state",
         "container-runtime",
         "filesystem",
         "environment",
@@ -238,7 +237,6 @@ export const architecture = defineArchitecture({
     },
     "self-update": {
       dependencies: [
-        "workspace-setup",
         "npm",
         "process",
         "environment",

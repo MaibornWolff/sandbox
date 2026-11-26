@@ -1,12 +1,4 @@
 import chalk from "chalk";
-import {
-  computeTemplateHashes,
-  detectExistingRuntime,
-  detectExistingTools,
-  getUserFileDefinitions,
-  haveTemplatesChanged,
-  saveTemplateHashes,
-} from "#modules/workspace-setup/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import {
   fetchLatestVersion,
@@ -76,19 +68,6 @@ async function performUpdate(): Promise<boolean> {
   }
 }
 
-async function handleTemplateUpdates(): Promise<boolean> {
-  const definitions = getUserFileDefinitions();
-  const { toolIds } = detectExistingTools(definitions);
-  const choices = { toolIds, runtime: detectExistingRuntime(definitions) };
-  const changed = haveTemplatesChanged(choices);
-  if (changed) {
-    writeStandardOutput("\nChecking for configuration updates...");
-    await updateInstalledTemplates();
-  }
-  saveTemplateHashes(computeTemplateHashes(choices));
-  return changed;
-}
-
 /** Update the installed CLI and then migrate installed configuration templates. */
 export async function updateCommand(): Promise<void> {
   const logger = getLogger();
@@ -106,10 +85,9 @@ export async function updateCommand(): Promise<void> {
 
     writeStandardOutput();
     logger.success(`Updated to ${result.latestVersion}`);
-    if (!(await handleTemplateUpdates())) {
-      writeStandardOutput();
-      logger.success("Configuration already up to date");
-    }
+    // Only the new release knows its templates. This process still runs the old code.
+    writeStandardOutput("\nChecking for configuration updates...");
+    await updateInstalledTemplates();
     printNextSteps();
   } catch (error) {
     if (isPromptCancellation(error)) {

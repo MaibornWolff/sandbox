@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Review configuration templates with the new version after each `sandbox update`. Before, `sandbox update` reported "Configuration already up to date" and kept the old user Dockerfile, so new tool content such as the PHP extensions from 0.74.0 was missing. If you updated to 0.74.0 with `sandbox update`, run `sandbox config update`, then `sandbox build`.
+
 ## [0.74.0] - 2026-11-24
 
 ### Added

@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 /** Native addons stay in node_modules, so the CLI can load the binary for the host platform. */
-const NATIVE_PACKAGES = ["@crosscopy/clipboard"];
+const NATIVE_PACKAGES = ["@crosscopy/clipboard", "koffi"];
 
 function assertNoUnresolvedExternalImports(metafile: Bun.BuildMetafile): void {
   const externalImports = Object.entries(metafile.outputs).flatMap(

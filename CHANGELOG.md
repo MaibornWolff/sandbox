@@ -23,6 +23,7 @@
 - Add `sandbox status --all` to show the containers of all projects.
 - Add `sandbox status --session <id>` to show one session by its `SANDBOX_SESSION_ID`. The first 6 or more characters of the ID are enough if no other session starts with them.
 - Show the session ID and the start command of each session in `sandbox status`, and mark containers that are still starting.
+- On macOS with local Podman, let terminal managers find the session started in a pane with `sandbox status --foreground-job <pgid> --json`. See [foreground-job lookup](docs/SESSIONS.md#find-the-session-in-a-pane).
 
 ### Changed
 

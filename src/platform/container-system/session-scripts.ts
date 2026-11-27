@@ -6,7 +6,7 @@ import { SESSION_MARKER_READ_LIMIT } from "./session-status.js";
 
 function buildSessionOperation(
   runtimeDirectory: string,
-  operation: "__launch-session" | "__stop-session",
+  operation: "__launch-session" | "__stop-session" | "__status-session",
   sessionId: string,
 ): string[] {
   return [
@@ -37,6 +37,13 @@ export function buildSessionStopCommand(
   return buildSessionOperation(runtimeDirectory, "__stop-session", sessionId);
 }
 
+export function buildSelectedSessionStatusCommand(
+  runtimeDirectory: string,
+  sessionId: string,
+): string[] {
+  return buildSessionOperation(runtimeDirectory, "__status-session", sessionId);
+}
+
 const SESSION_CONTROL_MARKERS_DIRECTORY = `${CONTAINER_SESSIONS_DIRECTORY}/.controls`;
 const SESSION_TITLE_READ_LIMIT = 512;
 
@@ -54,13 +61,13 @@ const readSessionStatus = [
   `if [ -f ${CONTAINER_READY_FILE} ]; then echo 'ready 1'; else echo 'ready 0'; fi`,
   `for f in ${CONTAINER_SESSIONS_DIRECTORY}/*; do`,
   '  [ -f "$f" ] || continue',
-  "  pid=${f##*/}",
+  `  pid=\${f##*/}`,
   "  case $pid in ''|*[!0-9]*) continue ;; esac",
   '  kill -0 "$pid" 2>/dev/null || continue',
   '  started=$(date -r "$f" +%s 2>/dev/null) || continue',
   `  marker=$(head -c ${SESSION_MARKER_READ_LIMIT} "$f" 2>/dev/null | ${hexEncode})`,
   `  title=$(head -c ${SESSION_TITLE_READ_LIMIT} "/proc/$pid/cmdline" 2>/dev/null | ${hexEncode})`,
-  '  echo "session $pid $started ${marker:--} ${title:--}"',
+  `  echo "session $pid $started \${marker:--} \${title:--}"`,
   "done",
 ].join("\n");
 

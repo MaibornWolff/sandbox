@@ -22,5 +22,6 @@ export interface StopOptions extends SandboxOptions {
 export interface StatusOptions extends SandboxOptions {
   all?: boolean;
   session?: string;
+  foregroundJob?: string;
   json?: boolean;
 }

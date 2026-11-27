@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseSessionStatus } from "./session-status.js";
+import {
+  parseSelectedSessionStatus,
+  parseSessionStatus,
+} from "./session-status.js";
 
 const SESSION_ID = "6f1c0d3e-9a4b-4c2d-8e7f-1a2b3c4d5e6f";
 
@@ -10,6 +13,22 @@ function hex(content: string): string {
 function sessionLine(marker: string, title = "-"): string {
   return `session 74 1794819735 ${marker} ${title}`;
 }
+
+test("selected status accepts only the requested row without command fields", () => {
+  const row = `session ${SESSION_ID} 74 1794819735`;
+  expect(
+    parseSelectedSessionStatus(`ready 1\n${row}\n`, SESSION_ID).sessions,
+  ).toMatchObject([{ id: SESSION_ID, pid: 74, command: null }]);
+  expect(() =>
+    parseSelectedSessionStatus(`ready 1\n${row}\n${row}\n`, SESSION_ID),
+  ).toThrow();
+  expect(() =>
+    parseSelectedSessionStatus(`ready 1\n${row} injected\n`, SESSION_ID),
+  ).toThrow();
+  expect(() =>
+    parseSelectedSessionStatus(`ready 1\n${row}\n`, "different-uuid"),
+  ).toThrow();
+});
 
 describe("parseSessionStatus", () => {
   test("reads the ready state, the PID, the start time and the title", () => {

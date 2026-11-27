@@ -13,6 +13,7 @@ export const architecture = defineArchitecture({
         "host-bridge",
         "clipboard",
         "native-clipboard",
+        "foreground-job",
         "network",
         "network-diagnostics",
         "sandbox-settings",
@@ -33,6 +34,7 @@ export const architecture = defineArchitecture({
         "errors",
         "text",
       ],
+      testDependencies: ["container-system"],
     },
     "sandbox-container-tools": {
       dependencies: [
@@ -141,6 +143,7 @@ export const architecture = defineArchitecture({
         "storage",
         "container-runtime",
         "container-system",
+        "foreground-job",
         "state",
         "clock",
         "filesystem",
@@ -281,6 +284,7 @@ export const architecture = defineArchitecture({
       ],
     },
     "native-clipboard": { dependencies: [] },
+    "foreground-job": { dependencies: ["dependency-injection"] },
     "x11-clipboard": {
       dependencies: ["process", "clock", "environment", "logging", "errors"],
       testDependencies: ["dependency-injection"],

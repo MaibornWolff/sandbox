@@ -21,6 +21,10 @@ import {
   readProcessEnvironment,
 } from "#platform/environment/index.js";
 import {
+  openHostForegroundJobs,
+  provideForegroundJobs,
+} from "#platform/foreground-job/index.js";
+import {
   createLineWriter,
   createLogger,
   provideLogger,
@@ -92,6 +96,7 @@ export async function runSandboxApplicationWithClipboard(
         provideProcessManager(processManager),
         provideLogger(logger),
         provideRuntimeProvider(runtimeProvider),
+        provideForegroundJobs(openHostForegroundJobs),
         provideWebSocketService(webSocketService),
         provideHostBridgeService(bridge),
         provideClipboardCapabilityFactory(clipboard),

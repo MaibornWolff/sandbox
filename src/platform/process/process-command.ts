@@ -24,6 +24,7 @@ export class ExecError extends Error {
 interface ProcessCommandOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly interactive?: boolean;
+  readonly private?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -66,9 +67,11 @@ export async function executeProcessCommand(
     args: [...args],
     env: options.env ? { ...options.env } : undefined,
   });
-  getLogger().debug(
-    `Executing: ${redactCommandForDisplay(command, [...args])}`,
-  );
+  if (!options.private) {
+    getLogger().debug(
+      `Executing: ${redactCommandForDisplay(command, [...args])}`,
+    );
+  }
   const request = {
     command,
     args,

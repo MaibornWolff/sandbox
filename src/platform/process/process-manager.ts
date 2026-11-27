@@ -131,6 +131,7 @@ export interface StopOptions {
 /** @lintignore Public generic managed process resource. */
 export interface ManagedProcess<TResult> extends AsyncDisposable {
   readonly name: string;
+  readonly pid?: number;
   readonly result: Promise<TResult>;
   readonly exited: Promise<ProcessExit>;
   stop(options?: StopOptions): Promise<ProcessExit>;

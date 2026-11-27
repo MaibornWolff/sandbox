@@ -9,6 +9,7 @@ export interface HostEnvironment {
   readonly currentWorkingDirectory: string;
   readonly executablePath?: string;
   readonly homeDirectory: string;
+  readonly userId?: number;
   readonly configHomeDirectory: string;
   readonly dataHomeDirectory: string;
   readonly variables: Readonly<Record<string, string>>;
@@ -33,6 +34,7 @@ interface HostEnvironmentValues {
   readonly currentWorkingDirectory: string;
   readonly executablePath?: string;
   readonly homeDirectory: string;
+  readonly userId?: number;
   readonly variables: Readonly<Record<string, string>>;
   readonly platform: NodeJS.Platform;
   readonly interactive: boolean;
@@ -64,6 +66,7 @@ export function createHostEnvironment(
     currentWorkingDirectory: values.currentWorkingDirectory,
     ...(values.executablePath ? { executablePath: values.executablePath } : {}),
     homeDirectory: values.homeDirectory,
+    ...(values.userId === undefined ? {} : { userId: values.userId }),
     configHomeDirectory:
       variables.XDG_CONFIG_HOME ??
       (values.platform === "win32"
@@ -95,6 +98,7 @@ export function readProcessEnvironment(): HostEnvironment {
     currentWorkingDirectory: process.cwd(),
     executablePath: process.execPath,
     homeDirectory: os.homedir(),
+    userId: hostUserId,
     variables,
     platform: os.platform(),
     interactive: process.stdin.isTTY === true,

@@ -27,6 +27,34 @@ export interface ContainerSessionStatus {
   readonly sessions: readonly ContainerSession[];
 }
 
+export function parseSelectedSessionStatus(
+  output: string,
+  sessionId: string,
+): ContainerSessionStatus {
+  const lines =
+    /^(ready [01])(?:\nsession ([a-f0-9-]{36}) ([1-9][0-9]{0,9}) ([0-9]{1,12}))?\n$/u.exec(
+      output,
+    );
+  if (!lines) throw new Error("Invalid selected-session status.");
+  const [, ready, id, pid, started] = lines;
+  const status = { ready: ready === "ready 1" };
+  if (id === undefined) return { ...status, sessions: [] };
+  if (id !== sessionId || Number(pid) > 2_147_483_647)
+    throw new Error("Mismatched selected-session status.");
+  return {
+    ...status,
+    sessions: [
+      {
+        id,
+        pid: Number(pid),
+        startedAt: new Date(Number(started) * 1_000),
+        command: null,
+        title: "",
+      },
+    ],
+  };
+}
+
 const EMPTY_FIELD = "-";
 const LINE_PREVIEW_LENGTH = 80;
 

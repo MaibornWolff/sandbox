@@ -1,6 +1,8 @@
 """Test session shutdown without depending on the host kernel or running as root."""
 
+from contextlib import redirect_stdout
 import importlib.util
+import io
 from pathlib import Path
 import signal
 import stat
@@ -154,6 +156,79 @@ class SessionMarkerTest(unittest.TestCase):
                     marker.write_bytes(contents)
                     shutdown.remove_marker(41, SESSION)
                     self.assertEqual(not marker.exists(), removed)
+
+
+class SelectedSessionTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = Path(self.enterContext(TemporaryDirectory()))
+        self.registry = self.directory / "registry"
+        self.registry.mkdir(mode=0o700)
+        self.markers = self.directory / "markers"
+        self.markers.mkdir(mode=0o755)
+        self.ready = self.directory / "ready"
+        self.ready.touch()
+        self.enterContext(patch.multiple(shutdown, REGISTRY=self.registry, MARKERS=self.markers, READY=self.ready))
+        self.reads = []
+        self.state = "S"
+        self.start = "100"
+        fstat = shutdown.os.fstat
+        lstat = Path.lstat
+        read = shutdown.os.read
+        self.enterContext(patch.object(shutdown.os, "fstat", side_effect=lambda fd: self.root_info(fstat(fd))))
+        self.enterContext(patch.object(Path, "lstat", autospec=True, side_effect=lambda path: self.root_info(lstat(path))))
+        self.enterContext(patch.object(Path, "read_bytes", autospec=True, side_effect=self.process_stat))
+        self.enterContext(patch.object(shutdown.os, "read", side_effect=lambda fd, limit: self.track_read(read, fd, limit)))
+
+    @staticmethod
+    def root_info(info):
+        return SimpleNamespace(st_uid=0, st_mode=info.st_mode, st_mtime_ns=info.st_mtime_ns)
+
+    def track_read(self, read, fd, limit):
+        data = read(fd, limit)
+        self.reads.append(data)
+        return data
+
+    def process_stat(self, path):
+        self.assertEqual(path, Path("/proc/41/stat"))
+        return ("41 (session) " + " ".join([self.state] + ["0"] * 18 + [self.start])).encode("ascii")
+
+    def lookup(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(shutdown.main(["__status-session", SESSION]), 0)
+        return output.getvalue()
+
+    def given_session(self, marker_id=SESSION):
+        record = self.registry / SESSION
+        record.write_bytes(b"41 100\n")
+        record.chmod(0o600)
+        marker = self.markers / "41"
+        marker.write_bytes(marker_id.encode("ascii") + b"\0private-argv\0")
+        return marker
+
+    def test_absent_row_does_not_write_to_the_registry(self):
+        self.assertEqual(self.lookup(), "ready 1\n")
+        self.assertEqual(list(self.registry.iterdir()), [])
+
+    def test_reads_only_the_selected_record_and_uuid_prefix(self):
+        marker = self.given_session()
+        (self.registry / SIBLING).write_bytes(b"99 100\n")
+        timestamp = marker.stat().st_mtime_ns // 10**9
+        self.assertEqual(self.lookup(), f"ready 1\nsession {SESSION} 41 {timestamp}\n")
+        self.assertEqual(self.reads, [b"41 100\n", SESSION.encode("ascii") + b"\0"])
+
+    def test_rejects_a_mismatched_marker(self):
+        self.given_session(SIBLING)
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            self.lookup()
+
+    def test_rejects_a_recycled_or_zombie_pid(self):
+        self.given_session()
+        for state, start in [("Z", "100"), ("S", "200")]:
+            with self.subTest(state=state, start=start):
+                self.state, self.start = state, start
+                with self.assertRaisesRegex(ValueError, "does not have a live process"):
+                    self.lookup()
 
 
 if __name__ == "__main__":

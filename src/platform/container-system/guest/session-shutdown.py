@@ -12,6 +12,7 @@ import tempfile
 
 
 REGISTRY = Path("/run/sandbox/session-shutdown")
+READY = Path("/run/sandbox/ready")
 MARKERS = "/tmp/sandbox-sessions"
 ENTRYPOINT = "/usr/local/bin/exec-entrypoint.sh"
 SESSION_ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
@@ -25,13 +26,16 @@ def process_start_time(pid):
         return None
     if len(fields) <= 19 or not fields[19].isdigit():
         raise ValueError("Invalid Linux process start time.")
+    if fields[0] in (b"Z", b"X", b"x"):
+        return None
     return fields[19].decode("ascii")
 
 
-def registration_path(session_id):
+def registration_path(session_id, *, create=True):
     if not SESSION_ID.fullmatch(session_id):
         raise ValueError("Invalid session ID.")
-    REGISTRY.mkdir(mode=0o700, exist_ok=True)
+    if create:
+        REGISTRY.mkdir(mode=0o700, exist_ok=True)
     info = REGISTRY.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077:
         raise ValueError("Session registry is not private to root.")
@@ -91,26 +95,31 @@ def stop_process(pid, start):
         os.close(pidfd)
 
 
+@contextlib.contextmanager
+def marker_directory():
+    fd = os.open(MARKERS, os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(fd)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError("Session marker directory is writable by non-root users.")
+        yield fd
+    finally:
+        os.close(fd)
+
+
 def remove_marker(pid, session_id):
-    with contextlib.suppress(FileNotFoundError):
-        directory = os.open(MARKERS, os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            info = os.fstat(directory)
-            if info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError("Session marker directory is writable by non-root users.")
-            name = str(pid)
-            fd = os.open(
-                name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
-            )
-            with os.fdopen(fd, "rb") as marker:
-                encoded_id = session_id.encode("ascii")
-                if (
-                    stat.S_ISREG(os.fstat(marker.fileno()).st_mode)
-                    and marker.read(len(encoded_id) + 1) in (encoded_id, encoded_id + b"\0")
-                ):
-                    os.unlink(name, dir_fd=directory)
-        finally:
-            os.close(directory)
+    with contextlib.suppress(FileNotFoundError), marker_directory() as directory:
+        name = str(pid)
+        fd = os.open(
+            name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+        )
+        with os.fdopen(fd, "rb") as marker:
+            encoded_id = session_id.encode("ascii")
+            if (
+                stat.S_ISREG(os.fstat(marker.fileno()).st_mode)
+                and marker.read(len(encoded_id) + 1) in (encoded_id, encoded_id + b"\0")
+            ):
+                os.unlink(name, dir_fd=directory)
 
 
 def stop(record, session_id):
@@ -134,10 +143,50 @@ def stop(record, session_id):
     remove_marker(pid, session_id)
 
 
+def read_metadata(path, limit, *, private=False, directory=None):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & (0o077 if private else 0o022):
+            raise ValueError("Invalid session metadata file.")
+        return os.read(fd, limit), info
+    finally:
+        os.close(fd)
+
+
+def selected_session(session_id):
+    ready = int(READY.is_file())
+    try:
+        record = registration_path(session_id, create=False)
+        data, _ = read_metadata(record, 64, private=True)
+    except FileNotFoundError:
+        print(f"ready {ready}")
+        return
+    match = IDENTITY.fullmatch(data.decode("ascii"))
+    if not match or not 1 < int(match[1]) < 2**31:
+        raise ValueError("Invalid session process registration.")
+    pid = int(match[1])
+    if process_start_time(pid) != match[2]:
+        raise ValueError("Session registration does not have a live process.")
+    expected = session_id.encode("ascii") + b"\0"
+    try:
+        with marker_directory() as directory:
+            marker, info = read_metadata(str(pid), len(expected), directory=directory)
+    except FileNotFoundError:
+        print(f"ready {ready}")
+        return
+    if marker != expected or process_start_time(pid) != match[2]:
+        raise ValueError("Session marker does not match the registered process.")
+    print(f"ready {ready}\nsession {session_id} {pid} {info.st_mtime_ns // 10**9}")
+
+
 def main(args):
     if len(args) < 2:
         raise ValueError("Missing session operation or ID.")
     operation, session_id, *command = args
+    if operation == "__status-session" and not command:
+        selected_session(session_id)
+        return 0
     record = registration_path(session_id)
     if operation == "__stop-session" and not command:
         stop(record, session_id)

@@ -1,8 +1,8 @@
-import type { ContainerSession } from "#platform/container-system/index.js";
 import type {
   ContainerStatusInfo,
   SandboxStatus,
-} from "../lifecycle/container-status.js";
+  StatusSession,
+} from "../lifecycle/status-types.js";
 
 // ---------------------------------------------------------------------------
 // Contract of `sandbox status --json`
@@ -19,6 +19,7 @@ interface StatusDocumentSession {
   readonly pid: number;
   readonly startedAt: string;
   readonly command: readonly string[] | null;
+  readonly foregroundJob?: StatusSession["foregroundJob"];
 }
 
 interface StatusDocumentContainer {
@@ -36,18 +37,20 @@ interface StatusDocument {
   readonly schemaVersion: typeof STATUS_SCHEMA_VERSION;
   readonly runtime: SandboxStatus["runtime"];
   readonly containers: readonly StatusDocumentContainer[];
+  readonly attachment?: SandboxStatus["attachment"];
 }
 
 // ---------------------------------------------------------------------------
 // Mapping
 // ---------------------------------------------------------------------------
 
-function toSession(session: ContainerSession): StatusDocumentSession {
+function toSession(session: StatusSession): StatusDocumentSession {
   return {
     id: session.id,
     pid: session.pid,
     startedAt: session.startedAt.toISOString(),
     command: session.command,
+    ...(session.foregroundJob ? { foregroundJob: session.foregroundJob } : {}),
   };
 }
 
@@ -70,5 +73,6 @@ export function toStatusDocument(status: SandboxStatus): StatusDocument {
     schemaVersion: STATUS_SCHEMA_VERSION,
     runtime: status.runtime,
     containers: status.containers.map(toContainer),
+    ...(status.attachment ? { attachment: status.attachment } : {}),
   };
 }

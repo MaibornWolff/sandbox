@@ -64,6 +64,29 @@ describe("PodmanService", () => {
     expect(commands.events()).toHaveLength(2);
   });
 
+  test("lists all containers when Podman limits concurrent connections", async () => {
+    const ids = Array.from({ length: 14 }, (_, index) => `container-${index}`);
+    let connections = 0;
+    const service = new PodmanService(async (_command, args) => {
+      if (args?.[0] === "ps") return ids.join("\n");
+      const [command, id] = args ?? [];
+      if (command !== "inspect" || !id) throw new Error("Expected inspect");
+      const accepted = ++connections <= 10;
+      try {
+        await Promise.resolve();
+        if (!accepted) throw new Error("SSH handshake failed");
+        return JSON.stringify([
+          { Id: id, Image: "sha256:image", Config: { Image: "sandbox" } },
+        ]);
+      } finally {
+        connections--;
+      }
+    });
+
+    const containers = await service.instances.list({ states: ["running"] });
+    expect(containers.map(({ id }) => id)).toEqual(ids);
+  });
+
   test("uses Podman volume commands through the grouped adapter", async () => {
     const commands = createStatefulRuntimeCommandExecutor();
     commands.givenFailure(

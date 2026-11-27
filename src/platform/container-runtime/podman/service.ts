@@ -58,6 +58,30 @@ function createPodmanContainerList(
   };
 }
 
+// Leave room for other clients when the Podman VM limits SSH handshakes.
+const MAX_CONCURRENT_CONTAINER_COMMANDS = 4;
+
+function limitPodmanContainerCommands(exec: RuntimeExecutor): RuntimeExecutor {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  return async (command, args, options) => {
+    if (active < MAX_CONCURRENT_CONTAINER_COMMANDS) {
+      active++;
+    } else {
+      const slot = Promise.withResolvers<void>();
+      waiting.push(slot.resolve);
+      await slot.promise;
+    }
+    try {
+      return await exec(command, args, options);
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active--;
+    }
+  };
+}
+
 export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
   readonly runtime = "podman" as const;
   readonly instances: SandboxInstanceOperations;
@@ -72,7 +96,7 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
     this.containers = createDockerContainerOperations({
       binaryName: "podman",
       runtime: "podman",
-      exec,
+      exec: limitPodmanContainerCommands(exec),
       listIdentifiers: createPodmanContainerList(exec),
     });
     this.images = createDockerImageOperations("podman", exec, {

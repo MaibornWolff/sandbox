@@ -189,11 +189,17 @@ function createFixture(options: FixtureProcess, configDir: string) {
       "probe",
       pid,
     );
-    const [startTime, marker, ...extra] = output.split("\n");
-    expect(extra, `Invalid guest probe output: ${output}`).toEqual([]);
+    const lineEnd = output.indexOf("\n");
+    if (lineEnd < 0) throw new Error(`Invalid guest probe output: ${output}`);
+    const startTime = output.slice(0, lineEnd);
+    const record = output.slice(lineEnd + 1);
+    const fields = record.split("\0");
+    if (record !== "absent" && fields.pop() !== "") {
+      throw new Error("Guest session marker is not zero-terminated");
+    }
     return {
       startTime: unwrap(startTime, "Missing guest process observation"),
-      marker: unwrap(marker, "Missing guest marker observation"),
+      marker: unwrap(fields[0], "Missing guest marker observation"),
     };
   }
 

@@ -124,7 +124,7 @@ describe("sandbox update", () => {
     );
   });
 
-  test("migrates templates with the new release when the running release sees no change", async () => {
+  test("recognizes unchanged templates with a configured runtime", async () => {
     await using app = await setupSandboxAppTest();
     const initialization = app.cli.run("init", "--runtime", "podman");
     await app.tui.waitForText("Select AI agents first");
@@ -142,14 +142,33 @@ describe("sandbox update", () => {
     await app.tui.user.enter();
     const result = await execution;
 
-    expect(result.exitCode).toBe(0);
-    expect(result.stderr).not.toContain("Configuration already up to date");
+    expect(result.stderr).toContain("Configuration already up to date");
     expect(
       app.updates
         .operations()
         .filter((operation) => operation.type === "binary.run"),
-    ).toEqual([
-      { type: "binary.run", binaryName: "sandbox", args: ["config", "update"] },
-    ]);
+    ).toHaveLength(0);
+  });
+
+  test("recognizes unchanged templates on a repeated real update", async () => {
+    await using app = await setupSandboxAppTest();
+    app.updates.givenPackageVersion(packageName, "2.0.0");
+
+    const first = app.cli.run("update");
+    await app.tui.waitForText("Update to 2.0.0?");
+    await app.tui.user.enter();
+    expect((await first).exitCode).toBe(0);
+
+    const second = app.cli.run("update");
+    await app.tui.waitForText("Update to 2.0.0?");
+    await app.tui.user.enter();
+    const result = await second;
+
+    expect(result.stderr).toContain("Configuration already up to date");
+    expect(
+      app.updates
+        .operations()
+        .filter((operation) => operation.type === "binary.run"),
+    ).toHaveLength(1);
   });
 });

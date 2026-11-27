@@ -9,7 +9,7 @@ sandbox update
 ```
 
 Sandbox checks the configured npm registry and asks before installing the latest version through npm.
-After the installation, it starts the configuration update flow with the new version.
+If configuration templates changed, it starts the configuration update flow.
 
 For a [pnpm](https://pnpm.io/cli/add) or [Bun](https://bun.sh/docs/pm/cli/install) installation, update with the same package manager:
 

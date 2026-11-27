@@ -10,6 +10,10 @@ import {
   detectExistingTools,
   getUserFileDefinitions,
 } from "../files/generated-file-definition.js";
+import {
+  computeTemplateHashes,
+  saveTemplateHashes,
+} from "../files/template-hashing.js";
 import { detectUserCapabilities } from "../tools/detection.js";
 import type { ToolDefinition } from "../tools/tool-definition.js";
 import { TOOL_REGISTRY } from "../tools/tool-registry.js";
@@ -127,6 +131,9 @@ export async function initializeUser(
 
   const choices = { toolIds: selectedToolIds, runtime };
   await processFileUpdates(definitions, choices);
+
+  // Save template hashes so future updates can detect changes
+  saveTemplateHashes(computeTemplateHashes(choices));
 
   writeStandardOutput();
 

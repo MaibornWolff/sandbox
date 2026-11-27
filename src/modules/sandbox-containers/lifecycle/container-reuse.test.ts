@@ -135,8 +135,7 @@ describe("container reuse", () => {
     const result = await runWithTestLogger(() =>
       findOrCreateContainer(runtime, "project", "expected", createSpec()),
     );
-    expect(result).toMatchObject({
-      containerId: harness.instances.find("sandbox-project")?.id,
+    expect(result).toEqual({
       containerName: "sandbox-project",
       created: false,
     });
@@ -155,7 +154,7 @@ describe("container reuse", () => {
       ).toBe("waiting");
       fixture.container.givenStatus("running");
       await fixture.clock.advanceBy(50);
-      expect(await preparation).toMatchObject({
+      expect(await preparation).toEqual({
         containerName: "sandbox-project",
         created: true,
       });
@@ -170,7 +169,7 @@ describe("container reuse", () => {
       await fixture.clock.waitForSleep();
       fixture.container.givenStatus("exited");
       await fixture.clock.advanceBy(50);
-      expect(await preparation).toMatchObject({
+      expect(await preparation).toEqual({
         containerName: "sandbox-project",
         created: true,
       });
@@ -246,8 +245,7 @@ describe("container reuse", () => {
       () => findOrCreateContainer(runtime, "project", "expected", createSpec()),
       { clock },
     );
-    expect(result).toMatchObject({
-      containerId: harness.instances.find("sandbox-project")?.id,
+    expect(result).toEqual({
       containerName: "sandbox-project",
       created: false,
     });
@@ -267,8 +265,7 @@ describe("container reuse", () => {
     const result = await runWithTestLogger(() =>
       findOrCreateContainer(runtime, "project", "new", createSpec()),
     );
-    expect(result).toMatchObject({
-      containerId: harness.instances.find("sandbox-project-2")?.id,
+    expect(result).toEqual({
       containerName: "sandbox-project-2",
       created: true,
     });
@@ -280,12 +277,11 @@ describe("container reuse", () => {
   test("creates a fresh container with no hash label", async () => {
     const harness = createStatefulContainerRuntimeHarness();
     const runtime = (await harness.provider.resolve()).runtime;
-    const { containerId, containerName } = await runWithTestLogger(() =>
+    const name = await runWithTestLogger(() =>
       createFreshContainer(runtime, "project", createSpec()),
     );
-    expect(containerName).toBe("sandbox-project");
-    expect(harness.instances.find(containerName)?.id).toBe(containerId);
-    expect(harness.instances.find(containerId)?.labels).not.toHaveProperty(
+    expect(name).toBe("sandbox-project");
+    expect(harness.instances.find(name)?.labels).not.toHaveProperty(
       "sandbox.hash",
     );
   });

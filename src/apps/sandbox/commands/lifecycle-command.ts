@@ -49,10 +49,6 @@ export function registerLifecycleCommands(program: Command): void {
       "--session <id>",
       "Show only the session with this ID or unique ID prefix (searches all projects)",
     )
-    .option(
-      "--foreground-job <pgid>",
-      "Find the session for a host foreground process group (requires --json)",
-    )
     .option("--json", "Print the status as versioned JSON for tools")
     .action(async (options, cmd) => {
       requireHost("status");

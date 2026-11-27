@@ -4,14 +4,12 @@ import { getTerminal } from "#platform/terminal/index.js";
 import { getErrorMessage } from "#shared/errors/index.js";
 import { shellQuote } from "#shared/text/index.js";
 import {
+  type ContainerStatusInfo,
   getContainerUptime,
   getSandboxStatus,
+  type SandboxStatus,
   SessionLookupError,
 } from "../lifecycle/container-status.js";
-import type {
-  ContainerStatusInfo,
-  SandboxStatus,
-} from "../lifecycle/status-types.js";
 import type { StatusOptions } from "../sandbox-options.js";
 import { toStatusDocument } from "./status-json.js";
 
@@ -165,15 +163,11 @@ export async function statusCommand(options: StatusOptions): Promise<void> {
   try {
     status = await getSandboxStatus(options);
   } catch (error) {
-    const message = getErrorMessage(error);
-    if (
-      options.foregroundJob === undefined &&
-      !(error instanceof SessionLookupError)
-    ) {
-      throw new StatusFailedError(message, { cause: error });
+    if (!(error instanceof SessionLookupError)) {
+      throw new StatusFailedError(getErrorMessage(error), { cause: error });
     }
-    getTerminal().stderr.write(`${message}\n`);
-    throw new StatusExitError(message, { cause: error });
+    getTerminal().stderr.write(`${error.message}\n`);
+    throw new StatusExitError(error.message, { cause: error });
   }
   const output = options.json
     ? JSON.stringify(toStatusDocument(status), null, 2)

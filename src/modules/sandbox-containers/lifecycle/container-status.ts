@@ -1,10 +1,7 @@
 import chalk from "chalk";
 import { getConfigurationService } from "#modules/configuration/index.js";
 import { getClock } from "#platform/clock/index.js";
-import type {
-  SandboxAttachmentLookup,
-  SandboxInstanceOperations,
-} from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { getRuntimeProvider } from "#platform/container-runtime/index.js";
 import {
   buildSessionStatusCommand,
@@ -22,16 +19,37 @@ import {
   findSandboxContainers,
   type SandboxContainer,
 } from "./container-discovery.js";
-import {
-  getForegroundJobStatus,
-  parseForegroundPgid,
-  readStatusWithForegroundJobs,
-} from "./foreground-job-status.js";
-import type { ContainerStatusInfo, SandboxStatus } from "./status-types.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface ContainerStatusInfo {
+  id: string;
+  name: string;
+  projectSlug: string;
+  /** `null` for containers from older CLIs without the folder label. */
+  projectDir: string | null;
+  image: string;
+  startedAt: Date | null;
+  hash: string | null;
+  /** `null` if the status probe failed. */
+  ready: boolean | null;
+  /** Sorted by start time and PID. `null` if the status probe failed. */
+  sessions: readonly ContainerSession[] | null;
+}
+
+export interface SandboxStatus {
+  /**
+   * `null` with `--all` and `--session`, because the containers can belong to
+   * many projects.
+   */
+  projectSlug: string | null;
+  /** Full ID of the looked-up session, or `null` without `--session`. */
+  sessionId: string | null;
+  runtime: "apple-container" | "docker" | "podman";
+  containers: ContainerStatusInfo[];
+}
 
 /** A `--session` value that does not select exactly one session. */
 export class SessionLookupError extends Error {}
@@ -75,7 +93,7 @@ function compareSessions(
  * read-only probe. Returns `null` and logs the reason if the probe fails.
  */
 export async function readContainerSessionStatus(
-  service: { readonly instances: Pick<SandboxInstanceOperations, "exec"> },
+  service: SandboxRuntime,
   container: Pick<SandboxContainer, "id" | "name">,
 ): Promise<ContainerSessionStatus | null> {
   try {
@@ -118,7 +136,7 @@ function compareContainers(
 }
 
 async function readContainerStatuses(
-  runtime: Pick<SandboxAttachmentLookup, "instances">,
+  runtime: SandboxRuntime,
   projectSlug: string | null,
 ): Promise<ContainerStatusInfo[]> {
   const containers = (
@@ -200,8 +218,6 @@ function selectSession(
 export async function getSandboxStatus(
   options: StatusOptions,
 ): Promise<SandboxStatus> {
-  if (options.foregroundJob !== undefined)
-    return getForegroundJobStatus(parseForegroundPgid(options));
   const { session } = options;
   if (session !== undefined && session.length < MIN_SESSION_ID_QUERY_LENGTH) {
     throw new SessionLookupError(
@@ -219,11 +235,7 @@ export async function getSandboxStatus(
           await getRepoRootPath(getHostEnvironment().currentWorkingDirectory),
         );
 
-  const containers = options.json
-    ? await readStatusWithForegroundJobs(runtime, (target) =>
-        readContainerStatuses(target, projectSlug),
-      )
-    : await readContainerStatuses(runtime, projectSlug);
+  const containers = await readContainerStatuses(runtime, projectSlug);
   if (session === undefined) {
     return {
       projectSlug,

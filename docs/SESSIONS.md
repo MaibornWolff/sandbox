@@ -133,8 +133,7 @@ Session fields:
 | `id` | string or `null` | `SANDBOX_SESSION_ID` of the session. `null` for sessions from older Sandbox versions. |
 | `pid` | number | Process ID of the session in the container |
 | `startedAt` | string | Session start time, ISO 8601 in UTC, precise to the second |
-| `command` | string array or `null` | Requested command and its arguments. With a configured [session command wrapper](CONFIGURATION.md#session-command-wrapper), the array starts with the wrapper. `null` for foreground-job lookup, older sessions, and commands longer than about 64 KiB. |
-| `foregroundJob` | object, optional | A verified host foreground job, for example `{"type":"pgid","id":4100}`. An omitted field does not mean the session is idle. |
+| `command` | string array or `null` | Requested command and its arguments. With a configured [session command wrapper](CONFIGURATION.md#session-command-wrapper), the array starts with the wrapper. `null` for sessions from older Sandbox versions and for commands longer than about 64 KiB. |
 
 Rules for tools:
 
@@ -156,38 +155,6 @@ Rules for tools:
   See [container runtimes](RUNTIMES.md).
 
 ## Terminal managers
-
-### Find the session in a pane
-
-```bash
-sandbox status --foreground-job 4100 --json
-```
-
-Pass the foreground process group ID (PGID) of the pane's terminal as a positive decimal number.
-Run the lookup on the same macOS host, as the same user, with the same active local Podman machine connection as the launcher.
-The lookup requires a Podman-managed connection. It is unavailable with `CONTAINER_HOST` overrides or when a machine share overlaps the private host runtime directory.
-You can run the lookup from any project.
-Do not combine it with `--all` or `--session`.
-Linux, native Windows, and other runtime contexts do not support this lookup.
-
-The version 1 document adds `attachment` with `state`, `foregroundPgid`, and `sessionId`:
-
-- `starting`: Sandbox found one live launcher. The session ID is allocated, but the session is not yet queryable.
-- `attached`: Sandbox found the live session. `containers` contains one full container ID and only the matching session. Its `command` is `null`.
-- `not-found`: Sandbox found no live attachment for the queried foreground job at lookup time.
-- `ambiguous`: More than one live launcher matches the job.
-
-All four states exit with code 0.
-Only `attached` has containers.
-`not-found` and `ambiguous` have a null session ID.
-An invalid or unavailable lookup exits with code 1 and writes no JSON.
-
-Treat the result as a snapshot, not permission to connect later.
-Before connecting, check that the same pane and terminal still have the same foreground job.
-Retry if the pane or job changed, or if the result was `starting`.
-None of these results shows that a pane has no worker processes.
-
-### Agent names
 
 For known agents, the host Sandbox process temporarily uses the agent name while the session runs.
 Terminal managers can use this to identify the pane.

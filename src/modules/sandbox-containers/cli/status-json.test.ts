@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ContainerStatusInfo } from "../lifecycle/status-types.js";
+import type { ContainerStatusInfo } from "../lifecycle/container-status.js";
 import { toStatusDocument } from "./status-json.js";
 
 const SESSION_ID = "6f1c0d3e-9a4b-4c2d-8e7f-1a2b3c4d5e6f";

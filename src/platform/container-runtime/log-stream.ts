@@ -31,12 +31,10 @@ export function followContainerLogs(
   command: string,
   args: readonly string[],
   request: LogFollowRequest,
-  env?: Readonly<Record<string, string>>,
 ): LogSubscription {
   const child = getProcessManager().start({
     command,
     args,
-    ...(env ? { env } : {}),
     lifetime: "application",
     interaction: { mode: "non-interactive" },
     stdio: "ignore",

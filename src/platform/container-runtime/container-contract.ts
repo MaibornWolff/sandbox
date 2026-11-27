@@ -95,8 +95,6 @@ export interface TerminalSessionOptions {
   readonly allocateTerminal: boolean;
   readonly title?: string;
   readonly forwardSignal?: (signal: NodeJS.Signals) => Promise<boolean>;
-  readonly attachmentStarted?: (pid: number) => void;
-  readonly attachmentExited?: () => void;
 }
 
 export type CommandResult = ProcessResult;

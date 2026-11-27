@@ -10,13 +10,10 @@ interface InteractiveContainerRuntimeProcessOptions {
   readonly title?: string;
   readonly signalContainer?: string;
   readonly forwardSignal?: (signal: NodeJS.Signals) => Promise<boolean>;
-  readonly attachmentStarted?: (pid: number) => void;
-  readonly attachmentExited?: () => void;
 }
 
 interface InteractiveRuntimeProcess {
   readonly binaryName: string;
-  readonly env?: Readonly<Record<string, string>>;
   signalContainer?(id: string, signal: NodeJS.Signals): Promise<void>;
 }
 
@@ -43,7 +40,6 @@ export function startInteractiveContainerRuntimeProcess(
   return getProcessManager().start({
     command: runtime.binaryName,
     args: options.args,
-    ...(runtime.env ? { env: runtime.env } : {}),
     lifetime: "application",
     interaction: {
       mode: "interactive",
@@ -60,9 +56,5 @@ export async function runInteractiveContainerRuntimeProcess(
   runtime: InteractiveRuntimeProcess,
   options: InteractiveContainerRuntimeProcessOptions,
 ): Promise<ProcessResult> {
-  const child = startInteractiveContainerRuntimeProcess(runtime, options);
-  if (options.attachmentExited)
-    void child.exited.then(options.attachmentExited, options.attachmentExited);
-  if (child.pid !== undefined) options.attachmentStarted?.(child.pid);
-  return child.result;
+  return startInteractiveContainerRuntimeProcess(runtime, options).result;
 }

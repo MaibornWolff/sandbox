@@ -8,13 +8,10 @@ import signal
 import sys
 
 
-redirect, pgid_file, *command = sys.argv[1:]
+redirect, *command = sys.argv[1:]
 pid, master = pty.fork()
 if pid == 0:
     try:
-        if pgid_file != "-":
-            with open(pgid_file, "w", encoding="ascii") as output:
-                output.write(f"{os.tcgetpgrp(0)}\n")
         if redirect != "-":
             with open(redirect, "wb") as output:
                 os.dup2(output.fileno(), 2)

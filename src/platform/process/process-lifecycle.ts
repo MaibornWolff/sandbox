@@ -435,7 +435,7 @@ function createManagedStartedProcess<TResult>(options: {
     options.request.lifetime === "detached" ? "detached" : "started",
   );
   options.owned.add(managed);
-  return Object.assign(managed, { pid: options.raw.identity?.pid });
+  return managed;
 }
 
 interface ForegroundRoute {

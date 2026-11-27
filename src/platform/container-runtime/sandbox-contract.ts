@@ -62,28 +62,9 @@ export interface SandboxRuntime {
   readonly storage: SandboxStorageOperations;
   ensureHostReady(): Promise<SandboxRuntimeInfo>;
   getCompatibilityIdentity(): Promise<string>;
-  bindLocalLaunch?(): Promise<SandboxAttachmentLaunch>;
-  bindLocalLookup?(): Promise<SandboxAttachmentLookup>;
   /** Share discovery through hash, reuse, and creation. Await all startup work inside the callback, but keep attached sessions outside it. */
   withInstanceStartup<T>(operation: () => Promise<T>): Promise<T>;
   getDiskSpaceAdvice(): string;
-}
-
-interface LocalAttachmentEndpoint extends AsyncDisposable {
-  readonly identity: string;
-  readonly hostMounts: readonly string[];
-  verify(): Promise<void>;
-}
-
-export interface SandboxAttachmentLaunch extends LocalAttachmentEndpoint {
-  readonly selection: SandboxRuntimeSelection;
-}
-
-export interface SandboxAttachmentLookup extends LocalAttachmentEndpoint {
-  readonly instances: Pick<
-    SandboxInstanceOperations,
-    "list" | "inspect" | "exec"
-  >;
 }
 
 export interface SandboxRuntimeInfo {
@@ -234,8 +215,6 @@ export interface TerminalSessionOptions {
   readonly allocateTerminal: boolean;
   readonly title?: string;
   readonly forwardSignal?: (signal: NodeJS.Signals) => Promise<boolean>;
-  readonly attachmentStarted?: (pid: number) => void;
-  readonly attachmentExited?: () => void;
 }
 
 export interface SandboxInstanceRemoveOptions {

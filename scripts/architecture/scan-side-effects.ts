@@ -41,8 +41,6 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
   filesystem: [
     /^src\/platform\/filesystem\//u,
     /^src\/platform\/process\/node-process-adapter\.ts$/u,
-    /^src\/platform\/container-runtime\/podman\/attachment-context\.ts$/u,
-    /^src\/platform\/foreground-job\/registry\.ts$/u,
     /^src\/platform\/x11-clipboard\/display\.ts$/u,
     /^src\/platform\/container-system\/(?:container-lifecycle|diagnostics|network-bootstrap|network-files)\.ts$/u,
   ],
@@ -56,10 +54,6 @@ const APPROVED_IMPORT_FILES: Readonly<Record<string, readonly RegExp[]>> = {
 };
 
 const PROCESS_FACTORY_FILES = new Map<string, ReadonlySet<string>>([
-  [
-    "src/platform/foreground-job/darwin.ts",
-    new Set(["readDarwinJobProcesses"]),
-  ],
   [
     "src/platform/process/node-process-adapter.ts",
     new Set([
@@ -196,14 +190,6 @@ const DEPENDENCY_CONTRACT_MANIFEST: readonly DependencyContractManifestEntry[] =
       token: "sandbox environment",
       provider: "provideSandboxEnvironment",
       getter: "getSandboxEnvironment",
-    },
-    {
-      file: "src/platform/foreground-job/index.ts",
-      variable: "foregroundJobs",
-      type: "ForegroundJobsFactory",
-      token: "host foreground jobs",
-      provider: "provideForegroundJobs",
-      getter: "getForegroundJobs",
     },
     {
       file: "src/platform/logging/logger.ts",

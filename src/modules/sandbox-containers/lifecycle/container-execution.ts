@@ -15,7 +15,6 @@ import {
 } from "#modules/sandbox-runtime/index.js";
 import { getClock, waitWithTimeout } from "#platform/clock/index.js";
 import type {
-  SandboxAttachmentLaunch,
   SandboxInstanceOperations,
   SandboxInstanceSpec,
   SandboxRuntime,
@@ -28,7 +27,6 @@ import {
 } from "#platform/container-system/index.js";
 import { getHostEnvironment } from "#platform/environment/index.js";
 import { readPackageVersion } from "#platform/filesystem/index.js";
-import type { ForegroundJobPublication } from "#platform/foreground-job/index.js";
 import { getLogger } from "#platform/logging/index.js";
 import {
   getExitCodeForSignal,
@@ -58,13 +56,6 @@ import {
   prepareContainerSession,
 } from "./container-session.js";
 import { readControlLines } from "./control-watchdog.js";
-import {
-  observeForegroundAttachment,
-  prepareForegroundLaunch,
-  publishForegroundJob,
-  verifyForegroundTarget,
-  verifyPublicationMounts,
-} from "./foreground-job-launch.js";
 import { resolveHostAgentTitle } from "./host-agent-title.js";
 import { prepareSandboxEnvironment } from "./sandbox-preparation.js";
 import { runSessionHooks } from "./session-hooks.js";
@@ -145,14 +136,12 @@ async function runForegroundContainer(
 async function prepareResolvedSession(
   service: SandboxRuntime,
   options: {
-    readonly containerId: string;
     readonly containerName: string;
     readonly created: boolean;
     readonly endpoint?: string;
     readonly signal: AbortSignal;
   },
 ): Promise<{
-  readonly containerId: string;
   readonly containerName: string;
   readonly access: AsyncDisposable;
 }> {
@@ -160,11 +149,11 @@ async function prepareResolvedSession(
   if (options.created) logger.info("Creating sandbox container...");
   await using resources = new AsyncDisposableStack();
   const logCapture = options.created
-    ? resources.use(captureStartupLogs(service, options.containerId))
+    ? resources.use(captureStartupLogs(service, options.containerName))
     : undefined;
   const access = await prepareContainerSession({
     containers: service.instances,
-    containerId: options.containerId,
+    containerId: options.containerName,
     endpoint: options.endpoint,
     timeoutMs: options.created ? 30_000 : 5_000,
     signal: options.signal,
@@ -178,11 +167,7 @@ async function prepareResolvedSession(
   resources.use(access);
   await logCapture?.stop();
   logger.debug(`Container ${chalk.cyan(options.containerName)} is ready`);
-  return {
-    containerId: options.containerId,
-    containerName: options.containerName,
-    access: resources.move(),
-  };
+  return { containerName: options.containerName, access: resources.move() };
 }
 
 async function resolveExecutionContainer(
@@ -195,15 +180,19 @@ async function resolveExecutionContainer(
     readonly endpoint?: string;
     readonly signal: AbortSignal;
   },
-): ReturnType<typeof prepareResolvedSession> {
+): Promise<{
+  readonly containerName: string;
+  readonly access: AsyncDisposable;
+}> {
   const logger = getLogger();
   if (options.skipReuse) {
     return prepareResolvedSession(service, {
-      ...(await createFreshContainer(
+      containerName: await createFreshContainer(
         service,
         options.projectSlug,
         options.containerSpec,
-      )),
+      ),
+      created: true,
       endpoint: options.endpoint,
       signal: options.signal,
     });
@@ -244,7 +233,7 @@ async function resolveExecutionContainer(
   } catch (error) {
     if (result.created || !(error instanceof ContainerReadinessError))
       throw error;
-    const instance = await service.instances.inspect(result.containerId);
+    const instance = await service.instances.inspect(result.containerName);
     if (
       instance &&
       instance.state !== "stopping" &&
@@ -322,7 +311,6 @@ async function runAttachedSession(
     readonly signal: AbortSignal;
     readonly runtimeDirectory: string;
     readonly sessionId: string;
-    readonly attachmentEnded: () => void;
   },
 ) {
   const { containers, containerId, spec } = hookSession;
@@ -345,10 +333,7 @@ async function runAttachedSession(
       : undefined;
   };
   const onTermination = () => {
-    if (getTermination()) {
-      options.attachmentEnded();
-      void stopGuest();
-    }
+    if (getTermination()) void stopGuest();
   };
   signal.addEventListener("abort", onTermination, { once: true });
   let attachmentLost = true;
@@ -359,7 +344,6 @@ async function runAttachedSession(
     if (termination) throw termination;
     return result;
   } finally {
-    options.attachmentEnded();
     signal.removeEventListener("abort", onTermination);
     if (attachmentLost || signal.aborted) await stopGuest();
     await runSessionHooks({ ...hookSession, event: "session.end" }).catch(
@@ -376,11 +360,6 @@ async function execute(
   verbose: boolean,
   skipReuse: boolean,
   buildResult: BuildImagesResult,
-  job: {
-    readonly sessionId: string;
-    readonly publication?: ForegroundJobPublication;
-    readonly context?: SandboxAttachmentLaunch;
-  },
 ): Promise<void> {
   const logger = getLogger();
   const environment = getHostEnvironment();
@@ -425,8 +404,7 @@ async function execute(
     return;
   }
 
-  const { sessionId, publication, context } = job;
-  verifyPublicationMounts(publication, containerSpec.mounts);
+  const sessionId = randomUUID();
   await using commandCapability = await createHostCommandCapability({
     sessionId,
     runtime: service.runtime,
@@ -452,27 +430,18 @@ async function execute(
       new SandboxExecutionExitError(getExitCodeForSignal(signal), signal),
     ),
   );
-  const { containerId, containerName } = await service.withInstanceStartup(
-    async () => {
-      const resolved = await resolveExecutionContainer(service, {
-        containerSpec,
-        imageIdentity: buildResult.image.digest,
-        projectSlug,
-        skipReuse,
-        endpoint: config.noProxy ? undefined : bridgeSession.endpoint,
-        signal: beforeCommand.signal,
-      });
-      sessionResources.use(resolved.access);
-      return resolved;
-    },
-  );
-  const foregroundTarget = await verifyForegroundTarget(
-    publication,
-    context,
-    service,
-    containerId,
-  );
-  const unpublish = () => publication?.[Symbol.dispose]();
+  const containerName = await service.withInstanceStartup(async () => {
+    const resolved = await resolveExecutionContainer(service, {
+      containerSpec,
+      imageIdentity: buildResult.image.digest,
+      projectSlug,
+      skipReuse,
+      endpoint: config.noProxy ? undefined : bridgeSession.endpoint,
+      signal: beforeCommand.signal,
+    });
+    sessionResources.use(resolved.access);
+    return resolved.containerName;
+  });
   commandCapability.setContainerName(containerName);
   const sessionEnvironment = {
     ...bridgeSession.clientEnvironment,
@@ -482,7 +451,7 @@ async function execute(
     const clipboard = sessionResources.use(
       await prepareClipboardSession({
         containers: service.instances,
-        containerId,
+        containerId: containerName,
         bridgeEnvironment: bridgeSession.clientEnvironment,
       }),
     );
@@ -517,7 +486,7 @@ async function execute(
 
   const hookSession = {
     containers: service.instances,
-    containerId,
+    containerId: containerName,
     spec: execution.spec,
     hooks: config.hooks,
   };
@@ -529,16 +498,13 @@ async function execute(
         ...execution.session,
         ...(title ? { title } : {}),
         forwardSignal: (signal) => commandCapability.forwardSignal(signal),
-        ...observeForegroundAttachment(publication, foregroundTarget),
       },
       signal: beforeCommand.signal,
       runtimeDirectory,
       sessionId,
-      attachmentEnded: unpublish,
     });
     throwForChildExit(result.exitCode);
   } finally {
-    publication?.[Symbol.dispose]();
     await sessionResources
       .disposeAsync()
       .catch((error: unknown) =>
@@ -547,11 +513,40 @@ async function execute(
   }
 }
 
-async function confirmHomeWorkspace(
-  projectRoot: string,
-  silent: boolean,
+export async function executeInSandbox(
+  cliOptions: SandboxOptions,
+  executorOptions: ExecutorOptions,
 ): Promise<void> {
+  const logger = getLogger();
   const environment = getHostEnvironment();
+  const { timingLabel, beforeSpawn } = executorOptions;
+  const useVerboseTiming = cliOptions.verbose === true;
+  const silent = cliOptions.silent === true;
+
+  if (timingLabel && useVerboseTiming) logger.startTiming(timingLabel);
+  if (useVerboseTiming) logger.startTiming("Load config");
+  const { config, projectRoot, repositoryRoots, runtimeResolution } =
+    await getConfigurationService().load(cliOptions);
+  validateConfiguredEnvironment(config.env);
+  if (executorOptions.foreground && config.env.length > 0) {
+    logger.warn(
+      `${chalk.cyan("sandbox container start")} does not start a session and does not apply env`,
+    );
+  }
+  const runtimeSelection =
+    await getRuntimeProvider().resolve(runtimeResolution);
+  const { runtime } = runtimeSelection;
+  config.runtime = runtime.runtime;
+  if (useVerboseTiming) logger.endTiming("Load config");
+  const ctx: SandboxContext = { config, projectRoot, repositoryRoots };
+  const buildResult = await prepareSandboxEnvironment(
+    runtimeSelection,
+    ctx,
+    cliOptions,
+    useVerboseTiming,
+    silent,
+  );
+
   if (
     normalizePath(normalize(projectRoot)) ===
     normalizePath(normalize(environment.homeDirectory))
@@ -576,52 +571,6 @@ async function confirmHomeWorkspace(
       throw new SandboxExecutionExitError(1);
     }
   }
-}
-
-export async function executeInSandbox(
-  cliOptions: SandboxOptions,
-  executorOptions: ExecutorOptions,
-): Promise<void> {
-  const logger = getLogger();
-  const { timingLabel, beforeSpawn } = executorOptions;
-  const useVerboseTiming = cliOptions.verbose === true;
-  const silent = cliOptions.silent === true;
-  const sessionId = randomUUID();
-  await using context = await prepareForegroundLaunch(
-    executorOptions.tty && !executorOptions.foreground,
-  );
-  using publication = context
-    ? await publishForegroundJob(sessionId, context.hostMounts)
-    : undefined;
-
-  if (timingLabel && useVerboseTiming) logger.startTiming(timingLabel);
-  if (useVerboseTiming) logger.startTiming("Load config");
-  const { config, projectRoot, repositoryRoots, runtimeResolution } =
-    await getConfigurationService().load(cliOptions);
-  validateConfiguredEnvironment(config.env);
-  if (executorOptions.foreground && config.env.length > 0) {
-    logger.warn(
-      `${chalk.cyan("sandbox container start")} does not start a session and does not apply env`,
-    );
-  }
-  const selected = await getRuntimeProvider().resolve(runtimeResolution);
-  const pinned =
-    selected.runtime.runtime === "podman" && publication ? context : undefined;
-  if (!pinned) publication?.markUnavailable();
-  const runtimeSelection = pinned?.selection ?? selected;
-  const { runtime } = runtimeSelection;
-  config.runtime = runtime.runtime;
-  if (useVerboseTiming) logger.endTiming("Load config");
-  const ctx: SandboxContext = { config, projectRoot, repositoryRoots };
-  const buildResult = await prepareSandboxEnvironment(
-    runtimeSelection,
-    ctx,
-    cliOptions,
-    useVerboseTiming,
-    silent,
-  );
-
-  await confirmHomeWorkspace(projectRoot, silent);
 
   beforeSpawn?.(config);
   await execute(
@@ -631,6 +580,5 @@ export async function executeInSandbox(
     useVerboseTiming,
     cliOptions.containerReuse === false,
     buildResult,
-    { sessionId, publication, context: pinned },
   );
 }

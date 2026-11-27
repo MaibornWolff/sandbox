@@ -82,8 +82,6 @@ const dependencyContracts: Readonly<Record<string, string>> = {
     'interface HostEnvironment { readonly platform: string }\nconst hostEnvironmentDependency = createDependency<HostEnvironment>("host environment");\nexport function provideHostEnvironment(value: HostEnvironment) { return hostEnvironmentDependency.provide(value); }\nexport function getHostEnvironment() { return hostEnvironmentDependency.get(); }\n',
   "src/platform/environment/sandbox-environment.ts":
     'interface SandboxEnvironment { readonly home: string }\nconst sandboxEnvironmentDependency = createDependency<SandboxEnvironment>("sandbox environment");\nexport function provideSandboxEnvironment(value: SandboxEnvironment) { return sandboxEnvironmentDependency.provide(value); }\nexport function getSandboxEnvironment() { return sandboxEnvironmentDependency.get(); }\n',
-  "src/platform/foreground-job/index.ts":
-    'type ForegroundJobsFactory = () => Promise<void>;\nconst foregroundJobs = createDependency<ForegroundJobsFactory>("host foreground jobs");\nexport function provideForegroundJobs(value: ForegroundJobsFactory) { return foregroundJobs.provide(value); }\nexport function getForegroundJobs() { return foregroundJobs.get()(); }\n',
   "src/platform/logging/logger.ts":
     'interface Logger { write(): void }\nconst loggerDependency = createDependency<Logger>("logger");\nexport function provideLogger(value: Logger) { return loggerDependency.provide(value); }\nexport function getLogger() { return loggerDependency.get(); }\n',
   "src/platform/process/process-manager.ts":
@@ -119,7 +117,6 @@ async function dependencyManifestFixture(
         "container-runtime",
         "container-system",
         "environment",
-        "foreground-job",
         "logging",
         "process",
         "terminal",

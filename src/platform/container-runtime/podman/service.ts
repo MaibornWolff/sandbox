@@ -16,8 +16,6 @@ import {
   resolveContentAddressedImage,
 } from "../sandbox-adapter.js";
 import type {
-  SandboxAttachmentLaunch,
-  SandboxAttachmentLookup,
   SandboxImageBuilder,
   SandboxInstanceOperations,
   SandboxRuntime,
@@ -25,7 +23,6 @@ import type {
   SandboxStorageOperations,
 } from "../sandbox-contract.js";
 import type { VolumeOperations } from "../volume-contract.js";
-import { resolvePodmanAttachmentContext } from "./attachment-context.js";
 import { createPodmanHostOperations } from "./host.js";
 
 function podmanStates(state: ContainerState): string[] {
@@ -95,39 +92,18 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
   private readonly imageBuilder: SandboxImageBuilder;
   private readonly host: ReturnType<typeof createPodmanHostOperations>;
 
-  constructor(
-    private readonly exec: RuntimeExecutor,
-    context?: Awaited<ReturnType<typeof resolvePodmanAttachmentContext>>,
-    lookup = false,
-  ) {
-    const invoke: RuntimeExecutor = context
-      ? async (command, args, options) => {
-          await context.verifyPin();
-          return exec(command, args, {
-            ...options,
-            env: { ...options?.env, ...context.env },
-            private: true,
-            ...(lookup ? { signal: AbortSignal.timeout(5_000) } : {}),
-          });
-        }
-      : exec;
+  constructor(exec: RuntimeExecutor) {
     this.containers = createDockerContainerOperations({
       binaryName: "podman",
       runtime: "podman",
-      exec: limitPodmanContainerCommands(invoke),
-      listIdentifiers: createPodmanContainerList(invoke),
-      ...(context
-        ? {
-            childEnvironment: context.env,
-            verifyEndpoint: context.verifyPin,
-          }
-        : {}),
+      exec: limitPodmanContainerCommands(exec),
+      listIdentifiers: createPodmanContainerList(exec),
     });
-    this.images = createDockerImageOperations("podman", invoke, {
+    this.images = createDockerImageOperations("podman", exec, {
       loadResult: false,
       environment: {},
     });
-    this.volumes = createDockerVolumeOperations("podman", invoke);
+    this.volumes = createDockerVolumeOperations("podman", exec);
     this.instances = createSandboxInstanceOperations(
       this.containers,
       resolveContentAddressedImage,
@@ -137,26 +113,7 @@ export class PodmanService implements SandboxRuntime, SandboxImageBuilder {
       resolveContentAddressedImage,
     );
     this.storage = createSandboxStorageOperations(this.volumes);
-    this.host = createPodmanHostOperations(invoke);
-  }
-
-  async bindLocalLaunch(): Promise<SandboxAttachmentLaunch> {
-    const context = await resolvePodmanAttachmentContext(this.exec);
-    const service = new PodmanService(this.exec, context);
-    return {
-      ...context,
-      selection: {
-        runtime: service,
-        imageBuilder: service,
-        imageOwnershipKey: this.runtime,
-      },
-    };
-  }
-
-  async bindLocalLookup(): Promise<SandboxAttachmentLookup> {
-    const context = await resolvePodmanAttachmentContext(this.exec);
-    const { instances } = new PodmanService(this.exec, context, true);
-    return { ...context, instances };
+    this.host = createPodmanHostOperations(exec);
   }
 
   isAvailable: SandboxImageBuilder["isAvailable"] = (image) =>

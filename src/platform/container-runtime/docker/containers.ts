@@ -135,12 +135,9 @@ export function createDockerContainerOperations(options: {
   readonly binaryName: "docker" | "podman";
   readonly runtime: "docker" | "podman";
   readonly exec: RuntimeExecutor;
-  readonly childEnvironment?: Readonly<Record<string, string>>;
-  readonly verifyEndpoint?: () => Promise<void>;
   readonly listIdentifiers?: (query: ContainerQuery) => Promise<string[]>;
 }): ContainerOperations {
-  const { binaryName, runtime, exec, childEnvironment, verifyEndpoint } =
-    options;
+  const { binaryName, runtime, exec } = options;
   const listIdentifiers =
     options.listIdentifiers ??
     (async (query: ContainerQuery): Promise<string[]> => {
@@ -228,24 +225,19 @@ export function createDockerContainerOperations(options: {
       );
     },
     async openExec(id, spec) {
-      if (verifyEndpoint) await verifyEndpoint();
       return openContainerExec(
         binaryName,
         buildContainerExecArgs(id, spec, {
           attachStdin: true,
           allocateTerminal: false,
         }),
-        childEnvironment,
       );
     },
-    async execAttached(id, spec, session) {
-      if (verifyEndpoint) await verifyEndpoint();
+    execAttached(id, spec, session) {
       return runInteractiveContainerRuntimeProcess(
-        { binaryName, signalContainer: signal, env: childEnvironment },
+        { binaryName, signalContainer: signal },
         {
           args: buildContainerExecArgs(id, spec, session),
-          attachmentStarted: session.attachmentStarted,
-          attachmentExited: session.attachmentExited,
           ...(session.title ? { title: session.title } : {}),
           ...(session.forwardSignal
             ? { forwardSignal: session.forwardSignal }
@@ -266,7 +258,6 @@ export function createDockerContainerOperations(options: {
         binaryName,
         ["logs", "--follow", "--tail", String(request.tail ?? 200), id],
         request,
-        childEnvironment,
       );
     },
   };

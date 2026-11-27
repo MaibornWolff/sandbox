@@ -15,7 +15,6 @@ import { getContainerBaseName } from "../container-naming.js";
 import { findAvailableName } from "./container-discovery.js";
 
 interface FindOrCreateContainerResult {
-  readonly containerId: string;
   readonly containerName: string;
   readonly created: boolean;
 }
@@ -151,17 +150,17 @@ export async function createFreshContainer(
   service: SandboxRuntime,
   slug: string,
   spec: SandboxInstanceSpec,
-): Promise<FindOrCreateContainerResult> {
+): Promise<string> {
   const running = await queryRetainedContainers(service, slug);
   const containerName = pickContainerName(
     slug,
     new Set(running.map((entry) => entry.name)),
   );
   getLogger().debug(`Creating fresh container: ${containerName}`);
-  const { id } = await service.instances.startDetached(
+  await service.instances.startDetached(
     withContainerIdentity(spec, containerName),
   );
-  return { containerId: id, containerName, created: true };
+  return containerName;
 }
 
 async function waitForContainerStart(
@@ -216,7 +215,6 @@ export async function findOrCreateContainer(
         `Reusing existing container: ${matching.name} (hash=${hash})`,
       );
       return {
-        containerId: matching.id,
         containerName: matching.name,
         created: matching.state === "created",
       };
@@ -226,12 +224,12 @@ export async function findOrCreateContainer(
       new Set(running.map((entry) => entry.name)),
     );
     try {
-      const { id } = await service.instances.startDetached(
+      await service.instances.startDetached(
         withContainerIdentity(spec, containerName, {
           [SANDBOX_HASH_LABEL]: hash,
         }),
       );
-      return { containerId: id, containerName, created: true };
+      return { containerName, created: true };
     } catch (error) {
       if (!(error instanceof SandboxInstanceNameConflictError)) throw error;
       if (clock.now() >= retryDeadline) {

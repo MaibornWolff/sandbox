@@ -40,7 +40,6 @@ import {
 import {
   createProductionRuntimeProvider,
   provideRuntimeProvider,
-  type SandboxRuntimeProvider,
 } from "#platform/container-runtime/index.js";
 import {
   type DependencyBinding,
@@ -50,7 +49,6 @@ import {
   createHostEnvironment,
   provideHostEnvironment,
 } from "#platform/environment/index.js";
-import { provideForegroundJobs } from "#platform/foreground-job/index.js";
 import { createLogger, provideLogger } from "#platform/logging/index.js";
 import { createFakeNativeClipboardService } from "#platform/native-clipboard/__test__/index.js";
 import {
@@ -93,10 +91,6 @@ interface SandboxAppTestOptions {
   readonly runtime?: "apple-container" | "docker" | "podman";
   readonly runtimeBoundary?: "stateful" | "process";
   readonly workspaceAtHome?: boolean;
-  readonly foregroundJobs?: Parameters<typeof provideForegroundJobs>[0];
-  readonly runtimeProvider?: (
-    runtime: SandboxRuntimeProvider,
-  ) => SandboxRuntimeProvider;
 }
 
 export interface SandboxAppTest {
@@ -435,12 +429,7 @@ export async function setupSandboxAppTest(
     provideClock(clock.clock),
     provideProcessManager(processes.manager),
     provideLogger(logger),
-    provideRuntimeProvider(
-      options.runtimeProvider?.(runtimeProvider) ?? runtimeProvider,
-    ),
-    ...(options.foregroundJobs
-      ? [provideForegroundJobs(options.foregroundJobs)]
-      : []),
+    provideRuntimeProvider(runtimeProvider),
     provideWebSocketService(webSockets),
     provideHostBridgeService(bridge),
     provideClipboardCapabilityFactory(clipboardFactory),

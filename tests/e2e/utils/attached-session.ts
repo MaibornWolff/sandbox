@@ -11,21 +11,14 @@ type FixtureProcess = SandboxInstance["fixtureProcess"];
 export function startPty(
   command: string[],
   options: Pick<FixtureProcess, "cwd" | "env">,
-  optionsForPty: {
-    readonly stderrPath?: string;
-    readonly pgidPath?: string;
-  } = {},
+  stderrPath?: string,
 ) {
-  const { stderrPath, pgidPath } = optionsForPty;
-  const child = Bun.spawn(
-    ["python3", bridge, stderrPath ?? "-", pgidPath ?? "-", ...command],
-    {
-      ...options,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
+  const child = Bun.spawn(["python3", bridge, stderrPath ?? "-", ...command], {
+    ...options,
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const terminalOutput = new Response(child.stderr).text();
   let status: number | undefined;
   let bridgeError: Error | undefined;
@@ -145,7 +138,7 @@ function createFixture(options: FixtureProcess, configDir: string) {
         label === "normal" ? "42" : "0",
       ],
       options,
-      redirect ? { stderrPath: join(configDir, `${label}.stderr`) } : {},
+      redirect ? join(configDir, `${label}.stderr`) : undefined,
     );
     return Object.assign(pty, {
       async ready() {

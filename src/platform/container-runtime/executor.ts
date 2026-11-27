@@ -1,7 +1,6 @@
 export interface RuntimeExecOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly interactive?: boolean;
-  readonly private?: boolean;
   /** Stops the command when the signal aborts. */
   readonly signal?: AbortSignal;
 }

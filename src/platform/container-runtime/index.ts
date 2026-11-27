@@ -20,8 +20,6 @@ export type { RuntimeProbe } from "./runtime-types.js";
 export type {
   CommandResult,
   PublishedPort,
-  SandboxAttachmentLaunch,
-  SandboxAttachmentLookup,
   SandboxExecProcess,
   SandboxExecSpec,
   SandboxImage,

@@ -1,7 +1,4 @@
-import type {
-  SandboxInstanceOperations,
-  SandboxInstanceSummary,
-} from "#platform/container-runtime/index.js";
+import type { SandboxRuntime } from "#platform/container-runtime/index.js";
 import { SANDBOX_HASH_LABEL } from "../container-hashing.js";
 import {
   SANDBOX_PROJECT_DIR_LABEL,
@@ -27,7 +24,7 @@ interface FindContainersOptions {
 }
 
 export async function findSandboxContainers(
-  service: { readonly instances: Pick<SandboxInstanceOperations, "list"> },
+  service: SandboxRuntime,
   options: FindContainersOptions = {},
 ): Promise<SandboxContainer[]> {
   const { status = "all", projectSlug } = options;
@@ -36,13 +33,7 @@ export async function findSandboxContainers(
     labels: { [SANDBOX_PROJECT_LABEL]: projectSlug ?? null },
     ...(status === "all" ? {} : { states: [status] }),
   });
-  return entries.map(toSandboxContainer);
-}
-
-export function toSandboxContainer(
-  entry: SandboxInstanceSummary,
-): SandboxContainer {
-  return {
+  return entries.map((entry) => ({
     id: entry.id,
     name: entry.name,
     image: entry.image.reference.replace(/^localhost\//u, ""),
@@ -50,7 +41,7 @@ export function toSandboxContainer(
     projectDir: entry.labels[SANDBOX_PROJECT_DIR_LABEL] ?? null,
     hash: entry.labels[SANDBOX_HASH_LABEL] ?? null,
     startedAt: entry.startedAt,
-  };
+  }));
 }
 
 export function findAvailableName(

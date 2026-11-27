@@ -89,9 +89,6 @@ The trusted container hook plan is fixed at boot and is part of the container re
 
 The container entrypoint owns container events.
 The host session workflow owns session events and cleanup.
-On supported hosts it also publishes a private foreground-job record during launch and retires it when the attachment ends, before end hooks.
-The host process adapter verifies the job instance. The container runtime adapter binds the exact runtime endpoint and container.
-The guest can confirm that the selected session is ready to query, but it cannot choose the host job or target.
 See [lifecycle hooks](../docs/CONFIGURATION.md#lifecycle-hooks) for configuration.
 
 Keep detailed adapter behavior in its owning code and tests.

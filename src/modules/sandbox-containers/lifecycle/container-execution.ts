@@ -74,7 +74,10 @@ interface ExecutorOptions {
 class SandboxExecutionExitError extends Error {
   readonly reported = true;
 
-  constructor(readonly exitCode: number) {
+  constructor(
+    readonly exitCode: number,
+    readonly signal?: NodeJS.Signals,
+  ) {
     super(`Sandbox child exited with code ${exitCode}`);
   }
 }
@@ -314,20 +317,35 @@ async function runAttachedSession(
   const { session, signal, runtimeDirectory, sessionId } = options;
   await runSessionHooks({ ...hookSession, event: "session.start", signal });
   signal.throwIfAborted();
+  let guestStop: Promise<void> | undefined;
+  const stopGuest = () =>
+    (guestStop ??= stopGuestSession(
+      containers,
+      containerId,
+      runtimeDirectory,
+      sessionId,
+    ));
+  const getTermination = () => {
+    const reason: unknown = signal.reason;
+    return reason instanceof SandboxExecutionExitError &&
+      (reason.signal === "SIGHUP" || reason.signal === "SIGTERM")
+      ? reason
+      : undefined;
+  };
+  const onTermination = () => {
+    if (getTermination()) void stopGuest();
+  };
+  signal.addEventListener("abort", onTermination, { once: true });
   let attachmentLost = true;
   try {
     const result = await containers.execAttached(containerId, spec, session);
     attachmentLost = result.signal !== undefined;
+    const termination = getTermination();
+    if (termination) throw termination;
     return result;
   } finally {
-    if (attachmentLost || signal.aborted) {
-      await stopGuestSession(
-        containers,
-        containerId,
-        runtimeDirectory,
-        sessionId,
-      );
-    }
+    signal.removeEventListener("abort", onTermination);
+    if (attachmentLost || signal.aborted) await stopGuest();
     await runSessionHooks({ ...hookSession, event: "session.end" }).catch(
       (error: unknown) =>
         getLogger().warn(`Session end hook failed: ${getErrorMessage(error)}`),
@@ -409,7 +427,7 @@ async function execute(
   const beforeCommand = new AbortController();
   void getProcessManager().termination.then((signal) =>
     beforeCommand.abort(
-      new SandboxExecutionExitError(getExitCodeForSignal(signal)),
+      new SandboxExecutionExitError(getExitCodeForSignal(signal), signal),
     ),
   );
   const containerName = await service.withInstanceStartup(async () => {

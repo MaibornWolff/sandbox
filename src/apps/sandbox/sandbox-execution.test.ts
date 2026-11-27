@@ -83,8 +83,8 @@ command_wrapper = ["wrapper"]
     expect(end.pid).toBeUndefined();
     app.processes.emitTermination("SIGTERM");
     await attached.waitForSignal();
-    attached.exit({ exitCode: 143 });
     await stop.waitForStart();
+    attached.exit({ exitCode: 1 });
     expect(end.pid).toBeUndefined();
     expect(app.runtime.instances.all()[0]?.controls).toHaveLength(1);
     stop.emitStderr("Guest process did not exit.\n");

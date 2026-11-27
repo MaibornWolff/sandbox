@@ -38,6 +38,7 @@
 - Prevent Podman SSH connection failures in `sandbox status --all` and `sandbox status --session` when many projects are running.
 - Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
 - Fix session cleanup when the terminal closes, without stopping other sessions in the same container.
+- Start attached-session cleanup on hangup or termination without waiting for the container runtime to detach. Report exit code 129 for hangup and 143 for termination.
 
 ## [0.74.0] - 2026-11-24
 

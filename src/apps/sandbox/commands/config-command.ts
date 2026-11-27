@@ -4,6 +4,7 @@ import { configUpdateCommand } from "#modules/workspace-setup/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
 import { showConfig } from "../config-display.js";
 import { requireHost } from "../host-environment.js";
+import { rejectUnknownCommand } from "./unknown-command.js";
 
 export function registerConfigCommands(program: Command): void {
   const config = program
@@ -18,6 +19,11 @@ export function registerConfigCommands(program: Command): void {
     .command("show", { isDefault: true })
     .description("Show merged configuration")
     .action(async (_options, cmd) => {
+      // As the default subcommand, `show` also receives mistyped subcommands.
+      const requested: string | undefined = config.args[0];
+      if (requested && requested !== "show" && !requested.startsWith("-")) {
+        rejectUnknownCommand(config, requested);
+      }
       const globalOpts = cmd.parent?.parent?.opts() ?? {};
       await showConfig(globalOpts);
     });

@@ -259,7 +259,7 @@ describe("container reuse", () => {
       image: "sandbox-project:latest",
       labels: { "sandbox.project": "project", "sandbox.hash": "old" },
       status: "running",
-      sessions: [{ pid: "123", command: "zsh" }],
+      sessions: [{ pid: "123" }],
     });
     const runtime = (await harness.provider.resolve()).runtime;
     const result = await runWithTestLogger(() =>

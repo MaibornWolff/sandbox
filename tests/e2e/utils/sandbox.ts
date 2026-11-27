@@ -42,7 +42,8 @@ interface SandboxExecOptions {
 interface SandboxCommandInteraction {
   readonly result: Promise<SandboxResult>;
   sendSignal(signal: NodeJS.Signals): void;
-  waitForOutput(expected: string, timeoutSeconds?: number): Promise<void>;
+  /** Resolves with the stdout that the command has written so far. */
+  waitForOutput(expected: string, timeoutSeconds?: number): Promise<string>;
 }
 
 const DEFAULT_TIMEOUT = 20;
@@ -186,11 +187,11 @@ function startSandboxCommand(options: {
     sendSignal(signal): void {
       proc.child.kill(signal);
     },
-    async waitForOutput(expected, timeoutSeconds = timeout): Promise<void> {
+    async waitForOutput(expected, timeoutSeconds = timeout): Promise<string> {
       const deadline = Date.now() + timeoutSeconds * 1_000;
       while (Date.now() < deadline) {
         const { stdout, stderr } = proc.readOutput();
-        if (`${stdout}\n${stderr}`.includes(expected)) return;
+        if (`${stdout}\n${stderr}`.includes(expected)) return stdout;
         const completed = await Promise.race([
           result.then(() => true),
           Bun.sleep(50).then(() => false),

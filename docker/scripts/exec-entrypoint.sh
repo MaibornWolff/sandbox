@@ -6,7 +6,12 @@
 # Manages session marker files for idle detection and drops privileges via gosu.
 #
 # Session markers live in /tmp/sandbox-sessions/, one file per session named by PID.
+# Each marker is written in /tmp/sandbox-sessions/.staging/ and then renamed.
 # The idle watcher (container PID 1) cleans stale markers by verifying PIDs are alive.
+#
+# Marker format (v2): the session ID and each requested argument, each followed
+# by a zero byte. An argument cannot contain a zero byte, so the fields stay
+# unambiguous. `sandbox status` decodes this format.
 #
 # Marker cleanup: best-effort via EXIT trap. Since gosu uses exec() to replace
 # this shell, the trap only fires if the script exits before reaching gosu.
@@ -15,10 +20,16 @@
 
 set -e
 
-mkdir -p /tmp/sandbox-sessions
+# The rename lets readers see the complete marker or no marker, never a
+# partial one. Only root can create files in the staging folder, so the
+# sandbox user cannot prepare the marker path. The idle watcher skips this
+# folder.
+mkdir -p /tmp/sandbox-sessions/.staging
 session_file="/tmp/sandbox-sessions/$$"
-printf '%s' "${SANDBOX_SESSION_ID:-}" > "$session_file"
-trap 'rm -f "$session_file"' EXIT
+session_temp_file="/tmp/sandbox-sessions/.staging/$$"
+trap 'rm -f "$session_temp_file" "$session_file"' EXIT
+printf '%s\0' "${SANDBOX_SESSION_ID:-}" "$@" > "$session_temp_file"
+mv -f "$session_temp_file" "$session_file"
 
 # Load the sandbox user's profile for non-interactive commands too. Prefer zsh
 # to match the default sandbox shell, but fall back to bash or sh if a derived

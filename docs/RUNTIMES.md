@@ -24,6 +24,10 @@ runtime = "podman"
 Allowed values are `"docker"`, `"podman"`, and `"apple-container"`.
 Docker-compatible tools still use Dockerfile syntax when the selected runtime is not Docker.
 
+`sandbox status` uses only the runtime from your user configuration.
+It ignores `runtime` in a project configuration and does not ask you to trust a project configuration.
+If you set `runtime` only in a project configuration, also set it in your user configuration.
+
 Run `sandbox doctor` to check runtime availability and configuration.
 See [Apple runtime settings](APPLE-CONTAINER.md) for DNS and resource defaults.
 

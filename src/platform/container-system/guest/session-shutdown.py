@@ -106,7 +106,7 @@ def remove_marker(pid, session_id):
                 encoded_id = session_id.encode("ascii")
                 if (
                     stat.S_ISREG(os.fstat(marker.fileno()).st_mode)
-                    and marker.read(len(encoded_id) + 1) == encoded_id
+                    and marker.read(len(encoded_id) + 1) in (encoded_id, encoded_id + b"\0")
                 ):
                     os.unlink(name, dir_fd=directory)
         finally:

@@ -69,6 +69,7 @@ describe("buildSandboxInstanceSpec", () => {
     expect(spec.name).toBe("");
     expect(spec.labels).toMatchObject({
       "sandbox.project": "test-project-a1b2",
+      "sandbox.project-dir": "/test/project",
       "sandbox.runtime": runtimePackage.id,
     });
     expect(spec.environment).toMatchObject({

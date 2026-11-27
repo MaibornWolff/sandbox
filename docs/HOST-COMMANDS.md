@@ -19,6 +19,9 @@ Allowed host commands also receive these variables, which override values inheri
 These values provide context, not proof of identity or a security boundary.
 Sessions in the same container share files and processes.
 
+An allowed host command can look up its own session with `sandbox status --session "$SANDBOX_SESSION_ID" --json`.
+See [machine-readable status](SESSIONS.md#machine-readable-status).
+
 ## Add a narrow rule
 
 In the user or project configuration:

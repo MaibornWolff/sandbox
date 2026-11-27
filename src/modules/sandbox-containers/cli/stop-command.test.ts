@@ -1,7 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { createStatefulContainerRuntimeHarness } from "#platform/container-runtime/__test__/index.js";
+import type { ContainerSession } from "#platform/container-system/index.js";
 import { runWithTestLogger } from "#test/host-test-scope.js";
 import { buildStopWarning, stopContainers } from "./stop-command.js";
+
+function session(pid: number, command: string): ContainerSession {
+  return {
+    pid,
+    startedAt: new Date(Date.UTC(2026, 0, 1)),
+    id: null,
+    command: command.split(" "),
+    title: command,
+  };
+}
 
 describe("sandbox stop session cancellation", () => {
   test("signals discovered sessions before stopping their container", async () => {
@@ -19,10 +30,7 @@ describe("sandbox stop session cancellation", () => {
       stopContainers(runtime, [
         {
           container: container.snapshot(),
-          sessions: [
-            { pid: "41", command: "sleep 30" },
-            { pid: "42", command: "zsh" },
-          ],
+          sessions: [session(41, "sleep 30"), session(42, "zsh")],
         },
       ]),
     );
@@ -57,7 +65,7 @@ describe("sandbox stop session cancellation", () => {
       stopContainers(runtime, [
         {
           container: container.snapshot(),
-          sessions: [{ pid: "41", command: "sleep 30" }],
+          sessions: [session(41, "sleep 30")],
         },
       ]),
     );
@@ -67,6 +75,28 @@ describe("sandbox stop session cancellation", () => {
       type: "container.stop",
       containerId: container.id,
     });
+  });
+
+  test("stops a container with unknown sessions without signaling them", async () => {
+    const harness = createStatefulContainerRuntimeHarness();
+    const container = harness.instances.create({
+      name: "managed",
+      image: "sandbox-project:latest",
+      labels: {},
+      status: "running",
+    });
+    const runtime = (await harness.provider.resolve()).runtime;
+
+    const stopped = await runWithTestLogger(() =>
+      stopContainers(runtime, [
+        { container: container.snapshot(), sessions: null },
+      ]),
+    );
+
+    expect(stopped).toBe(1);
+    expect(harness.events()).toEqual([
+      { type: "container.stop", containerId: container.id },
+    ]);
   });
 });
 
@@ -79,10 +109,7 @@ describe("buildStopWarning", () => {
           name: "sandbox-proj-1234",
           image: "sandbox-base:latest",
         },
-        sessions: [
-          { pid: "1", command: "zsh" },
-          { pid: "2", command: "node" },
-        ],
+        sessions: [session(1, "zsh"), session(2, "node")],
       },
       {
         container: {
@@ -90,7 +117,7 @@ describe("buildStopWarning", () => {
           name: "sandbox-proj-1234-2",
           image: "sandbox-base:latest",
         },
-        sessions: [{ pid: "3", command: "bun test" }],
+        sessions: [session(3, "bun test")],
       },
     ]);
 
@@ -116,5 +143,52 @@ describe("buildStopWarning", () => {
     expect(warning).toContain("no sessions");
     expect(warning).not.toContain("active session(s)");
     expect(warning).toContain("Continue?");
+  });
+
+  test("warns that unknown sessions end without a session count", () => {
+    const warning = buildStopWarning([
+      {
+        container: {
+          id: "a",
+          name: "sandbox-proj-1234",
+          image: "sandbox-base:latest",
+        },
+        sessions: null,
+      },
+    ]);
+
+    expect(warning.split("\n")[0]).toBe(
+      "This will stop and remove 1 container(s):",
+    );
+    expect(warning).toContain("sessions unknown");
+    expect(warning).toEndWith("This will cancel all open sessions. Continue?");
+  });
+
+  test("counts only the known sessions next to unknown sessions", () => {
+    const warning = buildStopWarning([
+      {
+        container: {
+          id: "a",
+          name: "sandbox-proj-1234",
+          image: "sandbox-base:latest",
+        },
+        sessions: [session(1, "zsh"), session(2, "node")],
+      },
+      {
+        container: {
+          id: "b",
+          name: "sandbox-proj-1234-2",
+          image: "sandbox-base:latest",
+        },
+        sessions: null,
+      },
+    ]);
+
+    expect(warning.split("\n")[0]).toBe(
+      "This will stop and remove 2 container(s) with 2 active session(s):",
+    );
+    expect(warning).toContain("2 sessions");
+    expect(warning).toContain("sessions unknown");
+    expect(warning).toEndWith("This will cancel all open sessions. Continue?");
   });
 });

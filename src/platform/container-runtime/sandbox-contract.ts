@@ -138,10 +138,10 @@ export interface SandboxInstanceSummary {
   readonly image: SandboxImage;
   readonly labels: Readonly<Record<string, string>>;
   readonly state: SandboxInstanceState;
+  readonly startedAt: Date | null;
 }
 
 export interface SandboxInstanceDetails extends SandboxInstanceSummary {
-  readonly startedAt: Date | null;
   readonly mounts: readonly SandboxMount[];
 }
 

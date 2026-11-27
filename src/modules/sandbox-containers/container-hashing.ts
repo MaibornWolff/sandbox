@@ -65,14 +65,3 @@ export async function computeRuntimeContainerHash(options: {
     spec: options.spec,
   });
 }
-
-export async function getContainerHash(
-  service: SandboxRuntime,
-  containerId: string,
-): Promise<string | null> {
-  return (
-    (await service.instances.inspect(containerId))?.labels[
-      SANDBOX_HASH_LABEL
-    ] ?? null
-  );
-}

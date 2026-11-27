@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getRepoRootPath } from "#platform/git/index.js";
+import { shellQuote } from "#shared/text/index.js";
 import { cleanupTestDir, createTestDir } from "#test/utils.js";
 
 const testDirectories: string[] = [];
@@ -27,6 +29,8 @@ async function prepareExecEntrypoint(
   readonly scriptPath: string;
   readonly binDirectory: string;
   readonly argumentsPath: string;
+  readonly renameArgumentsPath: string;
+  readonly renamedContentsPath: string;
   readonly sessionsDirectory: string;
 }> {
   const repoRoot = await getRepoRootPath(process.cwd());
@@ -36,6 +40,10 @@ async function prepareExecEntrypoint(
   const sessionsDirectory = path.join(directory, "sessions");
   const scriptPath = path.join(directory, "exec-entrypoint.sh");
   const argumentsPath = path.join(directory, "arguments.txt");
+  const renameArgumentsPath = path.join(directory, "mv-arguments.txt");
+  const renamedContentsPath = path.join(directory, "mv-contents.txt");
+  const realMv = Bun.which("mv");
+  if (!realMv) throw new Error("The exec entrypoint test needs mv.");
   await Promise.all([
     mkdir(binDirectory, { recursive: true }),
     mkdir(sessionsDirectory, { recursive: true }),
@@ -65,8 +73,32 @@ async function prepareExecEntrypoint(
       "",
     ].join("\n"),
   );
+  // Record each rename and the content of the renamed file, then rename it.
+  await createExecutable(
+    path.join(binDirectory, "mv"),
+    [
+      "#!/bin/sh",
+      'printf "%s\\n" "$@" >> "$FAKE_MV_ARGUMENTS_PATH"',
+      'for argument in "$@"; do',
+      '  if [ -f "$argument" ]; then cat "$argument" > "$FAKE_MV_CONTENTS_PATH"; fi',
+      "done",
+      `exec ${shellQuote(realMv)} "$@"`,
+      "",
+    ].join("\n"),
+  );
 
-  return { scriptPath, binDirectory, argumentsPath, sessionsDirectory };
+  return {
+    scriptPath,
+    binDirectory,
+    argumentsPath,
+    renameArgumentsPath,
+    renamedContentsPath,
+    sessionsDirectory,
+  };
+}
+
+async function readOptionalFile(filePath: string): Promise<string> {
+  return existsSync(filePath) ? readFile(filePath, "utf8") : "";
 }
 
 async function runExecEntrypoint(
@@ -74,9 +106,15 @@ async function runExecEntrypoint(
   shellName: "zsh" | "bash" = "zsh",
 ): Promise<{
   readonly exitCode: number;
+  readonly pid: number;
   readonly arguments: string[];
+  readonly sessionsDirectory: string;
+  readonly sessionEntries: string[];
+  readonly stagingEntries: string[] | null;
   readonly markerPid: string;
   readonly markerContents: string;
+  readonly renameArguments: string[];
+  readonly renamedContents: string;
 }> {
   const fixture = await prepareExecEntrypoint(shellName);
   const child = Bun.spawn(
@@ -86,6 +124,8 @@ async function runExecEntrypoint(
         ...process.env,
         PATH: `${fixture.binDirectory}:${process.env.PATH ?? ""}`,
         FAKE_ARGUMENTS_PATH: fixture.argumentsPath,
+        FAKE_MV_ARGUMENTS_PATH: fixture.renameArgumentsPath,
+        FAKE_MV_CONTENTS_PATH: fixture.renamedContentsPath,
         FAKE_EXIT_CODE: String(expectedExitCode),
         SANDBOX_SESSION_ID: sessionId,
       },
@@ -94,17 +134,30 @@ async function runExecEntrypoint(
     },
   );
   const exitCode = await child.exited;
-  const [argumentsText, markers] = await Promise.all([
-    readFile(fixture.argumentsPath, "utf8"),
-    readdir(fixture.sessionsDirectory),
-  ]);
+  const stagingDirectory = path.join(fixture.sessionsDirectory, ".staging");
+  const [argumentsText, entries, renameArguments, renamedContents] =
+    await Promise.all([
+      readFile(fixture.argumentsPath, "utf8"),
+      readdir(fixture.sessionsDirectory, { withFileTypes: true }),
+      readOptionalFile(fixture.renameArgumentsPath),
+      readOptionalFile(fixture.renamedContentsPath),
+    ]);
+  const markerPid = entries.find((entry) => entry.isFile())?.name ?? "";
   return {
     exitCode,
+    pid: child.pid,
     arguments: argumentsText.trimEnd().split("\n"),
-    markerPid: markers[0] ?? "",
-    markerContents: markers[0]
-      ? await readFile(path.join(fixture.sessionsDirectory, markers[0]), "utf8")
+    sessionsDirectory: fixture.sessionsDirectory,
+    sessionEntries: entries.map((entry) => entry.name).sort(),
+    stagingEntries: existsSync(stagingDirectory)
+      ? await readdir(stagingDirectory)
+      : null,
+    markerPid,
+    markerContents: markerPid
+      ? await readFile(path.join(fixture.sessionsDirectory, markerPid), "utf8")
       : "",
+    renameArguments: renameArguments.split("\n").filter(Boolean),
+    renamedContents,
   };
 }
 
@@ -125,11 +178,29 @@ describe("exec-entrypoint.sh", () => {
     ]);
   });
 
-  test("writes the session ID into the PID marker", async () => {
+  test("writes marker v2 with the session ID and the requested command", async () => {
     const result = await runExecEntrypoint(0);
 
     expect(result.markerPid).toMatch(/^\d+$/);
-    expect(result.markerContents).toBe(sessionId);
+    expect(result.markerContents).toBe(
+      `${sessionId}\0printf\0%s\0argument with spaces\0`,
+    );
+  });
+
+  test("moves the complete marker from the staging folder in one rename", async () => {
+    const result = await runExecEntrypoint(0);
+    const pid = String(result.pid);
+
+    expect(result.renameArguments).toEqual([
+      "-f",
+      path.join(result.sessionsDirectory, ".staging", pid),
+      path.join(result.sessionsDirectory, pid),
+    ]);
+    expect(result.renamedContents).toBe(
+      `${sessionId}\0printf\0%s\0argument with spaces\0`,
+    );
+    expect(result.stagingEntries).toEqual([]);
+    expect(result.sessionEntries).toEqual([".staging", pid]);
   });
 
   test("falls back to bash when zsh is unavailable", async () => {

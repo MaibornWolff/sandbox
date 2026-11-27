@@ -326,6 +326,7 @@ export const architecture = defineArchitecture({
     "modules/clipboard",
     "modules/host-bridge",
     "modules/network-diagnostics",
+    "modules/sandbox-containers",
     "modules/self-update",
     "platform/clock",
     "platform/native-clipboard",

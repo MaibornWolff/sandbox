@@ -3,7 +3,9 @@
 import importlib.util
 from pathlib import Path
 import signal
+import stat
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import call, patch
 
@@ -121,6 +123,37 @@ class SessionShutdownTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already has a registered process"):
             shutdown.register(self.record, 42)
         self.assertEqual(self.record.read_text(), "41 100\n")
+
+
+class SessionMarkerTest(unittest.TestCase):
+    def test_removes_only_markers_with_the_exact_session_id(self):
+        session = SESSION.encode("ascii")
+        sibling = SIBLING.encode("ascii")
+        with TemporaryDirectory() as directory, patch.object(shutdown, "MARKERS", directory):
+            self.check_markers(Path(directory), session, sibling)
+
+    def check_markers(self, directory, session, sibling):
+        marker = directory / "41"
+        owner = directory.stat().st_uid
+        real_fstat = shutdown.os.fstat
+
+        def fstat(fd):
+            info = real_fstat(fd)
+            if stat.S_ISDIR(info.st_mode) and info.st_uid == owner:
+                return SimpleNamespace(st_uid=0, st_mode=info.st_mode)
+            return info
+
+        with patch.object(shutdown.os, "fstat", side_effect=fstat):
+            for contents, removed in (
+                (session, True),
+                (session + b"\0claude\0--resume\0", True),
+                (sibling + b"\0claude\0", False),
+                (session + b"x", False),
+            ):
+                with self.subTest(contents=contents):
+                    marker.write_bytes(contents)
+                    shutdown.remove_marker(41, SESSION)
+                    self.assertEqual(not marker.exists(), removed)
 
 
 if __name__ == "__main__":

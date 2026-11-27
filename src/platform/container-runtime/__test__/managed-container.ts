@@ -5,9 +5,9 @@ import type {
 
 export type ManagedContainerStatus = ContainerDetails["state"] | "removed";
 
+/** A live session that keeps the container from the idle stop. */
 export interface ManagedExecSession {
   readonly pid: string;
-  readonly command: string;
 }
 
 export interface ManagedContainerValues {
@@ -71,12 +71,15 @@ function commandKey(command: readonly string[]): string {
   return JSON.stringify(command);
 }
 
-function isReadinessCommand(command: readonly string[]): boolean {
-  return command.some((value) => value.includes("/run/sandbox/ready"));
-}
+const READINESS_WAIT_LOOP = "while [ ! -f '/run/sandbox/ready' ]; do";
 
-function isSessionDetailsCommand(command: readonly string[]): boolean {
-  return command.some((part) => part.includes('echo "$pid|$cmd"'));
+/** Matches only the ready wait loop of the session control. */
+export function isReadinessCommand(command: readonly string[]): boolean {
+  const scriptIndex = command.indexOf("-c") + 1;
+  return (
+    scriptIndex > 0 &&
+    (command[scriptIndex]?.includes(READINESS_WAIT_LOOP) ?? false)
+  );
 }
 
 function isIdleCommand(command: readonly string[]): boolean {
@@ -89,12 +92,6 @@ function isIdleCommand(command: readonly string[]): boolean {
 function resolveFixture(fixture: ExecFixture): string {
   if (fixture.error) throw fixture.error;
   return fixture.output ?? "";
-}
-
-function formatSessions(sessions: readonly ManagedExecSession[]): string {
-  return sessions
-    .map((session) => `${session.pid}|${session.command}`)
-    .join("\n");
 }
 
 export function createManagedContainer(
@@ -177,7 +174,6 @@ export function createManagedContainer(
       const fixture = execFixtures.get(commandKey(command));
       if (fixture) return resolveFixture(fixture);
       if (isReadinessCommand(command)) return resolveReadinessScript(command);
-      if (isSessionDetailsCommand(command)) return formatSessions(sessions);
       if (command[0] === "/usr/sbin/iptables") return "";
       if (command.some((part) => part.includes("/usr/sbin/iptables-save")))
         return "";

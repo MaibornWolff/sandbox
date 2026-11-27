@@ -31,7 +31,10 @@ import {
   splitColonString,
   windowsPathToDocker,
 } from "#shared/text/index.js";
-import { SANDBOX_PROJECT_LABEL } from "../container-labels.js";
+import {
+  SANDBOX_PROJECT_DIR_LABEL,
+  SANDBOX_PROJECT_LABEL,
+} from "../container-labels.js";
 import {
   validateContainerMountDestinations,
   validateMountPath,
@@ -267,6 +270,7 @@ export async function buildSandboxInstanceSpec(
     image: { reference: getFinalImage(projectRoot), digest: "" },
     labels: {
       [SANDBOX_PROJECT_LABEL]: projectSlug,
+      [SANDBOX_PROJECT_DIR_LABEL]: projectRoot,
       [SANDBOX_RUNTIME_LABEL]: options.runtimePackage.id,
     },
     environment,

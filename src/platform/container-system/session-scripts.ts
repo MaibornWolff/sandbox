@@ -1,4 +1,8 @@
-import { CONTAINER_SESSIONS_DIRECTORY } from "./container-paths.js";
+import {
+  CONTAINER_READY_FILE,
+  CONTAINER_SESSIONS_DIRECTORY,
+} from "./container-paths.js";
+import { SESSION_MARKER_READ_LIMIT } from "./session-status.js";
 
 function buildSessionOperation(
   runtimeDirectory: string,
@@ -34,6 +38,7 @@ export function buildSessionStopCommand(
 }
 
 const SESSION_CONTROL_MARKERS_DIRECTORY = `${CONTAINER_SESSIONS_DIRECTORY}/.controls`;
+const SESSION_TITLE_READ_LIMIT = 512;
 
 const detectActiveSession = [
   `for f in ${CONTAINER_SESSIONS_DIRECTORY}/* ${SESSION_CONTROL_MARKERS_DIRECTORY}/*; do`,
@@ -42,6 +47,22 @@ const detectActiveSession = [
   'rm -f "$f";',
   "done",
 ].join(" ");
+
+const hexEncode = "od -An -v -tx1 | tr -d ' \\n'";
+
+const readSessionStatus = [
+  `if [ -f ${CONTAINER_READY_FILE} ]; then echo 'ready 1'; else echo 'ready 0'; fi`,
+  `for f in ${CONTAINER_SESSIONS_DIRECTORY}/*; do`,
+  '  [ -f "$f" ] || continue',
+  "  pid=${f##*/}",
+  "  case $pid in ''|*[!0-9]*) continue ;; esac",
+  '  kill -0 "$pid" 2>/dev/null || continue',
+  '  started=$(date -r "$f" +%s 2>/dev/null) || continue',
+  `  marker=$(head -c ${SESSION_MARKER_READ_LIMIT} "$f" 2>/dev/null | ${hexEncode})`,
+  `  title=$(head -c ${SESSION_TITLE_READ_LIMIT} "/proc/$pid/cmdline" 2>/dev/null | ${hexEncode})`,
+  '  echo "session $pid $started ${marker:--} ${title:--}"',
+  "done",
+].join("\n");
 
 /**
  * Shell command that removes stale session markers and exits with 0 when the
@@ -52,21 +73,9 @@ export function buildSessionIdleCommand(): string[] {
 }
 
 /**
- * Shell command that removes stale session markers and prints one
- * `<pid>|<command>` line per active session.
+ * Read-only shell command that prints the ready state and one line per live
+ * session. `parseSessionStatus()` reads its output.
  */
-export function buildSessionDetailsCommand(): string[] {
-  return [
-    "sh",
-    "-c",
-    [
-      `for f in ${CONTAINER_SESSIONS_DIRECTORY}/*; do`,
-      '[ -f "$f" ] || continue;',
-      'pid=$(basename "$f");',
-      'kill -0 "$pid" 2>/dev/null || { rm -f "$f"; continue; };',
-      'cmd=$(tr "\\0" " " < /proc/$pid/cmdline 2>/dev/null | head -c 200);',
-      'echo "$pid|$cmd";',
-      "done",
-    ].join(" "),
-  ];
+export function buildSessionStatusCommand(): string[] {
+  return ["sh", "-c", readSessionStatus];
 }

@@ -224,13 +224,14 @@ export function createDockerContainerOperations(options: {
         buildContainerExecArgs(id, spec),
       );
     },
-    async openExec(id, spec) {
+    async openExec(id, spec, options) {
       return openContainerExec(
         binaryName,
         buildContainerExecArgs(id, spec, {
           attachStdin: true,
           allocateTerminal: false,
         }),
+        options,
       );
     },
     execAttached(id, spec, session) {

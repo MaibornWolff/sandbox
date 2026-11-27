@@ -386,6 +386,50 @@ describe("process lifecycle", () => {
     controller.disappear();
   });
 
+  test("repeat signals force user processes without blocking or killing finalizers", async () => {
+    const fixture = createFixture();
+    const termination = fixture.manager.termination;
+    const user = fixture.queue();
+    const userProcess = startApplication(fixture, "user work");
+    const startFinalizer = (command: string) =>
+      fixture.manager.start({
+        command,
+        lifetime: "application",
+        interaction: { mode: "non-interactive" },
+        stdio: "stream",
+        finalization: true,
+      });
+    const early = fixture.queue();
+    const earlyFinalizer = startFinalizer("guest stop");
+
+    fixture.emitSignal("SIGHUP");
+    await expect(termination).resolves.toBe("SIGHUP");
+    fixture.emitSignal("SIGHUP");
+    expect(user.signals).toEqual(["SIGKILL"]);
+    expect(early.signals).toEqual([]);
+    expect(() => startApplication(fixture, "late user work")).toThrow(
+      "stopping",
+    );
+    const late = fixture.queue();
+    const lateFinalizer = startFinalizer("end hook");
+    fixture.emitSignal("SIGHUP");
+    expect(late.signals).toEqual([]);
+
+    user.exit({ signal: "SIGKILL" });
+    await expect(userProcess.exited).resolves.toMatchObject({
+      signal: "SIGKILL",
+    });
+    early.onSignal = () => early.exit({ signal: "SIGTERM" });
+    late.onSignal = () => late.exit({ signal: "SIGTERM" });
+    await fixture.manager.dispose();
+    await expect(earlyFinalizer.result).resolves.toMatchObject({
+      signal: "SIGTERM",
+    });
+    await expect(lateFinalizer.result).resolves.toMatchObject({
+      signal: "SIGTERM",
+    });
+  });
+
   test("falls back locally when forced external forwarding fails", async () => {
     const fixture = createFixture();
     const controller = fixture.queue();
@@ -709,6 +753,7 @@ describe("process lifecycle", () => {
         throw new Error("unused");
       },
       capture: () => undefined,
+      forcedTermination: new AbortController().signal,
       stopAll: async () => undefined,
       dispose: async () => {
         throw disposal;

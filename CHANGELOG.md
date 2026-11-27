@@ -37,8 +37,9 @@
 - `sandbox stop` now shows `sessions unknown` and warns that open sessions will end when it cannot read the sessions of a container. Previously, it showed `no sessions`.
 - Prevent Podman SSH connection failures in `sandbox status --all` and `sandbox status --session` when many projects are running.
 - Prevent `sandbox status` from failing if Podman removes a container while Sandbox inspects it.
-- Fix session cleanup when the terminal closes, without stopping other sessions in the same container.
+- Finish session cleanup even if closing the terminal sends more than one hangup signal. Other sessions in the same container stay active.
 - Start attached-session cleanup on hangup or termination without waiting for the container runtime to detach. Report exit code 129 for hangup and 143 for termination.
+- Retry once if stopping an attached session in the container times out. This can delay exit, but does not stop other sessions.
 
 ## [0.74.0] - 2026-11-24
 

@@ -264,12 +264,14 @@ function startStreamingProcess(
     readonly terminal: ProcessTerminal;
   },
   request: StreamingProcessRequest,
+  platform: NodeJS.Platform,
 ): StartedStreamingProcess {
   if (request.signal?.aborted) return cancelledStreamingProcess(request.signal);
   const child = spawnChild(request.command, [...(request.args ?? [])], {
     cwd: request.cwd ?? options.environment.currentWorkingDirectory,
     env: { ...options.environment.variables, ...request.env },
-    detached: false,
+    // Keep finalizers outside the terminal's hangup signal group on POSIX.
+    detached: request.finalization === true && platform !== "win32",
     stdio: getChildStdio(request, "stream", options.terminal),
     windowsHide: true,
   });
@@ -447,7 +449,7 @@ export function createNodeProcessAdapter(options: {
     request: StartProcessRequest,
   ): StartedProcess | StartedStreamingProcess {
     return request.stdio === "stream"
-      ? startStreamingProcess(options, request)
+      ? startStreamingProcess(options, request, platform)
       : startStandardProcess(options, request);
   }
   return {

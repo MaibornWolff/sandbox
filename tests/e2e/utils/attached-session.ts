@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { chmod, copyFile, mkdir, readdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SandboxInstance } from "./sandbox.js";
@@ -6,7 +7,9 @@ import type { SandboxInstance } from "./sandbox.js";
 const bridge = fileURLToPath(
   new URL("../fixtures/attached-session-pty.py", import.meta.url),
 );
-type FixtureProcess = SandboxInstance["fixtureProcess"];
+type FixtureProcess = Omit<SandboxInstance["fixtureProcess"], "env"> & {
+  env: NodeJS.ProcessEnv;
+};
 
 export function startPty(
   command: string[],
@@ -96,7 +99,110 @@ const scenarios = [
   { label: "redirected-close", action: "C", exitCode: 129, redirect: true },
 ] as const;
 
-type Scenario = (typeof scenarios)[number];
+const repeatedHangupScenario = {
+  label: "repeated-hup",
+  action: "H",
+  exitCode: 129,
+  repeated: true,
+} as const;
+
+const timedOutStopScenario = {
+  label: "timed-out-stop",
+  action: "H",
+  exitCode: 129,
+  stopTimeout: true,
+} as const;
+
+const shellRootScenario = {
+  label: "shell-root-close",
+  action: "C",
+  exitCode: 129,
+  shellRoot: "wrapped",
+} as const;
+
+const unwrappedShellRootScenario = {
+  ...shellRootScenario,
+  shellRoot: "unwrapped",
+} as const;
+
+export type AttachedSessionScenario =
+  | "standard"
+  | "repeated-hangup"
+  | "timed-out-stop"
+  | "shell-root"
+  | "shell-root-no-wrapper";
+
+type Scenario =
+  | (typeof scenarios)[number]
+  | typeof repeatedHangupScenario
+  | typeof timedOutStopScenario
+  | typeof shellRootScenario
+  | typeof unwrappedShellRootScenario;
+
+async function traceLauncher(options: FixtureProcess, dir: string) {
+  const received = join(dir, "received-hangups");
+  const exited = join(dir, "launcher-exit");
+  const preload = join(dir, "observe-hangups.cjs");
+  // Observe dispatch without registering a signal handler of our own.
+  await Bun.write(
+    preload,
+    `
+const { appendFileSync, writeFileSync } = require("node:fs");
+process.once("exit", (code) => writeFileSync(${JSON.stringify(exited)}, String(code)));
+const emit = process.emit;
+process.emit = function (name, ...args) {
+  const result = emit.call(this, name, ...args);
+  if (name === "SIGHUP" && result) {
+    appendFileSync(${JSON.stringify(received)}, "SIGHUP\\n");
+  }
+  return result;
+};
+`,
+  );
+  return {
+    env: {
+      NODE_OPTIONS: `${options.env.NODE_OPTIONS ?? ""} --require=${JSON.stringify(preload)}`,
+    },
+    received: () => readOptional(received),
+    exited: () => readOptional(exited),
+  };
+}
+
+async function createStopGate(
+  options: FixtureProcess,
+  configDir: string,
+  mode: "timeout" | "stdin",
+) {
+  const gate = join(configDir, "stop-gate");
+  await mkdir(gate);
+  const shim = join(gate, "podman");
+  await copyFile(
+    new URL("../fixtures/guest-stop-gate.py", import.meta.url),
+    shim,
+  );
+  await chmod(shim, 0o755);
+  const ready = join(options.cwd, "guest-stop.ready");
+  return {
+    env: {
+      PATH: `${gate}:${options.env.PATH ?? ""}`,
+      E2E_REAL_PODMAN: unwrap(
+        Bun.which("podman") ?? undefined,
+        "Missing Podman",
+      ),
+      E2E_STOP_GATE: gate,
+      E2E_STOP_GATE_MODE: mode,
+      E2E_GUEST_STOP_READY: ready,
+    },
+    mode,
+    target: (id: string) => Bun.write(join(gate, "target"), id),
+    attempts: async () =>
+      (await readdir(gate)).filter((name) => name.startsWith("attempt-"))
+        .length,
+    expired: () => Bun.file(join(gate, "expired")).exists(),
+    ready: () => readOptional(ready),
+    release: () => Bun.write(join(gate, "release"), ""),
+  };
+}
 
 function unwrap(value: string | undefined, message: string): string {
   if (!value) throw new Error(message);
@@ -124,21 +230,34 @@ function createFixture(options: FixtureProcess, configDir: string) {
     return stdout.trim();
   }
 
-  function launch(label: string, verbose = false, redirect = false) {
+  function launch(
+    label: string,
+    launchOptions?: {
+      verbose?: boolean;
+      redirect?: boolean;
+      env?: Record<string, string>;
+      shellRoot?: boolean;
+      skipWrapper?: boolean;
+    },
+  ) {
+    const command = [
+      options.binary,
+      ...(launchOptions?.verbose ? ["-v"] : []),
+      "--no-build",
+      "run",
+      ...(launchOptions?.skipWrapper ? ["--no-wrapper"] : []),
+      "--",
+      "/bin/sh",
+      "./guest.sh",
+      label,
+      label === "normal" ? "42" : "0",
+    ];
     const pty = startPty(
-      [
-        options.binary,
-        ...(verbose ? ["-v"] : []),
-        "--no-build",
-        "run",
-        "--",
-        "/bin/sh",
-        "./guest.sh",
-        label,
-        label === "normal" ? "42" : "0",
-      ],
-      options,
-      redirect ? join(configDir, `${label}.stderr`) : undefined,
+      launchOptions?.shellRoot
+        ? ["/bin/zsh", "-fic", '"$@"; exit $?', "zsh", ...command]
+        : command,
+      { ...options, env: { ...options.env, ...launchOptions?.env } },
+      launchOptions?.redirect ? join(configDir, `${label}.stderr`) : undefined,
     );
     return Object.assign(pty, {
       async ready() {
@@ -147,10 +266,11 @@ function createFixture(options: FixtureProcess, configDir: string) {
           35_000,
           "guest did not become ready",
         );
-        const [pid, id] = text.trim().split(" ");
+        const [pid, id, worker] = text.trim().split(" ");
         return {
           pid: unwrap(pid, "Missing guest PID"),
           id: unwrap(id, "Missing session ID"),
+          worker: unwrap(worker, "Missing guest worker PID"),
         };
       },
       async observe<T>(
@@ -203,7 +323,15 @@ function createFixture(options: FixtureProcess, configDir: string) {
     };
   }
 
-  return { file, podman, launch, probe };
+  return {
+    file,
+    podman,
+    launch,
+    probe,
+    createStopGate: (mode: "timeout" | "stdin") =>
+      createStopGate(options, configDir, mode),
+    traceLauncher: () => traceLauncher(options, configDir),
+  };
 }
 
 type Fixture = ReturnType<typeof createFixture>;
@@ -221,6 +349,195 @@ async function liveGuest(
   return { pid, ...observed };
 }
 
+function wrapperResources(fixture: Fixture, container: string, id: string) {
+  return fixture.podman(
+    "exec",
+    container,
+    "/bin/sh",
+    "-c",
+    `if test -S "$1.sock"; then echo present; else echo absent; fi
+if test -f "$1.state"; then echo present; else echo absent; fi`,
+    "check-wrapper-resources",
+    `/tmp/sandbox-e2e-${id}`,
+  );
+}
+
+type Session = ReturnType<Fixture["launch"]>;
+type LauncherTrace = Awaited<ReturnType<typeof traceLauncher>>;
+
+async function finishEndHook(
+  fixture: Fixture,
+  session: Session,
+  id: string,
+  exitCode: number,
+  shellRootTrace?: LauncherTrace,
+  beforeRelease?: () => Promise<void>,
+) {
+  const start = () => readOptional(fixture.file(`start-${id}`));
+  const end = () => readOptional(fixture.file(`end-${id}`));
+  const hookStarted = async () => (await start()) || undefined;
+  if (shellRootTrace) {
+    await waitFor(
+      hookStarted,
+      15_000,
+      "End hook did not start after closing the shell-root PTY",
+    );
+  } else {
+    await session.observe(hookStarted, 15_000, "end hook did not start");
+  }
+  await beforeRelease?.();
+  await Bun.sleep(100);
+  if (shellRootTrace) {
+    expect(
+      await shellRootTrace.exited(),
+      "Launcher must wait for the blocked end hook",
+    ).toBe("");
+  } else {
+    expect(
+      session.status,
+      "CLI must wait for the blocked end hook",
+    ).toBeUndefined();
+  }
+  expect(await end()).toBe("");
+  await Bun.write(fixture.file(`finish-${id}`), "");
+  if (shellRootTrace) {
+    const launcherExit = await waitFor(
+      async () => (await shellRootTrace.exited()) || undefined,
+      12_000,
+      "Launcher did not exit after closing the shell-root PTY",
+    );
+    expect(launcherExit).toBe(String(exitCode));
+    const signals = (await shellRootTrace.received()).trim().split("\n");
+    expect(signals).toContain("SIGHUP");
+    console.log(
+      `Closing the private PTY delivered ${signals.length} hangup(s)`,
+    );
+    await session.exited();
+  } else {
+    expect(await session.exited()).toBe(exitCode);
+  }
+  expect(await start()).toBe(`${id}\n`);
+  expect(await end()).toBe(`${id}\n`);
+}
+
+async function assertSiblingReplies(
+  fixture: Fixture,
+  sibling: GuestIdentity,
+  requestId: string,
+) {
+  const request = fixture.file("sibling.request.pending");
+  await Bun.write(request, `${requestId}\n`);
+  await rename(request, fixture.file("sibling.request"));
+  expect(
+    await waitFor(
+      async () =>
+        (await readOptional(fixture.file("sibling.reply"))) || undefined,
+      5_000,
+      "Sibling did not answer after the target shut down",
+    ),
+  ).toBe(`${sibling.pid} ${requestId}\n`);
+}
+
+async function verifyGuestCleanup(
+  fixture: Fixture,
+  container: string,
+  target: GuestIdentity,
+  sibling: GuestIdentity,
+  worker: string,
+  scenario: Scenario,
+  targetGone: () => Promise<boolean>,
+) {
+  expect(
+    await liveGuest(fixture, container, sibling.pid, sibling.marker),
+  ).toEqual(sibling);
+  if ("stopTimeout" in scenario) {
+    await assertSiblingReplies(fixture, sibling, target.marker);
+    const observed = await fixture.probe(container, target.pid);
+    expect(
+      {
+        sameBirth: observed.startTime === target.startTime,
+        marker: observed.marker,
+      },
+      `Target PID ${target.pid} (birth ${target.startTime}, observed ${observed.startTime}) and UUID ${target.marker} must be gone`,
+    ).toEqual({ sameBirth: false, marker: "absent" });
+  } else if ("repeated" in scenario || "shellRoot" in scenario) {
+    await assertSiblingReplies(fixture, sibling, target.marker);
+    expect(
+      await fixture.probe(container, target.pid),
+      "Target PID or session index survived attachment loss",
+    ).toEqual({ startTime: "absent", marker: "absent" });
+  } else {
+    // The idle watcher can remove a stale marker after a normal exit.
+    await waitFor(
+      async () => (await targetGone()) || undefined,
+      8_000,
+      `${scenario.label}: target process or marker survived`,
+    );
+  }
+  if ("shellRoot" in scenario && scenario.shellRoot === "wrapped") {
+    expect(
+      (await fixture.probe(container, worker)).startTime,
+      "Wrapper worker survived",
+    ).toBe("absent");
+    expect(
+      await wrapperResources(fixture, container, target.marker),
+      "Wrapper socket or state survived",
+    ).toBe("absent\nabsent");
+  }
+}
+
+async function verifyWorkerStarted(
+  fixture: Fixture,
+  container: string,
+  { pid, id, worker }: Awaited<ReturnType<Session["ready"]>>,
+  wrapped: boolean,
+) {
+  if (!wrapped) {
+    expect(worker).toBe(pid);
+    return;
+  }
+  expect(worker).not.toBe(pid);
+  expect((await fixture.probe(container, worker)).startTime).toMatch(/^\d+$/);
+  expect(await wrapperResources(fixture, container, id)).toBe(
+    "present\npresent",
+  );
+}
+
+async function triggerShutdown(
+  fixture: Fixture,
+  container: string,
+  target: GuestIdentity,
+  scenario: Scenario,
+  session: Session,
+  gate?: Awaited<ReturnType<typeof createStopGate>>,
+  trace?: LauncherTrace,
+) {
+  if (!("action" in scenario)) {
+    await Bun.write(fixture.file(`${scenario.label}.release`), "");
+    return;
+  }
+  const { pid, marker: id } = target;
+  if (gate?.mode === "timeout") await gate.target(id);
+  session.send(scenario.action);
+  if (gate?.mode !== "stdin" || !trace) return;
+
+  const stoppingId = await session.observe(
+    async () => (await gate.ready()) || undefined,
+    10_000,
+    "Podman guest-stop exec did not reach its stdin gate",
+  );
+  expect(stoppingId).toBe(`${id}\n`);
+  expect(await trace.received()).toBe("SIGHUP\n");
+  expect(await liveGuest(fixture, container, pid, id)).toEqual(target);
+  session.send("H");
+  await session.observe(
+    async () => (await trace.received()) === "SIGHUP\nSIGHUP\n" || undefined,
+    2_000,
+    "CLI did not dispatch a second hangup while the stop exec was blocked",
+  );
+  await gate.release();
+}
+
 async function verifyScenario(
   fixture: Fixture,
   container: string,
@@ -229,51 +546,81 @@ async function verifyScenario(
 ) {
   const { label, exitCode } = scenario;
   const action = "action" in scenario ? scenario.action : undefined;
-  const session = fixture.launch(label, action === "C", "redirect" in scenario);
+  const stopTimeout = "stopTimeout" in scenario;
+  const gate = stopTimeout
+    ? await fixture.createStopGate("timeout")
+    : "repeated" in scenario
+      ? await fixture.createStopGate("stdin")
+      : undefined;
+  const shellRoot = "shellRoot" in scenario ? scenario.shellRoot : undefined;
+  const trace = gate || shellRoot ? await fixture.traceLauncher() : undefined;
+  const session = fixture.launch(label, {
+    verbose: !shellRoot && (action === "C" || gate !== undefined),
+    redirect: "redirect" in scenario,
+    env: { ...gate?.env, ...trace?.env },
+    shellRoot: shellRoot !== undefined,
+    skipWrapper: shellRoot === "unwrapped",
+  });
   try {
     await using _session = session;
-    const { pid, id } = await session.ready();
+    const ready = await session.ready();
+    const { pid, id, worker } = ready;
     const target = await liveGuest(fixture, container, pid, id);
-    const start = () => readOptional(fixture.file(`start-${id}`));
-    const end = () => readOptional(fixture.file(`end-${id}`));
-    if (action) session.send(action);
-    else await Bun.write(fixture.file(`${label}.release`), "");
-
-    await session.observe(
-      async () => (await start()) || undefined,
-      15_000,
-      "end hook did not start",
+    await verifyWorkerStarted(
+      fixture,
+      container,
+      ready,
+      shellRoot === "wrapped",
     );
+    await triggerShutdown(
+      fixture,
+      container,
+      target,
+      scenario,
+      session,
+      gate,
+      trace,
+    );
+
     const targetGone = async () => {
       const observed = await fixture.probe(container, pid);
       return (
         observed.startTime !== target.startTime && observed.marker === "absent"
       );
     };
-    if (action)
-      expect(await targetGone(), "Target survived into the end hook").toBe(
-        true,
-      );
-    await Bun.sleep(100);
-    expect(
-      session.status,
-      "CLI must wait for the blocked end hook",
-    ).toBeUndefined();
-    expect(await end()).toBe("");
-    await Bun.write(fixture.file(`finish-${id}`), "");
-    expect(await session.exited()).toBe(exitCode);
-    expect(await start()).toBe(`${id}\n`);
-    expect(await end()).toBe(`${id}\n`);
-
-    // The idle watcher can remove a stale marker after a normal exit.
-    await waitFor(
-      async () => (await targetGone()) || undefined,
-      8_000,
-      `${label}: target process or marker survived`,
+    await finishEndHook(
+      fixture,
+      session,
+      id,
+      exitCode,
+      shellRoot ? trace : undefined,
+      action && !gate && !shellRoot
+        ? async () => {
+            expect(
+              await targetGone(),
+              "Target survived into the end hook",
+            ).toBe(true);
+          }
+        : undefined,
     );
-    expect(
-      await liveGuest(fixture, container, sibling.pid, sibling.marker),
-    ).toEqual(sibling);
+
+    await verifyGuestCleanup(
+      fixture,
+      container,
+      target,
+      sibling,
+      worker,
+      scenario,
+      targetGone,
+    );
+    if (gate?.mode === "timeout") {
+      expect(await gate.attempts(), `Stop attempts for ${id}`).toBe(2);
+      expect(
+        await gate.expired(),
+        "Host stop gate reached its safety limit",
+      ).toBe(false);
+      expect(await trace?.received()).toBe("SIGHUP\n");
+    }
     console.log(
       `${label}: exit=${exitCode}, target gone, end hook once, sibling live`,
     );
@@ -288,9 +635,13 @@ async function verifyScenario(
 export async function verifyAttachedSessions(
   sb: SandboxInstance,
   projectSlug: string,
+  scenario: AttachedSessionScenario,
 ) {
   const fixture = createFixture(sb.fixtureProcess, sb.configDir);
-  const sibling = fixture.launch("sibling");
+  const sibling = fixture.launch("sibling", {
+    skipWrapper:
+      scenario === "shell-root" || scenario === "shell-root-no-wrapper",
+  });
   try {
     await using _sibling = sibling;
     const { pid, id } = await sibling.ready();
@@ -306,8 +657,18 @@ export async function verifyAttachedSessions(
       /^[a-f0-9]+$/,
     );
     const identity = await liveGuest(fixture, ids, pid, id);
-    for (const scenario of scenarios) {
-      await verifyScenario(fixture, ids, identity, scenario);
+    const cases =
+      scenario === "shell-root"
+        ? [shellRootScenario]
+        : scenario === "shell-root-no-wrapper"
+          ? [unwrappedShellRootScenario]
+          : scenario === "repeated-hangup"
+            ? [repeatedHangupScenario]
+            : scenario === "timed-out-stop"
+              ? [timedOutStopScenario]
+              : scenarios;
+    for (const testCase of cases) {
+      await verifyScenario(fixture, ids, identity, testCase);
       expect(sibling.status, "Sibling CLI exited early").toBeUndefined();
     }
     await fixture.podman(

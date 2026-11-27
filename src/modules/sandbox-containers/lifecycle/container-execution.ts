@@ -275,28 +275,41 @@ async function stopGuestSession(
   const logger = getLogger();
   logger.debug(`Stopping guest session ${chalk.cyan(sessionId)}.`);
   try {
-    await using cleanup = await containers.openExec(containerName, {
-      user: "root",
-      command: buildSessionStopCommand(runtimeDirectory, sessionId),
-    });
-    let diagnostic = "";
-    const result = await waitWithTimeout(
-      Promise.all([
-        cleanup.completion,
-        readControlLines(cleanup.stdout, () => undefined),
-        readControlLines(cleanup.stderr, (line) => {
-          diagnostic ||= line;
-        }),
-      ]),
-      { clock: getClock(), milliseconds: 3_000 },
-    );
-    if (!result.completed) throw new Error("Cleanup exec timed out.");
-    const [{ exitCode }] = result.value;
-    if (exitCode !== 0) {
-      throw new Error(
-        diagnostic || `Cleanup exec exited with code ${exitCode}.`,
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        logger.debug(
+          `Retrying guest stop for ${chalk.cyan(sessionId)} after timeout.`,
+        );
+      }
+      await using cleanup = await containers.openExec(
+        containerName,
+        {
+          user: "root",
+          command: buildSessionStopCommand(runtimeDirectory, sessionId),
+        },
+        { finalization: true },
       );
+      let diagnostic = "";
+      const result = await waitWithTimeout(
+        Promise.all([
+          cleanup.completion,
+          readControlLines(cleanup.stdout, () => undefined),
+          readControlLines(cleanup.stderr, (line) => {
+            diagnostic ||= line;
+          }),
+        ]),
+        { clock: getClock(), milliseconds: 3_000 },
+      );
+      if (!result.completed) continue;
+      const [{ exitCode }] = result.value;
+      if (exitCode !== 0) {
+        throw new Error(
+          diagnostic || `Cleanup exec exited with code ${exitCode}.`,
+        );
+      }
+      return;
     }
+    throw new Error("Cleanup exec timed out.");
   } catch (error) {
     logger.warn(
       `Could not stop guest session ${sessionId}: ${getErrorMessage(error)}`,

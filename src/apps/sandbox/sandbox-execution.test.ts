@@ -214,7 +214,7 @@ command = ["./cleanup"]
     );
   });
 
-  test("attempts the end hook after a timed-out stop on attachment loss", async () => {
+  test("attempts the end hook after both stop attempts time out on attachment loss", async () => {
     await using app = await setupSandboxAppTest();
     app.project.writeConfig(
       `
@@ -226,18 +226,27 @@ wait = true
 `,
       { trusted: true },
     );
-    const stop = expectGuestStop(app);
+    const firstStop = expectGuestStop(app);
     const end = expectHookLauncher(app);
     app.processes
       .expectStart({ match: { stdio: "inherit" } })
       .exit({ signal: "SIGHUP" });
     const execution = app.cli.run("run", "true");
-    await stop.waitForStart();
+    await firstStop.waitForStart();
+    const retry = expectGuestStop(app);
     await app.clock.waitForSleep();
     await app.clock.advanceBy(3_000);
-    await stop.waitForInputEnd();
+    await firstStop.waitForInputEnd();
+    expect(retry.pid).toBeUndefined();
     expect(end.pid).toBeUndefined();
-    stop.exit();
+    firstStop.exit();
+
+    await retry.waitForStart();
+    await app.clock.waitForSleep();
+    await app.clock.advanceBy(3_000);
+    await retry.waitForInputEnd();
+    expect(end.pid).toBeUndefined();
+    retry.exit();
     await end.waitForStart();
     end.emitStdout("ok\n");
     end.exit();

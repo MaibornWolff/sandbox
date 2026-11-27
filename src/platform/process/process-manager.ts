@@ -73,6 +73,8 @@ export interface StreamingProcessRequest extends ProcessRequestBase {
   readonly lifetime: "application";
   readonly interaction: { readonly mode: "non-interactive" };
   readonly stdio: "stream";
+  /** Keep this bounded cleanup process alive when repeated signals cancel user work. */
+  readonly finalization?: true;
   readonly stdin?: never;
   readonly onStdout?: never;
   readonly onStderr?: never;
@@ -148,6 +150,8 @@ export interface ManagedStreamingProcess
 /** @lintignore Public application-scoped process manager. */
 export interface ProcessManager extends AsyncDisposable {
   readonly termination: Promise<NodeJS.Signals>;
+  /** Aborts when a repeated signal forces application shutdown. */
+  readonly forcedTermination: AbortSignal;
   start(request: StreamingProcessRequest): ManagedStreamingProcess;
   start(request: StandardProcessRequest): ManagedProcess<ProcessResult>;
   capture(

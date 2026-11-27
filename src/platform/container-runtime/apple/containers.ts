@@ -390,13 +390,14 @@ export function createAppleContainerOperations(options: {
         buildAppleExecArgs(id, spec),
       );
     },
-    async openExec(id, spec) {
+    async openExec(id, spec, options) {
       return openContainerExec(
         BINARY_NAME,
         buildAppleExecArgs(id, spec, {
           attachStdin: true,
           allocateTerminal: false,
         }),
+        options,
       );
     },
     execAttached(id, spec, session) {

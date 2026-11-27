@@ -151,6 +151,7 @@ Session hooks use the attached command's working directory and session environme
 
 - `wait` defaults to `false`. Sandbox waits for launch acknowledgment only. The hook can run at the same time as the next hook or attached command. Set `wait = true` if the next step needs the result.
 - `timeout` is an optional positive duration in `ms`, `s`, `m`, or `h`, such as `"10s"` or `"1.5s"`. Sandbox rounds up to whole milliseconds. The timeout applies in both wait modes. Shutdown can end a hook sooner.
+  A repeated termination signal gives all `session.end` hooks a shared grace period of five seconds. If the event has not started, the grace period starts when Sandbox begins it. After the grace period, Sandbox cancels the active hook lease and does not launch more end hooks.
 - `on_error` is valid only on `container.start` and `session.start`. For a blocking hook, the default `"fail"` prevents container readiness or command launch if the hook fails. Set `"warn"` to report the failure and continue. Background hook failures do not stop the lifecycle or appear in CLI output.
 
 Cleanup hooks are best effort. Do not rely on them for critical cleanup.

@@ -90,6 +90,10 @@ export interface ExecSpec {
   readonly user?: string;
 }
 
+export interface ContainerExecOptions {
+  readonly finalization?: true;
+}
+
 export interface TerminalSessionOptions {
   readonly attachStdin: boolean;
   readonly allocateTerminal: boolean;
@@ -129,7 +133,11 @@ export interface ContainerOperations {
   stopAndRemove(id: string): Promise<void>;
   remove(id: string, options?: RemoveOptions): Promise<void>;
   exec(id: string, spec: ExecSpec): Promise<CommandResult>;
-  openExec(id: string, spec: ExecSpec): Promise<SandboxExecProcess>;
+  openExec(
+    id: string,
+    spec: ExecSpec,
+    options?: ContainerExecOptions,
+  ): Promise<SandboxExecProcess>;
   execAttached(
     id: string,
     spec: ExecSpec,

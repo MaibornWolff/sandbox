@@ -390,6 +390,7 @@ class TestProcessRecord implements TestProcess {
         if (this.settled) throw new Error("Test process has exited.");
       },
       end: async () => {
+        await this.inputBarrier?.promise;
         this.input.end();
         this.inputEnded.resolve();
       },

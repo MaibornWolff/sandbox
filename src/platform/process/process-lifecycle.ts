@@ -28,12 +28,16 @@ import {
   type StartProcessRequest,
   type StopOptions,
   type StreamingProcessRequest,
-  type StreamingProcessResult,
 } from "./process-manager.js";
 
 type ProcessClock = Pick<Clock, "sleep">;
 
 const DEFAULT_STOP_TIMEOUT_MILLISECONDS = 5_000;
+const REPEAT_SIGNAL_STOP = {
+  signal: "SIGKILL",
+  gracefulTimeoutMilliseconds: 1,
+  forceTimeoutMilliseconds: 1,
+} as const satisfies StopOptions;
 const IDENTITY_POLL_MILLISECONDS = 50;
 
 interface ProcessLogger {
@@ -447,6 +451,7 @@ interface ForegroundRoute {
 
 interface SignalRouter {
   readonly termination: Promise<NodeJS.Signals>;
+  readonly forcedTermination: AbortSignal;
   assertAvailable(): void;
   attach(
     process: ManagedProcessHandle<unknown>,
@@ -468,7 +473,7 @@ function createSignalRouter(options: {
 }): SignalRouter {
   let unsubscribe: (() => void) | undefined;
   let firstSignal: NodeJS.Signals | undefined;
-  let forced = false;
+  const forcedTermination = new AbortController();
   let foreground: ForegroundRoute | undefined;
   let resolveTermination: (signal: NodeJS.Signals) => void = () => undefined;
   const termination = new Promise<NodeJS.Signals>((resolve) => {
@@ -529,8 +534,8 @@ function createSignalRouter(options: {
       deliverToForeground(signal);
       return;
     }
-    if (forced) return;
-    forced = true;
+    if (forcedTermination.signal.aborted) return;
+    forcedTermination.abort(signal);
     const foregroundProcess = foreground?.process;
     deliverToForeground("SIGKILL");
     try {
@@ -547,6 +552,10 @@ function createSignalRouter(options: {
     get termination() {
       ensureSubscribed();
       return termination;
+    },
+    get forcedTermination() {
+      ensureSubscribed();
+      return forcedTermination.signal;
     },
     assertAvailable() {
       if (foreground) {
@@ -671,6 +680,16 @@ function assertSuccessfulStops(
   });
 }
 
+async function stopManagedProcesses(
+  targets: readonly ManagedProcessHandle<unknown>[],
+  options: StopOptions,
+): Promise<void> {
+  const outcomes = await Promise.allSettled(
+    targets.map((target) => target.stop(options)),
+  );
+  assertSuccessfulStops(outcomes);
+}
+
 export function createProcessManager(options: {
   readonly adapter: ProcessAdapter;
   readonly clock: ProcessClock;
@@ -678,16 +697,18 @@ export function createProcessManager(options: {
 }): ProcessManager {
   const logger = options.logger ?? silentLogger;
   const owned = new Set<ManagedProcessHandle<unknown>>();
+  const finalizers = new WeakSet<ManagedProcessHandle<unknown>>();
   let stopGeneration = 0;
-  let stopping = false;
+  let stopping: "explicit" | "repeat-signal" | undefined;
+  let forcedStop: Promise<void> | undefined;
   let disposed = false;
 
-  function assertStartAllowed(): void {
+  function assertStartAllowed(finalization = false): void {
     if (disposed)
       throw new Error(
         "Process manager is disposed and cannot start processes.",
       );
-    if (stopping) {
+    if (stopping && !(stopping === "repeat-signal" && finalization)) {
       throw new Error(
         `Process manager is stopping generation ${stopGeneration} and cannot start processes.`,
       );
@@ -702,24 +723,26 @@ export function createProcessManager(options: {
     request: StartProcessRequest,
   ): ManagedProcess<ProcessResult> | ManagedStreamingProcess {
     validateStartRequest(request);
-    assertStartAllowed();
+    const finalization =
+      request.stdio === "stream" && request.finalization === true;
+    assertStartAllowed(finalization);
     logger.debug(
       `Starting managed process ${chalk.cyan(request.name ?? request.command)}`,
     );
     if (request.interaction.mode === "interactive") {
       signalRouter.assertAvailable();
     }
+    const resources = {
+      ...options,
+      request,
+      logger,
+      owned,
+      detach: signalRouter.detach,
+    };
     if (request.stdio === "stream") {
       const raw = options.adapter.start(request);
-      const managed = createManagedStartedProcess<StreamingProcessResult>({
-        request,
-        raw,
-        adapter: options.adapter,
-        clock: options.clock,
-        logger,
-        owned,
-        detach: (process) => signalRouter.detach(process),
-      });
+      const managed = createManagedStartedProcess({ ...resources, raw });
+      if (finalization) finalizers.add(managed);
       managed.beginMonitoring();
       return Object.assign(managed, {
         stdin: raw.stdin,
@@ -728,15 +751,7 @@ export function createProcessManager(options: {
       });
     }
     const raw = options.adapter.start(request);
-    const managed = createManagedStartedProcess<ProcessResult>({
-      request,
-      raw,
-      adapter: options.adapter,
-      clock: options.clock,
-      logger,
-      owned,
-      detach: (process) => signalRouter.detach(process),
-    });
+    const managed = createManagedStartedProcess({ ...resources, raw });
     if (request.lifetime === "detached") {
       managed.unrefSurvivor();
       owned.delete(managed);
@@ -793,21 +808,24 @@ export function createProcessManager(options: {
 
   async function stopOwned(
     stopOptions: StopOptions,
-    excluded?: ManagedProcessHandle<unknown>,
+    repeatSignal?: {
+      readonly foreground: ManagedProcessHandle<unknown> | undefined;
+    },
   ): Promise<void> {
     if (stopping)
       throw new Error("Process manager stopAll() is already in progress.");
     if (disposed && owned.size === 0) return;
-    stopping = true;
+    stopping = repeatSignal ? "repeat-signal" : "explicit";
     stopGeneration += 1;
-    const targets = [...owned].filter((target) => target !== excluded);
+    const targets = [...owned].filter(
+      (target) =>
+        !repeatSignal ||
+        (target !== repeatSignal.foreground && !finalizers.has(target)),
+    );
     try {
-      const outcomes = await Promise.allSettled(
-        targets.map((managedProcess) => managedProcess.stop(stopOptions)),
-      );
-      assertSuccessfulStops(outcomes);
+      await stopManagedProcesses(targets, stopOptions);
     } finally {
-      stopping = false;
+      stopping = undefined;
     }
   }
 
@@ -820,6 +838,7 @@ export function createProcessManager(options: {
     disposed = true;
     let failure: unknown;
     try {
+      if (forcedStop) await forcedStop.catch(() => undefined);
       await stopAll();
     } catch (error) {
       failure = error;
@@ -832,19 +851,17 @@ export function createProcessManager(options: {
   const signalRouter = createSignalRouter({
     adapter: options.adapter,
     logger,
-    forceStop: (excluded) =>
-      stopOwned(
-        {
-          signal: "SIGKILL",
-          gracefulTimeoutMilliseconds: 1,
-          forceTimeoutMilliseconds: 1,
-        },
-        excluded,
-      ),
+    forceStop: (foreground) => {
+      forcedStop = stopOwned(REPEAT_SIGNAL_STOP, { foreground });
+      return forcedStop;
+    },
   });
-  const manager: ProcessManager = {
+  return {
     get termination() {
       return signalRouter.termination;
+    },
+    get forcedTermination() {
+      return signalRouter.forcedTermination;
     },
     start,
     capture,
@@ -852,5 +869,4 @@ export function createProcessManager(options: {
     dispose,
     [Symbol.asyncDispose]: dispose,
   };
-  return manager;
 }

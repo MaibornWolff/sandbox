@@ -669,7 +669,7 @@ class StatefulRuntimeWorld {
           throw error;
         }
       },
-      openExec: async (id, spec) => {
+      openExec: async (id, spec, options) => {
         const container = this.findContainer(id);
         if (isReadinessCommand(spec.command)) {
           const stdout = await legacy.execInContainer(id, [...spec.command], {
@@ -697,12 +697,11 @@ class StatefulRuntimeWorld {
           containerId: container.id,
           spec,
         });
-        return openContainerExec("stateful-container-runtime", [
-          "exec",
-          "-i",
-          id,
-          ...spec.command,
-        ]);
+        return openContainerExec(
+          "stateful-container-runtime",
+          ["exec", "-i", id, ...spec.command],
+          options,
+        );
       },
       execAttached: async (id, spec, session) => {
         const container = this.findContainer(id);

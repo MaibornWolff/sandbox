@@ -134,7 +134,7 @@ export function createSandboxInstanceOperations(
     stopAndRemove: (id) => operations.stopAndRemove(id),
     remove: (id, options) => operations.remove(id, options),
     exec: (id, spec) => operations.exec(id, spec),
-    openExec: (id, spec) => operations.openExec(id, spec),
+    openExec: (id, spec, options) => operations.openExec(id, spec, options),
     execAttached: (id, spec, session) =>
       operations.execAttached(id, spec, session),
     readLogs: (id, query) => operations.readLogs(id, query),

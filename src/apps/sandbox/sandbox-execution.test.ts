@@ -456,6 +456,25 @@ describe("sandbox shell and run", () => {
     );
   });
 
+  test("suggests similar commands for mistyped root commands", async () => {
+    await using app = await setupSandboxAppTest();
+
+    const transposed = await app.cli.run("udpate");
+    expect(transposed.exitCode).toBe(1);
+    expect(transposed.stderr).toBe(
+      "error: unknown command 'udpate'\n(Did you mean update?)\n",
+    );
+
+    const ambiguous = await app.cli.run("stat");
+    expect(ambiguous.stderr).toBe(
+      "error: unknown command 'stat'\n(Did you mean one of status, stop?)\n",
+    );
+
+    const unrelated = await app.cli.run("xyzzy");
+    expect(unrelated.stderr).toBe("error: unknown command 'xyzzy'\n");
+    expect(app.runtime.events()).toEqual([]);
+  });
+
   test("forwards run arguments, separator flags, stdin, and TTY mode", async () => {
     await using interactive = await setupSandboxAppTest({ interactive: true });
     givenSuccessfulInteractiveProcess(interactive);

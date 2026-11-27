@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- Suggest similar commands when a command name has a typo. For example, `sandbox udpate` now shows `(Did you mean update?)`.
+
+### Changed
+
+- Reject unknown `sandbox config` subcommands. Before, a typo such as `sandbox config updte` showed the merged configuration. Now Sandbox reports the unknown command, suggests a similar one, and exits with code 1.
+
 ## [0.74.0] - 2026-11-24
 
 ### Added

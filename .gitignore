@@ -38,6 +38,7 @@ Thumbs.db
 .agents/changes/
 
 # Local settings
+/AGENTS.local.md
 .claude/settings.local.json
 /skills-lock.json
 

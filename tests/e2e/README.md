@@ -41,10 +41,11 @@ SANDBOX_E2E_EXTENDED=1 bun test tests/e2e-extended/host-command-escape.test.ts \
 
 Tests use the runtime selected in your global user configuration by default. `SANDBOX_CONFIG_DIR` and platform config paths work as they do in the CLI. Only the runtime selection is copied into the isolated test configuration. Project configuration and other user settings are not copied. If no user runtime is selected, the CLI uses its normal runtime auto-detection.
 
-Override the runtime when required:
+Select a runtime explicitly with `bun run test:e2e:docker`, `bun run test:e2e:podman`, or `bun run test:e2e:apple-container`.
+Use `--file` and `--test-name-pattern` to build a fresh snapshot and run a single case:
 
 ```bash
-SANDBOX_TEST_RUNTIME=podman bun run test:e2e
+bun run test:e2e:podman --file network.test.ts --test-name-pattern 'allowed domain resolves via DNS'
 ```
 
 Run the test command directly to test an existing CLI:

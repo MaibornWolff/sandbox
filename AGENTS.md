@@ -1,5 +1,7 @@
 # Sandbox Development Guide
 
+Read [AGENTS.local.md](AGENTS.local.md) at the start of each task if it exists.
+
 ## Working with the user
 
 - Use ASD-STE100 Simplified Technical English. Write short, direct responses without filler, em dashes, or semicolons.
@@ -17,6 +19,7 @@
 - Keep deprecation diagnostics fatal and fix their causes rather than suppressing them.
 - For user-visible changes, update `CHANGELOG.md` under `Unreleased` and include migration steps for breaking changes. Write for product users, not contributors. Keep released sections unchanged except for factual corrections.
 - Create repository worktrees under `.agents/worktrees/`.
+- After creating a worktree, symlink its `AGENTS.local.md` to the main checkout's `AGENTS.local.md` if that file exists. For a worktree directly under `.agents/worktrees/`, use `../../../AGENTS.local.md` as the link target.
 
 ## Code
 

@@ -2,6 +2,10 @@ import { spawn } from "node:child_process";
 import { chmod, cp, mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
+
+const USAGE =
+  "Usage: bun scripts/run-e2e.ts [--extended] [--runtime docker|podman|apple-container] [--file NAME.test.ts] [--test-name-pattern REGEX] [--timeout MS]";
 
 interface E2eCommand {
   readonly args: readonly string[];
@@ -17,6 +21,10 @@ interface E2eRuntimeSnapshot extends AsyncDisposable {
 interface RunE2eOptions {
   readonly repoRoot: string;
   readonly suite: "core" | "extended";
+  readonly runtime?: string;
+  readonly file?: string;
+  readonly testNamePattern?: string;
+  readonly timeout?: string;
 }
 
 async function runCommand(command: E2eCommand): Promise<number> {
@@ -69,15 +77,21 @@ async function runE2e(options: RunE2eOptions): Promise<number> {
   });
   if (buildExitCode !== 0) return buildExitCode;
 
+  const suitePath = options.suite === "extended" ? "e2e-extended" : "e2e";
   return await runCommand({
     args: [
       "test",
-      "--timeout",
-      "30000",
-      options.suite === "extended" ? "tests/e2e-extended/" : "tests/e2e/",
+      `--timeout=${options.timeout ?? "30000"}`,
+      ...(options.testNamePattern === undefined
+        ? []
+        : [`--test-name-pattern=${options.testNamePattern}`]),
+      `./tests/${suitePath}/${options.file ?? ""}`,
     ],
     cwd: options.repoRoot,
     env: {
+      ...(options.runtime === undefined
+        ? {}
+        : { SANDBOX_TEST_RUNTIME: options.runtime }),
       SANDBOX_BIN: snapshot.binaryPath,
       SANDBOX_RUNTIME_ROOT: snapshot.root,
       SANDBOX_E2E_EXTENDED: options.suite === "extended" ? "1" : "0",
@@ -87,12 +101,42 @@ async function runE2e(options: RunE2eOptions): Promise<number> {
 
 if (import.meta.main) {
   const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-  const args = process.argv.slice(2);
-  if (args.length > 1 || (args.length === 1 && args[0] !== "--extended")) {
-    throw new Error("Usage: bun scripts/run-e2e.ts [--extended]");
-  }
-  process.exitCode = await runE2e({
-    repoRoot,
-    suite: args[0] === "--extended" ? "extended" : "core",
+  const { values } = parseArgs({
+    options: {
+      extended: { type: "boolean" },
+      runtime: { type: "string" },
+      file: { type: "string" },
+      "test-name-pattern": { type: "string" },
+      timeout: { type: "string" },
+      help: { type: "boolean", short: "h" },
+    },
   });
+
+  if (values.help) {
+    console.log(USAGE);
+  } else {
+    const { extended, runtime, file, timeout } = values;
+    if (
+      runtime !== undefined &&
+      !["docker", "podman", "apple-container"].includes(runtime)
+    ) {
+      throw new Error(`Unsupported end-to-end test runtime: ${runtime}`);
+    }
+    if (file !== undefined && !/^[\w-]+\.test\.ts$/.test(file)) {
+      throw new Error(
+        "--file requires an end-to-end test filename, such as network.test.ts",
+      );
+    }
+    if (timeout !== undefined && !/^[1-9]\d*$/.test(timeout)) {
+      throw new Error("--timeout requires a positive integer in milliseconds");
+    }
+    process.exitCode = await runE2e({
+      repoRoot,
+      suite: extended ? "extended" : "core",
+      runtime,
+      file,
+      testNamePattern: values["test-name-pattern"],
+      timeout,
+    });
+  }
 }

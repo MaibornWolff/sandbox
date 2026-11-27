@@ -1024,8 +1024,9 @@ describe("sandbox container start and stop", () => {
     await confirmed.project.givenConfig({ allowNetwork: [] });
     const own = confirmed.project.givenContainer({
       state: "running",
-      sessions: [{ pid: "42", command: "zsh" }],
+      sessions: [{ pid: 42, command: ["zsh"] }],
     });
+    own.container.givenExecResult(["kill", "-TERM", "--", "42"], "");
     confirmed.runtime.instances.create({
       name: "sandbox-other-project",
       image: "sandbox-base:latest",
@@ -1036,6 +1037,22 @@ describe("sandbox container start and stop", () => {
     await confirmed.tui.waitForText("with 1 active session(s)");
     await confirmed.tui.user.type("y");
     expect((await execution).exitCode).toBe(0);
+    expect(
+      confirmed.runtime
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.stop" ||
+            (event.type === "container.exec" && event.command[0] === "kill"),
+        ),
+    ).toMatchObject([
+      {
+        type: "container.exec",
+        containerId: own.id,
+        command: ["kill", "-TERM", "--", "42"],
+      },
+      { type: "container.stop", containerId: own.id },
+    ]);
     expect(
       confirmed.runtime.instances
         .all()
@@ -1061,6 +1078,47 @@ describe("sandbox container start and stop", () => {
     expect(all.stderr).toContain("stop failed");
     expect(all.stderr).toContain("Stopped 1 container(s)");
     expect(forced.runtime.resolvedConfigurations()).toEqual(["podman"]);
+  });
+
+  test("warns about unknown sessions and stops the container when the status probe fails", async () => {
+    await using app = await setupSandboxAppTest();
+    await app.project.givenConfig({ allowNetwork: [] });
+    const own = app.project.givenContainer({ state: "running" });
+    own.sessionStatus.fail(new Error("probe exec failed"));
+
+    const execution = app.cli.run("stop");
+    await app.tui.waitForText("Continue?");
+    expect(app.tui.screen()).toContain("sessions unknown");
+    expect(app.tui.screen()).toContain(
+      "This will cancel all open sessions. Continue?",
+    );
+    await app.tui.user.type("y");
+
+    expect((await execution).exitCode).toBe(0);
+    expect(
+      app.runtime
+        .events()
+        .filter(
+          (event) =>
+            event.type === "container.exec" && event.command[0] === "kill",
+        ),
+    ).toEqual([]);
+    expect(
+      app.runtime.instances.all().find((container) => container.id === own.id)
+        ?.status,
+    ).toBe("removed");
+  });
+
+  test("keeps the trust check for stop in an untrusted project", async () => {
+    await using app = await setupSandboxAppTest({ interactive: false });
+    app.project.writeConfig("readonly = true\n");
+    const container = app.project.givenContainer({ state: "running" });
+
+    const result = await app.cli.run("stop", "--force");
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Untrusted project config");
+    expect(app.runtime.instances.find(container.id)?.status).toBe("running");
   });
 
   test("cancels stop confirmation without changing runtime state", async () => {

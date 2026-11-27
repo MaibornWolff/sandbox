@@ -6,9 +6,21 @@
 
 - Suggest similar commands when a command name has a typo. For example, `sandbox udpate` now shows `(Did you mean update?)`.
 
+- Add `sandbox status --json` for tools. It prints a documented JSON format with a `schemaVersion`, so tools do not need to read Sandbox internals such as session marker files. See [machine-readable status](docs/SESSIONS.md#machine-readable-status).
+- Add `sandbox status --all` to show the containers of all projects.
+- Add `sandbox status --session <id>` to show one session by its `SANDBOX_SESSION_ID`. The first 6 or more characters of the ID are enough if no other session starts with them.
+- Show the session ID and the start command of each session in `sandbox status`, and mark containers that are still starting.
+
 ### Changed
 
 - Reject unknown `sandbox config` subcommands. Before, a typo such as `sandbox config updte` showed the merged configuration. Now Sandbox reports the unknown command, suggests a similar one, and exits with code 1.
+
+- `sandbox status` now uses the runtime from your user configuration and no longer asks you to trust a project configuration. It now works in untrusted projects and in tools without a terminal.
+  If you set `runtime` only in a project configuration, also set it in your user configuration.
+
+### Fixed
+
+- `sandbox stop` now shows `sessions unknown` and warns that open sessions will end when it cannot read the sessions of a container. Previously, it showed `no sessions`.
 
 ## [0.74.0] - 2026-11-24
 

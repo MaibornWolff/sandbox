@@ -5,9 +5,9 @@ import type {
 
 export type ManagedContainerStatus = ContainerDetails["state"] | "removed";
 
+/** A live session that keeps the container from the idle stop. */
 export interface ManagedExecSession {
   readonly pid: string;
-  readonly command: string;
 }
 
 export interface ManagedContainerValues {
@@ -71,12 +71,15 @@ function commandKey(command: readonly string[]): string {
   return JSON.stringify(command);
 }
 
-function isReadinessCommand(command: readonly string[]): boolean {
-  return command.some((value) => value.includes("/tmp/.sandbox-ready"));
-}
+const READINESS_WAIT_LOOP = "while [ ! -f /tmp/.sandbox-ready ]; do";
 
-function isSessionDetailsCommand(command: readonly string[]): boolean {
-  return command.some((part) => part.includes('echo "$pid|$cmd"'));
+/** Matches only the ready wait loop of the session control. */
+export function isReadinessCommand(command: readonly string[]): boolean {
+  return (
+    command[0] === "sh" &&
+    command[1] === "-c" &&
+    (command[2]?.includes(READINESS_WAIT_LOOP) ?? false)
+  );
 }
 
 function isIdleCommand(command: readonly string[]): boolean {
@@ -89,12 +92,6 @@ function isIdleCommand(command: readonly string[]): boolean {
 function resolveFixture(fixture: ExecFixture): string {
   if (fixture.error) throw fixture.error;
   return fixture.output ?? "";
-}
-
-function formatSessions(sessions: readonly ManagedExecSession[]): string {
-  return sessions
-    .map((session) => `${session.pid}|${session.command}`)
-    .join("\n");
 }
 
 export function createManagedContainer(
@@ -121,14 +118,13 @@ export function createManagedContainer(
   }
 
   function resolveReadinessScript(command: readonly string[]): string {
-    const script =
-      command[0] === "sh" && command[1] === "-c" ? command[2] : undefined;
-    const attempts = script?.match(/\[ "\$i" -ge (\d+) \]/u)?.[1];
+    const script = command[2] ?? "";
+    const attempts = script.match(/\[ "\$i" -ge (\d+) \]/u)?.[1];
     if (!attempts) return resolveReadiness();
     container.waitUntilReady(Number(attempts));
     const output =
       command.length > 4 ? container.resolveExecResult(command.slice(4)) : "";
-    const message = script?.match(/printf '%s\\n' '([^']*)'/u)?.[1] ?? "";
+    const message = script.match(/printf '%s\\n' '([^']*)'/u)?.[1] ?? "";
     return `${message}\n${output}`;
   }
 
@@ -177,7 +173,6 @@ export function createManagedContainer(
       const fixture = execFixtures.get(commandKey(command));
       if (fixture) return resolveFixture(fixture);
       if (isReadinessCommand(command)) return resolveReadinessScript(command);
-      if (isSessionDetailsCommand(command)) return formatSessions(sessions);
       if (command[0] === "/usr/sbin/iptables") return "";
       if (command.some((part) => part.includes("/usr/sbin/iptables-save")))
         return "";

@@ -1,28 +1,64 @@
 import chalk from "chalk";
+import type { ContainerSession } from "#platform/container-system/index.js";
 import { getTerminal } from "#platform/terminal/index.js";
+import { getErrorMessage } from "#shared/errors/index.js";
+import { shellQuote } from "#shared/text/index.js";
 import {
   type ContainerStatusInfo,
+  getContainerUptime,
   getSandboxStatus,
   type SandboxStatus,
-  type SessionInfo,
+  SessionLookupError,
 } from "../lifecycle/container-status.js";
-import type { SandboxOptions } from "../sandbox-options.js";
+import type { StatusOptions } from "../sandbox-options.js";
+import { toStatusDocument } from "./status-json.js";
 
 // ---------------------------------------------------------------------------
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
+const SHORT_SESSION_ID_LENGTH = 8;
+
+function renderScope(status: SandboxStatus): string {
+  if (status.sessionId !== null) {
+    return ` · session ${status.sessionId.slice(0, SHORT_SESSION_ID_LENGTH)}`;
+  }
+  return status.projectSlug === null ? " · all projects" : "";
+}
+
 function renderHeader(status: SandboxStatus): string {
   const lines: string[] = [];
-  lines.push(chalk.bold("⬡ Sandbox Status"));
+  lines.push(chalk.bold(`⬡ Sandbox Status${renderScope(status)}`));
   lines.push("");
-  lines.push(`  ${chalk.dim("Project")}   ${status.projectSlug}`);
+  if (status.projectSlug !== null) {
+    lines.push(`  ${chalk.dim("Project")}   ${status.projectSlug}`);
+  }
   lines.push(`  ${chalk.dim("Runtime")}   ${status.runtime}`);
   return lines.join("\n");
 }
 
-function renderSessions(sessions: SessionInfo[]): string[] {
+function formatSessionCommand(session: ContainerSession): string {
+  if (session.command?.length) return session.command.map(shellQuote).join(" ");
+  return session.title || "unknown";
+}
+
+function renderSession(session: ContainerSession): string {
+  const parts = [formatSessionCommand(session)];
+  if (session.id) {
+    parts.push(chalk.cyan(session.id.slice(0, SHORT_SESSION_ID_LENGTH)));
+  }
+  parts.push(chalk.dim(`(PID ${session.pid})`));
+  return parts.join("  ");
+}
+
+function renderSessions(
+  sessions: readonly ContainerSession[] | null,
+): string[] {
   const lines: string[] = [];
+  if (sessions === null) {
+    lines.push(`    ${chalk.dim("Sessions")}  ${chalk.dim("unknown")}`);
+    return lines;
+  }
   if (sessions.length === 0) {
     lines.push(`    ${chalk.dim("Sessions")}  ${chalk.dim("none")}`);
     return lines;
@@ -31,23 +67,33 @@ function renderSessions(sessions: SessionInfo[]): string[] {
   lines.push(`    ${chalk.dim("Sessions")}  ${sessions.length} active`);
 
   for (let i = 0; i < sessions.length; i++) {
-    const session = sessions[i] as SessionInfo;
+    const session = sessions[i] as ContainerSession;
     const isLast = i === sessions.length - 1;
     const branch = isLast ? "└" : "├";
-    lines.push(
-      `              ${chalk.dim(branch)} ${session.command} ${chalk.dim(`(PID ${session.pid})`)}`,
-    );
+    lines.push(`              ${chalk.dim(branch)} ${renderSession(session)}`);
   }
 
   return lines;
 }
 
+function renderContainerState(container: ContainerStatusInfo): string {
+  if (container.ready === null) return chalk.dim("○");
+  return container.ready ? chalk.green("●") : chalk.yellow("◐");
+}
+
+function renderProjectHeading(container: ContainerStatusInfo): string {
+  const folder = container.projectDir
+    ? `  ${chalk.dim(container.projectDir)}`
+    : "";
+  return `  ${chalk.bold(container.projectSlug)}${folder}`;
+}
+
 function renderContainer(container: ContainerStatusInfo): string {
   const lines: string[] = [];
 
-  // Container header: green dot + name + uptime
+  // Container header: state symbol + name + uptime
   lines.push(
-    `  ${chalk.green("●")} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.uptime)}`,
+    `  ${renderContainerState(container)} ${chalk.cyan.bold(container.name)}  ${chalk.dim(container.ready === false ? "starting" : getContainerUptime(container.startedAt))}`,
   );
 
   // Image
@@ -76,9 +122,18 @@ function renderStatus(status: SandboxStatus): string {
     return lines.join("\n");
   }
 
+  let previous: ContainerStatusInfo | undefined;
   for (const container of status.containers) {
     lines.push("");
+    if (
+      status.projectSlug === null &&
+      (container.projectSlug !== previous?.projectSlug ||
+        container.projectDir !== previous.projectDir)
+    ) {
+      lines.push(renderProjectHeading(container));
+    }
     lines.push(renderContainer(container));
+    previous = container;
   }
 
   lines.push("");
@@ -89,7 +144,33 @@ function renderStatus(status: SandboxStatus): string {
 // Command
 // ---------------------------------------------------------------------------
 
-export async function statusCommand(options: SandboxOptions): Promise<void> {
-  const status = await getSandboxStatus(options);
-  getTerminal().stdout.write(`${renderStatus(status)}\n`);
+/** A status failure that `statusCommand` has already printed to stderr. */
+class StatusExitError extends Error {
+  readonly exitCode = 1;
+  readonly reported = true;
+}
+
+/**
+ * Any other status failure. Tools get exit code 1 for every failure, also when
+ * a runtime command exits with its own code.
+ */
+class StatusFailedError extends Error {
+  readonly exitCode = 1;
+}
+
+export async function statusCommand(options: StatusOptions): Promise<void> {
+  let status: SandboxStatus;
+  try {
+    status = await getSandboxStatus(options);
+  } catch (error) {
+    if (!(error instanceof SessionLookupError)) {
+      throw new StatusFailedError(getErrorMessage(error), { cause: error });
+    }
+    getTerminal().stderr.write(`${error.message}\n`);
+    throw new StatusExitError(error.message, { cause: error });
+  }
+  const output = options.json
+    ? JSON.stringify(toStatusDocument(status), null, 2)
+    : renderStatus(status);
+  getTerminal().stdout.write(`${output}\n`);
 }

@@ -82,6 +82,24 @@ describe("container lifecycle mechanics", () => {
     expect(fs.existsSync(path.join(sessions, "42"))).toBe(false);
   });
 
+  test("keeps the staging folder of a starting session and removes stale markers", () => {
+    const root = createTestDir("container-lifecycle-staging");
+    using cleanup = new DisposableStack();
+    cleanup.defer(() => cleanupTestDir(root));
+    const sessions = path.join(root, "tmp", "sandbox-sessions");
+    const staging = path.join(sessions, ".staging");
+    fs.mkdirSync(staging, { recursive: true });
+    fs.writeFileSync(path.join(staging, "42"), "");
+    fs.writeFileSync(path.join(sessions, "41"), "");
+
+    expect(sessionEnvironment(root).run(inspectSessionActivity)).toEqual({
+      markerSeen: true,
+      active: false,
+    });
+    expect(fs.readdirSync(staging)).toEqual(["42"]);
+    expect(fs.existsSync(path.join(sessions, "41"))).toBe(false);
+  });
+
   test("selects mount roots and intermediate directories under owned roots", () => {
     const mounts = [
       "host /home/sandbox/.claude/skills bind rw 0 0",

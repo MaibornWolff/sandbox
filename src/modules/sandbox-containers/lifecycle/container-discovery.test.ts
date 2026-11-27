@@ -16,8 +16,13 @@ describe("findSandboxContainers", () => {
       id: "abc123",
       name: "sandbox-my-project",
       image: "localhost/sandbox-my-project:latest",
-      labels: { [PROJECT_LABEL]: "my-project" },
+      labels: {
+        [PROJECT_LABEL]: "my-project",
+        "sandbox.project-dir": "/home/me/my-project",
+        "sandbox.hash": "b456f6b2807a",
+      },
       status: "running",
+      startedAt: new Date("2026-01-01T00:00:00Z"),
     });
     runtime.instances.create({
       id: "ignored",
@@ -33,7 +38,26 @@ describe("findSandboxContainers", () => {
         id: first.id,
         name: "sandbox-my-project",
         image: "sandbox-my-project:latest",
+        projectSlug: "my-project",
+        projectDir: "/home/me/my-project",
+        hash: "b456f6b2807a",
+        startedAt: new Date("2026-01-01T00:00:00Z"),
       },
+    ]);
+  });
+
+  test("returns null for missing folder and hash labels", async () => {
+    const runtime = createStatefulContainerRuntimeHarness();
+    runtime.instances.create({
+      name: "sandbox-old",
+      image: "sandbox-base:latest",
+      labels: { [PROJECT_LABEL]: "old" },
+      status: "running",
+    });
+    const service = (await runtime.provider.resolve()).runtime;
+
+    expect(await findSandboxContainers(service)).toMatchObject([
+      { projectSlug: "old", projectDir: null, hash: null },
     ]);
   });
 

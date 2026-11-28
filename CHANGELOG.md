@@ -56,6 +56,7 @@
 
 ### Changed
 
+- Support Node.js 26 on the host. Sandbox now runs on Node.js 24.22.1 or a later Node.js 24 release, and on Node.js 26.13.1 or a later Node.js 26 release.
 - Read all container network logs with one container command in `sandbox network logs` and `sandbox network allow` instead of one command per log. This lowers the CPU load that each call places on the host and the container, which matters most for tools that poll these commands.
 - Adjust default config template so settings under a table header are at the end of it. Uncommenting a table header at the previous position would have invalidated the config.
 

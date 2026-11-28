@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "prConcurrentLimit": 3,
   "minimumReleaseAge": "7 days",
   "minimumReleaseAgeBehaviour": "timestamp-required",
@@ -32,7 +32,7 @@
       "separateMajorMinor": false
     },
     {
-      "matchDatasources": ["npm", "docker", "github-runners"],
+      "matchDatasources": ["npm", "docker", "github-runners", "node-version"],
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true,
       "automerge": false

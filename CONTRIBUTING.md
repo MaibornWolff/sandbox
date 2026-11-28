@@ -10,7 +10,9 @@ Thank you for contributing to Sandbox.
 
 ## Development
 
-Install Bun, Node.js 24, and Docker or Podman. Then install the dependencies:
+Install Docker or Podman, the Bun version in [`.bun-version`](.bun-version), and the Node.js version in [`.node-version`](.node-version).
+CI uses the same files. `bun check` fails when the active Bun version differs from `.bun-version`.
+Then install the dependencies:
 
 ```bash
 bun install

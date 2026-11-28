@@ -43,6 +43,10 @@
 - Stop warning that control input could not close when a session hook has already exited.
 - Stop reporting false clipboard transfer failures when a paste app checks for a format that is not available.
 
+### Security
+
+- Update `glob` to prevent filesystem scans from continuing after cancellation.
+
 ## [0.74.0] - 2026-11-24
 
 ### Added

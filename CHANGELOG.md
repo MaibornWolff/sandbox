@@ -40,6 +40,7 @@
 - Finish session cleanup even if closing the terminal sends more than one hangup signal. Other sessions in the same container stay active.
 - Start attached-session cleanup on hangup or termination without waiting for the container runtime to detach. Report exit code 129 for hangup and 143 for termination.
 - Retry once if stopping an attached session in the container times out. This can delay exit, but does not stop other sessions.
+- Stop warning that control input could not close when a session hook has already exited.
 
 ## [0.74.0] - 2026-11-24
 

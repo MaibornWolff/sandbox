@@ -276,6 +276,7 @@ function startStreamingProcess(
     windowsHide: true,
   });
   const streams = childStreams(child);
+  const inputClosed = new Error("Child process input closed.");
   let failed: unknown;
   let inputFailure: unknown;
   let inputEnded = false;
@@ -327,14 +328,18 @@ function startStreamingProcess(
     },
     end() {
       if (failed !== undefined) return Promise.reject(failed);
+      if (inputFailure === inputClosed) return Promise.resolve();
       if (inputFailure !== undefined) return Promise.reject(inputFailure);
       if (inputEnded) return Promise.resolve();
       inputEnded = true;
       return new Promise<void>((resolve, reject) => {
-        const rejectOperation = (error: unknown) => reject(error);
-        pendingInput.add(rejectOperation);
+        const onInputFailure = (error: unknown) => {
+          if (error === inputClosed) resolve();
+          else reject(error);
+        };
+        pendingInput.add(onInputFailure);
         streams.stdin.end(() => {
-          pendingInput.delete(rejectOperation);
+          pendingInput.delete(onInputFailure);
           resolve();
         });
       });
@@ -360,7 +365,7 @@ function startStreamingProcess(
   request.signal?.addEventListener("abort", onAbort, { once: true });
   const exited = new Promise<void>((resolve) =>
     child.once("close", () => {
-      failInput(new Error("Child process input closed."));
+      failInput(inputClosed);
       resolve();
     }),
   );

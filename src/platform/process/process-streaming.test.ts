@@ -86,6 +86,14 @@ describe("streaming process mode", () => {
     await expect(child.exited).resolves.toEqual({ exitCode: 23 });
   });
 
+  test("closing stdin after the child exits succeeds", async () => {
+    await using manager = createManager();
+    const child = start(manager, "process.exit(0)");
+
+    await expect(child.result).resolves.toEqual({ exitCode: 0 });
+    await expect(child.stdin.end()).resolves.toBeUndefined();
+  });
+
   test("waits for a slow child pipe before settling a large write", async () => {
     await using manager = createManager();
     const child = start(

@@ -23,7 +23,10 @@ import {
 export type X11ClipboardFormat = "text/plain" | "image/png";
 export interface X11ClipboardOptions {
   discover(signal: AbortSignal): Promise<readonly X11ClipboardFormat[]>;
-  read(format: X11ClipboardFormat, signal: AbortSignal): Promise<Uint8Array>;
+  read(
+    format: X11ClipboardFormat,
+    signal: AbortSignal,
+  ): Promise<Uint8Array | undefined>;
   publish(
     item: { format: X11ClipboardFormat; data: Uint8Array; generation: number },
     signal: AbortSignal,
@@ -252,6 +255,10 @@ export class ClipboardSelection implements AsyncDisposable {
               this.payload(event.readUInt32LE(20), readSignal),
           });
           signal.throwIfAborted();
+          if (!payload) {
+            notifySelection(this.connection, event, 0);
+            return;
+          }
           delivering = true;
           await sendSelection({
             connection: this.connection,
@@ -272,7 +279,7 @@ export class ClipboardSelection implements AsyncDisposable {
   private async payload(
     target: number,
     signal: AbortSignal,
-  ): Promise<{ data: Buffer; type: number; format: number }> {
+  ): Promise<{ data: Buffer; type: number; format: number } | undefined> {
     if (target === this.atoms.TIMESTAMP)
       return { data: words(this.ownershipTime), type: 19, format: 32 };
     if (target === this.atoms.TARGETS) {
@@ -283,8 +290,9 @@ export class ClipboardSelection implements AsyncDisposable {
       return { data: words(...targets), type: 4, format: 32 };
     }
     const format = this.formatOfTarget(target);
-    if (!format) throw new Error("X11 clipboard target unsupported");
+    if (!format) return undefined;
     const bytes = await this.options.read(format, signal);
+    if (!bytes) return undefined;
     if (bytes.length > MAX_BYTES)
       throw new Error("X11 clipboard exceeds size limit");
     return { data: Buffer.from(bytes), type: target, format: 8 };

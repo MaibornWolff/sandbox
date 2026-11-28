@@ -1,45 +1,34 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createFakeNativeClipboardService } from "#platform/native-clipboard/__test__/index.js";
-import type { NativeClipboardService } from "#platform/native-clipboard/index.js";
-import type { ProcessTerminalStreams } from "#platform/terminal/index.js";
-import { runSandboxApplicationWithClipboard } from "../production-application.js";
+import type {
+  NativeClipboardError,
+  NativeClipboardFormat,
+  NativeClipboardService,
+} from "#platform/native-clipboard/index.js";
 
-function createFileClipboard(directory: string): NativeClipboardService {
-  const native = createFakeNativeClipboardService();
-  const refresh = () => {
+export function createFileClipboard(
+  directory: string,
+  ClipboardError: typeof NativeClipboardError,
+): NativeClipboardService {
+  const currentFormat = (): NativeClipboardFormat | undefined => {
     const path = join(directory, "format");
     const format = existsSync(path) ? readFileSync(path, "utf8").trim() : "";
-    if (format !== "text/plain" && format !== "image/png") {
-      native.replace();
-      return;
-    }
-    native.replace({ format, data: readFileSync(join(directory, "input")) });
+    if (format === "text/plain" || format === "image/png") return format;
   };
   return {
-    async discover(options) {
-      refresh();
-      return native.discover(options);
+    async discover() {
+      const format = currentFormat();
+      return format ? [format] : [];
     },
-    async read(format, options) {
-      refresh();
-      return native.read(format, options);
+    async read(format) {
+      if (currentFormat() !== format)
+        throw new ClipboardError("missing-format");
+      return readFileSync(join(directory, "input"));
     },
-    async publish(item, options) {
-      await native.publish(item, options);
+    async publish(item) {
       writeFileSync(join(directory, "input"), item.data);
       writeFileSync(join(directory, "published-format"), item.format);
     },
-    [Symbol.asyncDispose]: () => native[Symbol.asyncDispose](),
+    async [Symbol.asyncDispose]() {},
   };
-}
-
-export function runClipboardTestApplication(options: {
-  readonly directory: string;
-  readonly argv: readonly string[];
-  readonly streams: ProcessTerminalStreams;
-}): Promise<number> {
-  return runSandboxApplicationWithClipboard(options.argv, options.streams, () =>
-    createFileClipboard(options.directory),
-  );
 }

@@ -194,7 +194,8 @@ export function createClipboardCapabilityFactory(
         const task = withClipboardDeadline(connection, signal, operation).catch(
           async (error: unknown) => {
             const code = failureCode(error);
-            getLogger().warn(`Clipboard operation failed: ${code}.`);
+            if (code !== "missing-format")
+              getLogger().warn(`Clipboard operation failed: ${code}.`);
             if (!signal.aborted)
               await connection
                 .sendText(JSON.stringify({ type: "error", code }))

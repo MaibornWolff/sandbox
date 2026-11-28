@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClipboardTestImage } from "#modules/clipboard/__test__/index.js";
 import { getRepoRootPath } from "#platform/git/index.js";
@@ -30,10 +30,29 @@ beforeAll(async () => {
   const fixture = pathToFileURL(
     join(root, "src/apps/sandbox/__test__/clipboard-application.ts"),
   ).href;
-  const executable = join(project, "controlled-sandbox.ts");
+  const binary = pathToFileURL(
+    resolve(process.env.SANDBOX_BIN ?? "./dist/apps/sandbox/main.js"),
+  );
+  const application = new URL("./production-application.js", binary).href;
+  const nativeClipboard = new URL(
+    "../../platform/native-clipboard/index.js",
+    binary,
+  ).href;
+  const executable = join(project, "controlled-sandbox.mjs");
   await writeFile(
     executable,
-    `#!/usr/bin/env bun\nimport "core-js/stable/disposable-stack/index.js";\nimport "core-js/stable/async-disposable-stack/index.js";\nimport { runClipboardTestApplication } from ${JSON.stringify(fixture)};\nprocess.exitCode = await runClipboardTestApplication({ directory: ${JSON.stringify(clipboard)}, argv: process.argv.slice(2), streams: { input: process.stdin, stdout: process.stdout, stderr: process.stderr } });\n`,
+    `#!/usr/bin/env node
+import "core-js/stable/disposable-stack/index.js";
+import "core-js/stable/async-disposable-stack/index.js";
+import { createFileClipboard } from ${JSON.stringify(fixture)};
+import { runSandboxApplicationWithClipboard } from ${JSON.stringify(application)};
+import { NativeClipboardError } from ${JSON.stringify(nativeClipboard)};
+process.exitCode = await runSandboxApplicationWithClipboard(
+  process.argv.slice(2),
+  { input: process.stdin, stdout: process.stdout, stderr: process.stderr },
+  () => createFileClipboard(${JSON.stringify(clipboard)}, NativeClipboardError),
+);
+`,
   );
   await chmod(executable, 0o755);
   sandbox = createSandbox({
@@ -80,6 +99,12 @@ describe("isolated automatic clipboard across the container boundary", () => {
       test -n "$DISPLAY"
       test -f "$XAUTHORITY"
       test -z "\${WAYLAND_DISPLAY:-}"
+      if [ '${format}' = image/png ]; then
+        for target in text/uri-list UTF8_STRING; do
+          if xclip -selection clipboard -o -t "$target" >/dev/null 2>&1; then exit 1; fi
+        done
+      fi
+      xclip -selection clipboard -o -t TARGETS | grep -Fx '${format}'
       xclip -selection clipboard -o -t '${format}' > clipboard-fixture/first
       printf '%s\\n' "$DISPLAY" > clipboard-fixture/display-one
       printf 'first-paste-complete\\n'
@@ -115,6 +140,9 @@ describe("isolated automatic clipboard across the container boundary", () => {
       const result = await interaction.result;
       expect(result.exitCode, result.stderr).toBe(0);
       expect(result.stdout).toContain("copy-complete");
+      expect(result.stdout + result.stderr).not.toMatch(
+        /Clipboard (operation|transfer) failed/,
+      );
       expect(
         (await readFile(join(clipboard, "second"))).equals(replacement),
       ).toBe(true);

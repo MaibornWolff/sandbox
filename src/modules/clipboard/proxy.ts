@@ -5,6 +5,7 @@ import {
 import { getLogger } from "#platform/logging/index.js";
 import type { X11ClipboardService } from "#platform/x11-clipboard/index.js";
 import { createClipboardBridgeClient } from "./bridge-client.js";
+import { ClipboardOperationError } from "./protocol.js";
 import { reportStartupFailure, transferFailureCode } from "./proxy-protocol.js";
 
 export {
@@ -37,7 +38,18 @@ export function createClipboardProxyRunner(
       await using display = await x11
         .openSession({
           discover: (signal) => bridge.discover(signal),
-          read: (format, signal) => bridge.read(format, signal),
+          read: async (format, signal) => {
+            try {
+              return await bridge.read(format, signal);
+            } catch (error) {
+              if (
+                error instanceof ClipboardOperationError &&
+                error.code === "missing-format"
+              )
+                return undefined;
+              throw error;
+            }
+          },
           publish: (item, signal) => bridge.publish(item, signal),
           onError: (error) => {
             options.onControl(

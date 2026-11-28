@@ -76,17 +76,13 @@ test("proxy verifies grants before display readiness and routes each selection r
         expect(await providers.discover(controller.signal)).toEqual([
           "text/plain",
         ]);
-        expect(
-          Buffer.from(
-            await providers.read("text/plain", controller.signal),
-          ).toString(),
-        ).toBe("first");
+        expect(await providers.read("text/plain", controller.signal)).toEqual(
+          Buffer.from("first"),
+        );
         native.replace({ format: "text/plain", data: Buffer.from("new") });
-        expect(
-          Buffer.from(
-            await providers.read("text/plain", controller.signal),
-          ).toString(),
-        ).toBe("new");
+        expect(await providers.read("text/plain", controller.signal)).toEqual(
+          Buffer.from("new"),
+        );
         await providers.publish(
           { format: "text/plain", data: Buffer.from("copy"), generation: 1 },
           controller.signal,

@@ -56,6 +56,12 @@ export function parseControl(
   return value as Record<string, unknown>;
 }
 
+export class ClipboardOperationError extends Error {
+  constructor(readonly code: string) {
+    super(`Clipboard operation failed: ${code}.`);
+  }
+}
+
 export async function readResponse(
   iterator: AsyncIterator<WebSocketMessage>,
 ): Promise<Record<string, unknown>> {
@@ -67,7 +73,7 @@ export async function readResponse(
       !hasExactKeys(response, ["type", "code"])
     )
       throw protocolError();
-    throw new Error(`Clipboard operation failed: ${response.code}.`);
+    throw new ClipboardOperationError(response.code);
   }
   return response;
 }
